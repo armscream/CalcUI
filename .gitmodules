@@ -1,0 +1,3 @@
+[submodule "src/GUI/dependencies/Runa"]
+	path = src/GUI/dependencies/Runa
+	url = https://github.com/BuLEEto/Runa.git
