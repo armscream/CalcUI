@@ -38,11 +38,8 @@ renderer_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 	sdl.SetRenderDrawBlendMode(st.renderer, sdl.BLENDMODE_BLEND)
 	//* The texture table of the main renderer.
 	append(&st.textures, nil)
-
-	// Texture 0 is the 1x1 white texel that every solid-colour quad
-	// samples and modulates with its vertex colour.
-	white := [4]u8{255, 255, 255, 255}
-	if !renderer_upload_texture(ctx, GUI.Texture_ID(0), white[:], 1, 1) { return false }
+	//* The atlas is the one texture of the UI. It is made by the first
+	//* upload, which the GUI does when it flushes the atlas.
 	return true
 }
 
@@ -107,6 +104,66 @@ renderer_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w
 		if !upload_to_renderer(st, i + 1, idx, pixels, w, h) { return false }
 	}
 	return true
+}
+
+//* Uploads a part of a texture. The atlas is far too big to be sent
+//* again every time one glyph changes, so only the part that changed
+//* goes up.
+renderer_upload_texture_region :: proc(
+	ctx: rawptr,
+	id: GUI.Texture_ID,
+	pixels: []u8,
+	w, h, x, y: i32,
+) -> bool {
+	st := cast(^Renderer_State)ctx
+	idx := int(id)
+	if idx >= len(st.pixels) { return false }
+
+	//* The copy the renderer is made of has to keep up, or a renderer
+	//* that is made later would get the old picture.
+	size := st.sizes[idx]
+	if size[0] > 0 && size[1] > 0 {
+		full := st.pixels[idx]
+		for row in 0 ..< int(h) {
+			ty := int(y) + row
+			if ty < 0 || ty >= int(size[1]) { continue }
+			for col in 0 ..< int(w) {
+				tx := int(x) + col
+				if tx < 0 || tx >= int(size[0]) { continue }
+				src := (row * int(w) + col) * 4
+				dst := (ty * int(size[0]) + tx) * 4
+				copy(full[dst:dst + 4], pixels[src:src + 4])
+			}
+		}
+	}
+
+	rect := sdl.Rect{x = i32(x), y = i32(y), w = i32(w), h = i32(h)}
+	if st.renderer != nil {
+		if !update_in_renderer(st, 0, idx, pixels, w, rect) { return false }
+	}
+	for i in 0 ..< len(st.targets) {
+		if st.targets[i].renderer == nil { continue }
+		if !update_in_renderer(st, i + 1, idx, pixels, w, rect) { return false }
+	}
+	return true
+}
+
+//* Puts a part of a texture into one renderer.
+update_in_renderer :: proc(
+	st: ^Renderer_State,
+	renderer_index: int,
+	idx: int,
+	pixels: []u8,
+	w: i32,
+	rect: sdl.Rect,
+) -> bool {
+	if renderer_index >= len(st.textures) { return false }
+	list := &st.textures[renderer_index]
+	if idx >= len(list^) { return false }
+	tex := list^[idx]
+	if tex == nil { return false }
+	region := rect
+	return sdl.UpdateTexture(tex, &region, raw_data(pixels), i32(w) * 4)
 }
 
 //* Uploads one texture into one renderer.
@@ -209,12 +266,8 @@ render_into :: proc(st: ^Renderer_State, renderer_index: int, dl: ^GUI.Draw_List
 		tex: ^sdl.Texture = nil
 		if int(cmd.texture) < len(list) {tex = list[cmd.texture]}
 
-		clip := cmd.clip
-		sdl.SetRenderClipRect(
-			renderer,
-			&sdl.Rect{x = i32(clip.x), y = i32(clip.y), w = i32(clip.w), h = i32(clip.h)},
-		)
-
+		//* The clip is already worked out in the draw list, so the
+		//* renderer is not told about it.
 		sdl.RenderGeometry(
 			renderer,
 			tex,

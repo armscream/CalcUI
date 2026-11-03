@@ -1,0 +1,44 @@
+CalcUI
+======
+
+CalcUI is a retained-mode GUI toolkit for Odin, built on SDL3 and the Runa
+text shaping engine.
+
+Third-party components
+----------------------
+
+Runa — src/GUI/dependencies/Runa
+    Copyright (c) the Runa authors.
+    Licensed under the zlib licence.
+    See src/GUI/dependencies/Runa/LICENSE for the full text.
+
+    Runa is used as a git submodule. It supplies the font parsing, the
+    shaping (GSUB/GPOS), the bidirectional text handling, the line
+    breaking and the rasterization that the text pipeline of CalcUI is
+    built on. CalcUI does not modify Runa; the submodule is used as it
+    is published.
+
+SDL3 — the window and the two rendering backends
+    Copyright (c) the SDL authors.
+    Licensed under the zlib licence.
+    SDL3 is used through the Odin vendor collection (vendor:sdl3), so
+    it is not part of this repository.
+
+Skald — parts of the widget behaviour and of the PNG decoder
+    Copyright (c) the Skald authors.
+    Licensed under the BSD 2-Clause licence.
+
+    Ported code carries the notice required by clause 2 of that
+    licence, which says that the copyright notice, the conditions and
+    the disclaimer have to be kept, and that the software has to be
+    marked as changed. Every file that holds ported code says so at
+    its top:
+
+        //* Ported from Skald (BSD-2-Clause) and altered for CalcUI.
+
+    Only the behaviour was ported. The implementation was written
+    against CalcUI's own model: a retained widget tree with real
+    widget identity, instead of Skald's immediate-mode scratch record.
+
+The Roboto typeface in assets/fonts is licensed under the Apache 2.0
+licence; see assets/fonts/LICENSE-Roboto.txt.

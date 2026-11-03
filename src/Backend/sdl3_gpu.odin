@@ -72,6 +72,8 @@ gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 		{location = 0, format = .FLOAT2, offset = u32(offset_of(Vertex, pos))},
 		{location = 1, format = .FLOAT2, offset = u32(offset_of(Vertex, uv))},
 		{location = 2, format = .FLOAT4, offset = u32(offset_of(Vertex, colour))},
+		{location = 3, format = .FLOAT4, offset = u32(offset_of(Vertex, shape))},
+		{location = 4, format = .FLOAT2, offset = u32(offset_of(Vertex, local))},
 	}
 
 	pipeline := sdl.CreateGPUGraphicsPipeline(
@@ -124,9 +126,8 @@ gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 		},
 	)
 
-	//* Texture 0 is the 1x1 white texel every solid quad samples.
-	white := [4]u8{255, 255, 255, 255}
-	gpu_upload_texture(ctx, GUI.Texture_ID(0), white[:], 1, 1)
+	//* The atlas is the one texture of the UI. It is made by the first
+	//* upload, which the GUI does when it flushes the atlas.
 	return true
 }
 
@@ -159,9 +160,33 @@ gpu_resize :: proc(ctx: rawptr, w, h: i32) -> bool {
 
 //* Creates or updates a texture and uploads its pixels.
 gpu_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w, h: i32) -> bool {
+	return gpu_upload_region(ctx, id, pixels, w, h, 0, 0)
+}
+
+//* Uploads a part of a texture. The atlas is far too big to be sent
+//* again every time one glyph changes, so only the part that changed
+//* goes up.
+gpu_upload_texture_region :: proc(
+	ctx: rawptr,
+	id: GUI.Texture_ID,
+	pixels: []u8,
+	w, h, x, y: i32,
+) -> bool {
+	return gpu_upload_region(ctx, id, pixels, w, h, x, y)
+}
+
+//* The upload itself: the texture is made when it is not there yet,
+//* and the pixels are put into the region that is asked for.
+gpu_upload_region :: proc(
+	ctx: rawptr,
+	id: GUI.Texture_ID,
+	pixels: []u8,
+	w, h, x, y: i32,
+) -> bool {
 	st := cast(^GPU_State)ctx
 	if st == nil || st.device == nil { return false }
 	if w <= 0 || h <= 0 { return false }
+	if len(pixels) < int(w) * int(h) * 4 { return false }
 
 	idx := int(id)
 	for len(st.textures) <= idx {
@@ -187,10 +212,10 @@ gpu_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w, h: 
 		st.textures[idx] = tex
 	}
 
-	//* Rows are padded to 256 bytes: some drivers require it.
+	//* The rows of the region follow each other: the transfer says how
+	//* many pixels there are in a row, and that is the stride.
 	row_bytes := int(w) * 4
-	pitch := (row_bytes + 255) / 256 * 256
-	size := pitch * int(h)
+	size := row_bytes * int(h)
 
 	transfer := sdl.CreateGPUTransferBuffer(
 		st.device,
@@ -199,14 +224,7 @@ gpu_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w, h: 
 	if transfer == nil { return false }
 
 	dst := sdl.MapGPUTransferBuffer(st.device, transfer, false)
-	for row in 0 ..< int(h) {
-		src := pixels[row * row_bytes:][:row_bytes]
-		mem.copy(
-			rawptr(uintptr(dst) + uintptr(row * pitch)),
-			raw_data(src),
-			row_bytes,
-		)
-	}
+	mem.copy(dst, raw_data(pixels), size)
 	sdl.UnmapGPUTransferBuffer(st.device, transfer)
 
 	cmd := sdl.AcquireGPUCommandBuffer(st.device)
@@ -216,13 +234,13 @@ gpu_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w, h: 
 		sdl.GPUTextureTransferInfo {
 			transfer_buffer = transfer,
 			offset = 0,
-			//* Pixels, not bytes: the row stride in the buffer is
-			//* pixels_per_row * 4.
 			pixels_per_row = u32(w),
 			rows_per_layer = u32(h),
 		},
 		sdl.GPUTextureRegion {
 			texture = tex,
+			x = u32(max(x, 0)),
+			y = u32(max(y, 0)),
 			w = u32(w),
 			h = u32(h),
 			d = 1,
@@ -317,25 +335,21 @@ gpu_render :: proc(st: ^GPU_State, window: ^sdl.Window, width, height: f32, dl: 
 	sdl.BindGPUVertexBuffers(pass, 0, &(sdl.GPUBufferBinding{buffer = st.vertex_buf}), 1)
 	sdl.BindGPUIndexBuffer(pass, sdl.GPUBufferBinding{buffer = st.index_buf}, ._32BIT)
 
+	//* The clip is already worked out in the draw list, so there is no
+	//* scissor here. Everything the window shows comes out of the one
+	//* atlas, so the texture is bound once and the whole window is one
+	//* draw call.
+	bound: ^sdl.GPUTexture = nil
 	for cmd in dl.commands {
 		if cmd.idx_count == 0 { continue }
 
-		//* The clip rect becomes the scissor.
-		clip := cmd.clip
-		sdl.SetGPUScissor(
-			pass,
-			sdl.Rect {
-				x = i32(max(clip.x, 0)),
-				y = i32(max(clip.y, 0)),
-				w = i32(max(clip.w, 0)),
-				h = i32(max(clip.h, 0)),
-			},
-		)
-
 		tex: ^sdl.GPUTexture = nil
 		if int(cmd.texture) < len(st.textures) { tex = st.textures[cmd.texture] }
-		binding := sdl.GPUTextureSamplerBinding{texture = tex, sampler = st.sampler}
-		sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
+		if tex != bound {
+			binding := sdl.GPUTextureSamplerBinding{texture = tex, sampler = st.sampler}
+			sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
+			bound = tex
+		}
 
 		sdl.DrawGPUIndexedPrimitives(pass, cmd.idx_count, 1, cmd.idx_offset, 0, 0)
 	}

@@ -1,0 +1,34 @@
+#* Odin build artefacts
+*.obj
+*.exe
+*.exe_
+*.pdb
+*.ilk
+*.a
+*.o
+*.lib
+*.dll
+*.exp
+*.manifest
+
+#* shader build output
+src/Backend/Shaders/ui.spv.frag
+src/Backend/Shaders/ui.spv.vert
+
+#* Odin run output
+*.odin_run
+
+#* Incomplete/broken examples
+examples/04_overlays
+examples/06_data
+
+#* Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+#* Tools
+tools/
+docs/
+*.png

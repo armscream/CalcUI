@@ -32,11 +32,11 @@ Window :: struct {
 	cursor:  GUI.Cursor,
 }
 
-init_sdl :: proc() -> bool {
+Init_SDL :: proc() -> bool {
 	return sdl.Init({.VIDEO})
 }
 
-create_window :: proc(w, h: i32, title: string) -> (Window, bool) {
+Create_Window :: proc(w, h: i32, title: string) -> (Window, bool) {
 	handle := sdl.CreateWindow(
 		strings.clone_to_cstring(title, context.temp_allocator), w, h, {.RESIZABLE}
 	)
@@ -47,11 +47,11 @@ create_window :: proc(w, h: i32, title: string) -> (Window, bool) {
 		log.warnf("could not start text input: %s", sdl.GetError())
 	}
 	window := Window{handle = handle}
-	window.pixel_w, window.pixel_h = pixel_size(window)
+	window.pixel_w, window.pixel_h = Pixel_Size(window)
 	return window, true
 }
 
-destroy_window :: proc(w: Window) {
+Destroy_Window :: proc(w: Window) {
 	for popup in w.popups {
 		if popup != nil { sdl.DestroyWindow(popup) }
 	}
@@ -65,7 +65,7 @@ destroy_window :: proc(w: Window) {
 }
 
 //* The size of the drawable area in pixels.
-pixel_size :: proc(w: Window) -> (i32, i32) {
+Pixel_Size :: proc(w: Window) -> (i32, i32) {
 	pw, ph: i32
 	sdl.GetWindowSizeInPixels(w.handle, &pw, &ph)
 	return pw, ph
@@ -85,7 +85,7 @@ point_size :: proc(w: Window) -> (i32, i32) {
 //* resize, and the mouse would no longer point at the widget it is
 //* over.
 scale :: proc(w: Window) -> f32 {
-	pw, _ := pixel_size(w)
+	pw, _ := Pixel_Size(w)
 	tw, _ := point_size(w)
 	if pw <= 0 || tw <= 0 { return 1 }
 	return f32(pw) / f32(tw)
@@ -104,9 +104,9 @@ client_origin :: proc(w: Window) -> GUI.Vec2 {
 }
 
 //* Where the client area of the window is on the screen, in pixels.
-global_rect :: proc(w: Window) -> GUI.Rect {
+Global_Rect :: proc(w: Window) -> GUI.Rect {
 	origin := client_origin(w)
-	pw, ph := pixel_size(w)
+	pw, ph := Pixel_Size(w)
 	return GUI.Rect{x = origin.x, y = origin.y, w = f32(pw), h = f32(ph)}
 }
 
@@ -116,14 +116,14 @@ global_rect :: proc(w: Window) -> GUI.Rect {
 //* not flicker.
 
 //* Makes the cursor the GUI asks for the active one.
-set_cursor :: proc(w: ^Window, cursor: GUI.Cursor) {
+Set_Cursor :: proc(w: ^Window, cursor: GUI.Cursor) {
 	if w.cursor == cursor { return }
 	w.cursor = cursor
 
 	//* Make the cursors that are missing.
 	for len(w.cursors) <= int(cursor) {
 		id := GUI.Cursor(len(w.cursors))
-		append(&w.cursors, sdl.CreateSystemCursor(system_cursor_of(id)))
+		append(&w.cursors, sdl.CreateSystemCursor(System_Cursor_Of(id)))
 	}
 
 	c := w.cursors[int(cursor)]
@@ -132,19 +132,50 @@ set_cursor :: proc(w: ^Window, cursor: GUI.Cursor) {
 }
 
 //* The cursor of the platform that goes with the one the GUI asks for.
-system_cursor_of :: proc(cursor: GUI.Cursor) -> sdl.SystemCursor {
+System_Cursor_Of :: proc(cursor: GUI.Cursor) -> sdl.SystemCursor {
 	switch cursor {
-	case .Default:   return .DEFAULT
-	case .Resize_W:  return .W_RESIZE
-	case .Resize_E:  return .E_RESIZE
-	case .Resize_N:  return .N_RESIZE
-	case .Resize_S:  return .S_RESIZE
-	case .Resize_NW: return .NW_RESIZE
-	case .Resize_NE: return .NE_RESIZE
-	case .Resize_SW: return .SW_RESIZE
-	case .Resize_SE: return .SE_RESIZE
+	case .Default:      return .DEFAULT
+	case .Pointer:      return .POINTER
+	case .Text:         return .TEXT
+	case .Crosshair:    return .CROSSHAIR
+	case .Wait:         return .WAIT
+	case .Not_Allowed:  return .NOT_ALLOWED
+	case .Grab:         return .MOVE
+	case .Grabbing:     return .MOVE
+	case .Resize_NS:    return .NS_RESIZE
+	case .Resize_W:     return .W_RESIZE
+	case .Resize_E:     return .E_RESIZE
+	case .Resize_N:     return .N_RESIZE
+	case .Resize_S:     return .S_RESIZE
+	case .Resize_NW:    return .NW_RESIZE
+	case .Resize_NE:    return .NE_RESIZE
+	case .Resize_SW:    return .SW_RESIZE
+	case .Resize_SE:    return .SE_RESIZE
 	}
 	return .DEFAULT
+}
+
+//* == The clipboard ==
+//* The clipboard of the GUI and the clipboard of the system are kept in
+//* step: what the program puts in the GUI's clipboard goes to the
+//* system, and what is in the system comes back.
+
+Sync_Clipboard :: proc(g: ^GUI.GUI) {
+	if g.clipboard.dirty {
+		//* The program changed the text, so it goes to the system.
+		text := strings.clone_to_cstring(g.clipboard.text, context.temp_allocator)
+		_ = sdl.SetClipboardText(text)
+		g.clipboard.dirty = false
+		return
+	}
+	//* The system may have changed: the text is read again.
+	if !sdl.HasClipboardText() { return }
+	data := sdl.GetClipboardText()
+	if data == nil { return }
+	text, _ := strings.clone_from_cstring(cstring(data))
+	if text != g.clipboard.text {
+		g.clipboard.text = text
+	}
 }
 
 //* == Floating panels ==
@@ -155,7 +186,7 @@ system_cursor_of :: proc(cursor: GUI.Cursor) -> sdl.SystemCursor {
 //* panels get a window, panels that are gone have theirs hidden, and
 //* every window is put where its panel is. The windows are kept, so
 //* the renderers that belong to them stay valid.
-sync_popups :: proc(w: ^Window, floats: []GUI.Float_Panel) {
+Sync_Popups :: proc(w: ^Window, floats: []GUI.Float_Panel) {
 	//* Give a window to every panel that has none.
 	for len(w.popups) < len(floats) {
 		f := floats[len(w.popups)]
@@ -229,7 +260,7 @@ event_global :: proc(w: Window, window_id: sdl.WindowID, pos: GUI.Vec2) -> GUI.V
 //* sending an event for it, and the event can come before the
 //* platform has made the new size.
 report_size :: proc(w: ^Window, out: ^[dynamic]GUI.Event) {
-	pw, ph := pixel_size(w^)
+	pw, ph := Pixel_Size(w^)
 	if pw == w.pixel_w && ph == w.pixel_h { return }
 	w.pixel_w = pw
 	w.pixel_h = ph
@@ -238,7 +269,7 @@ report_size :: proc(w: ^Window, out: ^[dynamic]GUI.Event) {
 
 //* Translates SDL events into GUI events. This is the only place that
 //* knows about SDL; the core only ever sees GUI.Event.
-poll_events :: proc(w: ^Window, out: ^[dynamic]GUI.Event) {
+Poll_Events :: proc(w: ^Window, out: ^[dynamic]GUI.Event) {
 	ev: sdl.Event
 
 	//* The size can have changed before the events were read.
