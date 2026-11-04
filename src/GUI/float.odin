@@ -14,26 +14,14 @@ FLOAT_NONE :: -1
 
 //* Tears a panel out of the tree and gives it a window of its own.
 //* Returns the index of the new floating panel.
-float_panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> int {
-	w := widget_get(g, widget)
+Make_Float_Panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> int {
+	w := Widget_Get(g, widget)
 	if w == nil { return FLOAT_NONE }
 	if size.x <= 0 || size.y <= 0 { return FLOAT_NONE }
 
-	//* If the panel was a tab, the host keeps showing another one.
-	if w.parent != INVALID_WIDGET_ID {
-		if host := widget_get(g, w.parent); host != nil && host.type == .Tabs {
-			index := widget_index_of(g, w.parent, widget)
-			active := tabs_active(host)
-			if index == active {
-				host.data = Tabs_Data{active = max(active - 1, 0)}
-			} else if index < active {
-				host.data = Tabs_Data{active = active - 1}
-			}
-		}
-	}
-
 	//* The panel leaves the tree, but keeps its children and its look.
-	widget_detach(g, widget)
+	//* A tab host that loses a tab keeps showing a tab that is there.
+	Widget_Detach(g, widget)
 
 	f := Float_Panel{
 		widget = widget,
@@ -42,7 +30,9 @@ float_panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> int {
 		title = w.name,
 	}
 	append(&g.floats, f)
-	g.layout_dirty = true
+	//* The panel is a window of its own now, so it is laid out in its
+	//* own space.
+	invalidate(g, widget, DIRTY_ALL)
 	return len(g.floats) - 1
 }
 
@@ -53,7 +43,9 @@ unfloat_panel :: proc(g: ^GUI, index: int) -> Widget_ID {
 	f := g.floats[index]
 	ordered_remove(&g.floats, index)
 	draw_list_destroy(&f.draw)
-	g.layout_dirty = true
+	//* The panel is not a window of its own any more: it is laid out
+	//* with the tree again, if it goes back into it.
+	invalidate(g, f.widget, DIRTY_ALL)
 	return f.widget
 }
 

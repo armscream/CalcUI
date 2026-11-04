@@ -22,7 +22,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-for %%D in ("%DIR%*") do (
+rem The examples are the directories of this directory that have a
+rem main.odin in them. The wildcard of a for loop only finds files, so
+rem the loop has to be one of directories.
+for /d %%D in ("%DIR%*") do (
     if exist "%%D\main.odin" (
         set NAME=%%~nxD
         echo Building !NAME!

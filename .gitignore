@@ -18,17 +18,22 @@ src/Backend/Shaders/ui.spv.vert
 #* Odin run output
 *.odin_run
 
-#* Incomplete/broken examples
+#* Broken/incomplete examples
+examples/00_hello
 examples/04_overlays
+examples/05_theming
 examples/06_data
+examples/07_widgets
+examples/08_heavy
+examples/09_scene
 
 #* Editor and OS noise
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+docs/
 
 #* Tools
 tools/
-docs/
 *.png

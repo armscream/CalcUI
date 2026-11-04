@@ -72,13 +72,13 @@ find_resize_grip :: proc(g: ^GUI, global: Vec2) -> (id: Widget_ID, edges: Resize
 //* The deepest panel with a grip under the pointer. The children are
 //* on top of their parent, so they are looked at first.
 resize_grip_in :: proc(g: ^GUI, id: Widget_ID, p: Vec2) -> (Widget_ID, Resize_Edges) {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil { return INVALID_WIDGET_ID, Resize_Edges{} }
 	if !(.Visible in w.state) { return INVALID_WIDGET_ID, Resize_Edges{} }
 
 	child := w.last_child
 	for child != INVALID_WIDGET_ID {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		hit, edges := resize_grip_in(g, child, p)
 		if hit != INVALID_WIDGET_ID { return hit, edges }
@@ -172,10 +172,27 @@ resize_update :: proc(g: ^GUI, global: Vec2) {
 	g.layout_dirty = true
 }
 
-//* Ends the resize. The size the panel ended up with is kept.
+//* Ends the resize. The size the panel ended up with is kept, and the
+//* program is told about it.
 resize_end :: proc(g: ^GUI) {
+	if !g.resize.active {
+		g.resize = Resize_State{}
+		g.layout_dirty = true
+		return
+	}
+	id := g.resize.widget
+	size := Vec2{}
+	if g.resize.float_index >= 0 && g.resize.float_index < len(g.floats) {
+		//* A panel that is a window of its own has the size of the
+		//* window.
+		size = g.floats[g.resize.float_index].size
+	} else {
+		w := Widget_Get(g, id)
+		if w != nil { size = Vec2{w.manual_size.x, w.manual_size.y} }
+	}
 	g.resize = Resize_State{}
 	g.layout_dirty = true
+	signal_resized(g, id, size)
 }
 
 //* Gives up on the resize. The panel keeps the size it has now, the
@@ -204,9 +221,9 @@ container_horizontal :: proc(p: ^Widget) -> bool {
 //* Moves the edges of a panel. The deltas are how far each edge
 //* moves: a positive value moves it right or down.
 resize_widget :: proc(g: ^GUI, id: Widget_ID, dl, dt, dr, db: f32) {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil { return }
-	p := widget_get(g, w.parent)
+	p := Widget_Get(g, w.parent)
 	if p == nil { return }
 
 	#partial switch p.type {
@@ -275,7 +292,7 @@ resize_in_container :: proc(
 ) {
 	//* The left or the top edge: the space goes to the child before.
 	if d_neg != 0 {
-		prev := widget_get(g, w.prev_sibling)
+		prev := Widget_Get(g, w.prev_sibling)
 		change := d_neg
 		if change > 0 {
 			//* The panel narrows: it cannot go below its minimum.
@@ -303,7 +320,7 @@ resize_in_container :: proc(
 	//* The right or the bottom edge: the space comes from the child
 	//* after.
 	if d_pos != 0 {
-		next := widget_get(g, w.next_sibling)
+		next := Widget_Get(g, w.next_sibling)
 		change := d_pos
 		if change > 0 {
 			//* The panel widens: the child after it narrows.
@@ -338,7 +355,7 @@ resize_in_container :: proc(
 resize_float :: proc(g: ^GUI, index: int, dl_in, dt_in, dr_in, db_in: f32) {
 	if index < 0 || index >= len(g.floats) { return }
 	f := &g.floats[index]
-	w := widget_get(g, f.widget)
+	w := Widget_Get(g, f.widget)
 
 	minimum := Vec2{RESIZE_MIN_SIZE, RESIZE_MIN_SIZE}
 	if w != nil {

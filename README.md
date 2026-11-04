@@ -74,6 +74,26 @@ odin test src\GUI
 odin check src\GUI -no-entry-point
 ```
 
+## A widget of your own
+
+Every widget belongs to a *class*: the hooks that say how it is drawn,
+how big it is, what it does with the mouse and the keyboard. A program registers a class of its own and makes its widgets with it, and nothing outside the class has to be changed for the widget to work:
+
+```odin
+class := GUI.Widget_Register_Class(g, GUI.Widget_Class_Desc{
+	name = "Gauge",
+	kind = GUI.Widget_Kind{
+		draw    = gauge_draw,
+		measure = gauge_measure,
+		click   = gauge_click,
+	},
+})
+
+id := GUI.Make_Custom_Widget(g, parent, class, GUI.Base_Opts{name = "gauge"})
+```
+
+See [docs/extending.md](docs/extending.md).
+
 ## Examples
 
 | Example | What it shows |
@@ -85,6 +105,20 @@ odin check src\GUI -no-entry-point
 | `04_overlays` | A panel that is torn out of the tree and gets a window of its own. |
 | `05_theming` | A theme: the look of a kind of widget, and a variation of it. |
 | `06_data` | The widgets that hold data: a check box, a slider, a progress bar, a list and a tree. |
+| `07_widgets` | The widgets Godot does not have: the combo box, the search field, the number input, the date and the time pickers, the chat, the table, the toast and the command palette. |
+| `08_heavy` | The heavy features: the chart, the node graph, the canvas, the drawing, the file viewer and the editor. |
+| `09_scene` | A program that puts its widgets in a scene file, and the default theme that gives them a look. |
+
+## The docs
+
+| Document | What is in it |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | How the toolkit is put together: the tree, the frame, the atlas, the layout, the input. |
+| [docs/widgets.md](docs/widgets.md) | Every widget, what it does and how a program uses it. |
+| [docs/extending.md](docs/extending.md) | How a program brings a widget of its own: the class, the hooks, the signals and the theme. |
+| [docs/theme.md](docs/theme.md) | The look of the widgets: the style, the style box, the theme and the default theme. |
+| [docs/scene-format.md](docs/scene-format.md) | The scene file: the tree of nodes, the anchors, the styles and the signals. |
+| [docs/phases-4-6.md](docs/phases-4-6.md) | The plan of the phases that are now done. |
 
 ## Shaders
 
