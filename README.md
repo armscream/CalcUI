@@ -141,6 +141,6 @@ The script needs `glslc`, which comes with the Vulkan SDK.
 
 ## License
 
-CalcUI is under the zlib licence, like SDL3 and Runa. The parts that
+CalcUI is under the LGPL-3.0 licence. The parts that
 were ported from Skald are under the BSD 2-Clause licence and say so at
 the top of the file. See `NOTICE`.
