@@ -74,7 +74,7 @@ odin test src\GUI
 odin check src\GUI -no-entry-point
 ```
 
-## A widget of your own
+## Custom widgets
 
 Every widget belongs to a *class*: the hooks that say how it is drawn,
 how big it is, what it does with the mouse and the keyboard. A program registers a class of its own and makes its widgets with it, and nothing outside the class has to be changed for the widget to work:
@@ -94,7 +94,7 @@ id := GUI.Make_Custom_Widget(g, parent, class, GUI.Base_Opts{name = "gauge"})
 
 See [docs/extending.md](docs/extending.md).
 
-## Examples
+## Examples (not all included currently)
 
 | Example | What it shows |
 |---|---|
@@ -109,16 +109,16 @@ See [docs/extending.md](docs/extending.md).
 | `08_heavy` | The heavy features: the chart, the node graph, the canvas, the drawing, the file viewer and the editor. |
 | `09_scene` | A program that puts its widgets in a scene file, and the default theme that gives them a look. |
 
-## The docs
+## Documentation
 
 | Document | What is in it |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | How the toolkit is put together: the tree, the frame, the atlas, the layout, the input. |
+| [docs/contracts.md](docs/contracts.md) | The rules the toolkit and its backends keep to: the coordinates, the order of the drawing, the clip, the atlas, the life of a resource. |
 | [docs/widgets.md](docs/widgets.md) | Every widget, what it does and how a program uses it. |
 | [docs/extending.md](docs/extending.md) | How a program brings a widget of its own: the class, the hooks, the signals and the theme. |
 | [docs/theme.md](docs/theme.md) | The look of the widgets: the style, the style box, the theme and the default theme. |
 | [docs/scene-format.md](docs/scene-format.md) | The scene file: the tree of nodes, the anchors, the styles and the signals. |
-| [docs/phases-4-6.md](docs/phases-4-6.md) | The plan of the phases that are now done. |
 
 ## Shaders
 

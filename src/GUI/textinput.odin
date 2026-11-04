@@ -16,26 +16,26 @@ Font_Of :: proc(g: ^GUI, w: ^Widget) -> Font_ID {
 //* The caret moves by codepoint, not by byte.
 
 prev_offset :: proc(s: string, offset: int) -> int {
-	if offset <= 0 { return 0 }
+	if offset <= 0 {return 0}
 	i := offset - 1
-	for i > 0 && (s[i] & 0xC0) == 0x80 { i -= 1 }
+	for i > 0 && (s[i] & 0xC0) == 0x80 {i -= 1}
 	return i
 }
 
 next_offset :: proc(s: string, offset: int) -> int {
-	if offset >= len(s) { return len(s) }
+	if offset >= len(s) {return len(s)}
 	i := offset + 1
-	for i < len(s) && (s[i] & 0xC0) == 0x80 { i += 1 }
+	for i < len(s) && (s[i] & 0xC0) == 0x80 {i += 1}
 	return i
 }
 
 //* Snaps a byte offset back to a codepoint boundary, so the text is
 //* never cut in the middle of a multi-byte character.
 snap_offset :: proc(s: string, offset: int) -> int {
-	if offset <= 0 { return 0 }
-	if offset >= len(s) { return len(s) }
+	if offset <= 0 {return 0}
+	if offset >= len(s) {return len(s)}
 	i := offset
-	for i > 0 && (s[i] & 0xC0) == 0x80 { i -= 1 }
+	for i > 0 && (s[i] & 0xC0) == 0x80 {i -= 1}
 	return i
 }
 
@@ -46,7 +46,7 @@ snap_offset :: proc(s: string, offset: int) -> int {
 //* selects the whole text instead.
 focus_click :: proc(g: ^GUI, id: Widget_ID, p: Vec2, clicks: int = 1) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	#partial switch d in w.data {
 	case Text_Input_Data:
 		focus_set(g, id)
@@ -68,7 +68,7 @@ focus_click :: proc(g: ^GUI, id: Widget_ID, p: Vec2, clicks: int = 1) {
 //* together with the caret.
 text_input_blur :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		d.sel_start = d.caret
@@ -80,7 +80,8 @@ text_input_blur :: proc(g: ^GUI, id: Widget_ID) {
 
 text_input_insert :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
+	changed := false
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		start := min(d.sel_start, d.sel_end)
@@ -94,12 +95,19 @@ text_input_insert :: proc(g: ^GUI, id: Widget_ID, text: string) {
 		d.caret = snap_offset(d.text, start + len(text))
 		d.sel_start = d.caret
 		d.sel_end = d.caret
+		changed = true
+	}
+	//* The text of the field changed: the field is measured again, and
+	//* it is drawn again.
+	if changed {
+		invalidate(g, id, Dirty_Flags{.Measure, .Visual})
 	}
 }
 
 text_input_backspace :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
+	changed := false
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		start := min(d.sel_start, d.sel_end)
@@ -109,21 +117,27 @@ text_input_backspace :: proc(g: ^GUI, id: Widget_ID) {
 			delete(d.text)
 			d.text = new_text
 			d.caret = start
+			changed = true
 		} else if d.caret > 0 {
 			p := prev_offset(d.text, d.caret)
 			new_text := strings.concatenate({d.text[:p], d.text[d.caret:]})
 			delete(d.text)
 			d.text = new_text
 			d.caret = p
+			changed = true
 		}
 		d.sel_start = d.caret
 		d.sel_end = d.caret
+	}
+	if changed {
+		invalidate(g, id, Dirty_Flags{.Measure, .Visual})
 	}
 }
 
 text_input_delete :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
+	changed := false
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		start := min(d.sel_start, d.sel_end)
@@ -133,25 +147,30 @@ text_input_delete :: proc(g: ^GUI, id: Widget_ID) {
 			delete(d.text)
 			d.text = new_text
 			d.caret = start
+			changed = true
 		} else if d.caret < len(d.text) {
 			n := next_offset(d.text, d.caret)
 			new_text := strings.concatenate({d.text[:d.caret], d.text[n:]})
 			delete(d.text)
 			d.text = new_text
+			changed = true
 		}
 		d.sel_start = d.caret
 		d.sel_end = d.caret
+	}
+	if changed {
+		invalidate(g, id, Dirty_Flags{.Measure, .Visual})
 	}
 }
 
 text_input_move_caret :: proc(g: ^GUI, id: Widget_ID, forward: bool, extend: bool) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		if extend {
 			//* Keep the anchor, move the active end.
-			if d.sel_start == d.sel_end { d.sel_start = d.caret }
+			if d.sel_start == d.sel_end {d.sel_start = d.caret}
 			d.caret = forward ? next_offset(d.text, d.caret) : prev_offset(d.text, d.caret)
 			d.sel_end = d.caret
 		} else {
@@ -164,7 +183,7 @@ text_input_move_caret :: proc(g: ^GUI, id: Widget_ID, forward: bool, extend: boo
 
 text_input_set_caret :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		d.caret = clamp(offset, 0, len(d.text))
@@ -179,7 +198,7 @@ text_input_set_caret :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) 
 
 text_input_select_all :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		d.sel_start = 0
@@ -193,7 +212,7 @@ text_input_select_all :: proc(g: ^GUI, id: Widget_ID) {
 //* The x position of a byte offset inside the text.
 text_input_offset_x :: proc(g: ^GUI, id: Widget_ID, content: Rect, offset: int) -> f32 {
 	w := Widget_Get(g, id)
-	if w == nil { return content.x }
+	if w == nil {return content.x}
 	#partial switch d in w.data {
 	case Text_Input_Data:
 		size := Font_Measure(g, Font_Of(g, w), d.text[:clamp(offset, 0, len(d.text))])
@@ -205,7 +224,7 @@ text_input_offset_x :: proc(g: ^GUI, id: Widget_ID, content: Rect, offset: int) 
 //* The highlighted selection, in content coordinates.
 text_input_selection_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect {
 	w := Widget_Get(g, id)
-	if w == nil { return {} }
+	if w == nil {return {}}
 	#partial switch d in w.data {
 	case Text_Input_Data:
 		x0 := text_input_offset_x(g, id, content, min(d.sel_start, d.sel_end))
@@ -218,7 +237,7 @@ text_input_selection_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect
 //* Puts the caret at the codepoint nearest to the pointer.
 text_input_place_caret :: proc(g: ^GUI, id: Widget_ID, p: Vec2) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		content := content_rect(g, w)
@@ -234,7 +253,7 @@ text_input_place_caret :: proc(g: ^GUI, id: Widget_ID, p: Vec2) {
 				best = dist
 				offset = i
 			}
-			if i >= len(d.text) { break }
+			if i >= len(d.text) {break}
 			i = next_offset(d.text, i)
 		}
 		d.caret = offset
@@ -246,16 +265,16 @@ text_input_place_caret :: proc(g: ^GUI, id: Widget_ID, p: Vec2) {
 //* == Key and text routing ==
 
 fire_key :: proc(g: ^GUI, id: Widget_ID, e: Key_Down_Event) {
-	if id == INVALID_WIDGET_ID { return }
+	if id == INVALID_WIDGET_ID {return}
 	w := Widget_Get(g, id)
-	if w == nil { return }
-	if !(.Enabled in w.state) { return }
+	if w == nil {return}
+	if !(.Enabled in w.state) {return}
 
 	shift := .Shift in e.mods
 	ctrl := .Ctrl in e.mods
 
 	//* A widget that came after the first ones has its own hooks.
-	if kind := kind_of(g, w.type); kind.key != nil {
+	if kind := widget_kind(g, w); kind.key != nil {
 		kind.key(g, id, w, e)
 		return
 	}
@@ -263,13 +282,20 @@ fire_key :: proc(g: ^GUI, id: Widget_ID, e: Key_Down_Event) {
 	#partial switch d in w.data {
 	case Text_Input_Data:
 		#partial switch e.key {
-		case .Backspace: text_input_backspace(g, id)
-		case .Delete:    text_input_delete(g, id)
-		case .Left:      text_input_move_caret(g, id, false, shift)
-		case .Right:     text_input_move_caret(g, id, true, shift)
-		case .Home:      text_input_set_caret(g, id, 0, shift)
-		case .End:       text_input_set_caret(g, id, len(d.text), shift)
-		case .A:         if ctrl { text_input_select_all(g, id) }
+		case .Backspace:
+			text_input_backspace(g, id)
+		case .Delete:
+			text_input_delete(g, id)
+		case .Left:
+			text_input_move_caret(g, id, false, shift)
+		case .Right:
+			text_input_move_caret(g, id, true, shift)
+		case .Home:
+			text_input_set_caret(g, id, 0, shift)
+		case .End:
+			text_input_set_caret(g, id, len(d.text), shift)
+		case .A:
+			if ctrl {text_input_select_all(g, id)}
 		case .Enter:
 			//* The enter key sends the text of the field.
 			signal_submitted(g, id, d.text)
@@ -278,10 +304,16 @@ fire_key :: proc(g: ^GUI, id: Widget_ID, e: Key_Down_Event) {
 }
 
 fire_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
-	if id == INVALID_WIDGET_ID { return }
+	if id == INVALID_WIDGET_ID {return}
 	w := Widget_Get(g, id)
-	if w == nil { return }
-	if !(.Enabled in w.state) { return }
+	if w == nil {return}
+	if !(.Enabled in w.state) {return}
+
+	//* A widget that came after the first ones has its own hooks.
+	if kind := widget_kind(g, w); kind.text_input != nil {
+		kind.text_input(g, id, w, text)
+		return
+	}
 
 	#partial switch d in w.data {
 	case Text_Input_Data:
