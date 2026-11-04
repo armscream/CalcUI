@@ -17,12 +17,6 @@ Key :: enum {
 Mod :: enum { Shift, Ctrl, Alt }
 Mods :: bit_set[Mod]
 
-//* Odin unions name their variants by type, so each payload gets its
-//* own type. That keeps every event payload distinct: the core switches
-//* on the active variant and only ever reads the matching fields.
-//* Mouse events carry two positions: `pos` is in the window the event
-//* came from, `global` is on the screen. A floating panel lives
-//* outside of the main window, so it needs the screen position.
 Mouse_Down_Event :: struct {
 	pos:    Vec2,
 	global: Vec2,

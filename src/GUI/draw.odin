@@ -140,6 +140,13 @@ draw_quad_shape :: proc(
 	cr := rect_intersect(r, dl.current_clip)
 	if cr.w <= 0 || cr.h <= 0 {return}
 
+	//* A quad that is not cut keeps its texture coordinates, so there
+	//* is no arithmetic to do. That is the common case.
+	if cr.x == r.x && cr.y == r.y && cr.w == r.w && cr.h == r.h {
+		draw_quad_vertices(dl, r, r, uv, c, tex, kind, radius)
+		return
+	}
+
 	//* The texture coordinates follow the cut: the part of the
 	//* texture the quad shows is the part it showed before.
 	u0 := uv[0] + (cr.x - r.x) / r.w * (uv[2] - uv[0])
@@ -163,7 +170,8 @@ draw_quad_vertices :: proc(
 	kind: Shape_Kind,
 	radius: f32,
 ) {
-	base := u32(len(dl.vertices))
+	base := len(dl.vertices)
+	resize(&dl.vertices, base + 4)
 	p := [4][2]f32{{r.x, r.y}, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h}, {r.x, r.y + r.h}}
 	t := [4][2]f32{{uv[0], uv[1]}, {uv[2], uv[1]}, {uv[2], uv[3]}, {uv[0], uv[3]}}
 
@@ -180,21 +188,25 @@ draw_quad_vertices :: proc(
 
 	shape := [4]f32{f32(kind), radius, full.w * 0.5, full.h * 0.5}
 	for i in 0 ..< 4 {
-		append(
-			&dl.vertices,
-			Draw_Vertex{pos = p[i], uv = t[i], colour = c, shape = shape, local = l[i]},
-		)
+		dl.vertices[base + i] = Draw_Vertex {
+			pos = p[i],
+			uv = t[i],
+			colour = c,
+			shape = shape,
+			local = l[i],
+		}
 	}
 
-	idx_start := u32(len(dl.indices))
-	append(&dl.indices, base + 0)
-	append(&dl.indices, base + 1)
-	append(&dl.indices, base + 2)
-	append(&dl.indices, base + 0)
-	append(&dl.indices, base + 2)
-	append(&dl.indices, base + 3)
+	idx_start := len(dl.indices)
+	resize(&dl.indices, idx_start + 6)
+	dl.indices[idx_start + 0] = u32(base + 0)
+	dl.indices[idx_start + 1] = u32(base + 1)
+	dl.indices[idx_start + 2] = u32(base + 2)
+	dl.indices[idx_start + 3] = u32(base + 0)
+	dl.indices[idx_start + 4] = u32(base + 2)
+	dl.indices[idx_start + 5] = u32(base + 3)
 
-	draw_command(dl, tex, idx_start, 6)
+	draw_command(dl, tex, u32(idx_start), 6)
 }
 
 //* Adds a command to the list, or adds to the last one when it is the

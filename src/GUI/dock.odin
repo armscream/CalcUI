@@ -40,10 +40,13 @@ split_direction :: proc(w: ^Widget) -> Split_Direction {
 	return .Horizontal
 }
 
-//* The tab of a tab host that is showing.
+//* The tab of a tab host that is showing. A tab container keeps its
+//* own tab, so it is asked as well.
 tabs_active :: proc(w: ^Widget) -> int {
 	#partial switch d in w.data {
 	case Tabs_Data:
+		return d.active
+	case Tab_Container_Data:
 		return d.active
 	}
 	return 0
@@ -51,24 +54,36 @@ tabs_active :: proc(w: ^Widget) -> int {
 
 //* True when the widget is a tab of a tab host.
 is_tab_child :: proc(g: ^GUI, id: Widget_ID) -> bool {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil || w.parent == INVALID_WIDGET_ID { return false }
-	p := widget_get(g, w.parent)
+	p := Widget_Get(g, w.parent)
+	return p != nil && (p.type == .Tabs || p.type == .TabContainer)
+}
+
+//* True when the widget is a tab of a dock tab host. A tab is not a
+//* container of its own: a drop on a tab is a drop on the host that
+//* holds it, so the host takes the panel and not the tab. Without this
+//* the panel would be put in a new host inside the old one, and the
+//* tab would be in two strips at once.
+is_tab_of_host :: proc(g: ^GUI, id: Widget_ID) -> bool {
+	w := Widget_Get(g, id)
+	if w == nil || w.parent == INVALID_WIDGET_ID { return false }
+	p := Widget_Get(g, w.parent)
 	return p != nil && p.type == .Tabs
 }
 
 //* True when the widget is a tab that is not showing. A hidden tab
 //* keeps no geometry, so it is neither drawn nor hit.
 is_hidden_tab :: proc(g: ^GUI, id: Widget_ID) -> bool {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil || w.parent == INVALID_WIDGET_ID { return false }
-	p := widget_get(g, w.parent)
-	if p == nil || p.type != .Tabs { return false }
+	p := Widget_Get(g, w.parent)
+	if p == nil || (p.type != .Tabs && p.type != .TabContainer) { return false }
 	active := tabs_active(p)
 	index := 0
 	child := p.first_child
 	for child != INVALID_WIDGET_ID {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		if child == id { return index != active }
 		index += 1
@@ -95,7 +110,7 @@ tabs_content_rect :: proc(w: ^Widget) -> Rect {
 tab_button_width :: proc(g: ^GUI, w: ^Widget) -> f32 {
 	label := w.name
 	if label == "" { label = "Tab" }
-	size := font_measure(g, font_of(g, w), label)
+	size := Font_Measure(g, Font_Of(g, w), label)
 	return size.x + TAB_PADDING * 2
 }
 
@@ -108,7 +123,7 @@ tab_button_rects :: proc(g: ^GUI, host: ^Widget, out: ^[MAX_TABS]Rect) -> int {
 	n := 0
 	child := host.first_child
 	for child != INVALID_WIDGET_ID && n < MAX_TABS {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		out[n] = Rect{x = x, y = bar.y, w = tab_button_width(g, c), h = bar.h}
 		x += out[n].w
@@ -123,7 +138,7 @@ tab_strip_width :: proc(g: ^GUI, host: ^Widget) -> f32 {
 	total := f32(0)
 	child := host.first_child
 	for child != INVALID_WIDGET_ID {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		total += tab_button_width(g, c)
 		child = c.next_sibling
@@ -166,7 +181,7 @@ dock_zone :: proc(container: Rect, p: Vec2) -> Dock_Zone {
 //* of a tab host is always a tab drop, so the zones are the content
 //* below it.
 dock_zone_container :: proc(g: ^GUI, container: Widget_ID) -> Rect {
-	w := widget_get(g, container)
+	w := Widget_Get(g, container)
 	if w == nil { return {} }
 	if w.type == .Tabs { return tabs_content_rect(w) }
 	return w.rect
@@ -175,7 +190,7 @@ dock_zone_container :: proc(g: ^GUI, container: Widget_ID) -> Rect {
 //* The zone of a container. The strip of a tab host is always a tab
 //* drop, so the edges are measured on the content below it.
 dock_zone_for :: proc(g: ^GUI, container: Widget_ID, p: Vec2) -> Dock_Zone {
-	w := widget_get(g, container)
+	w := Widget_Get(g, container)
 	if w == nil { return .None }
 	if w.type == .Tabs {
 		bar := tab_bar_rect(w)
@@ -282,18 +297,24 @@ subtract_rect :: proc(r, cut: Rect, out: ^[MAX_FREE_PIECES]Rect, start_at: int) 
 //* The space in a container that none of its children uses. The pieces
 //* are returned with the largest one first.
 container_free_space :: proc(g: ^GUI, id: Widget_ID) -> (rects: [MAX_FREE_PIECES]Rect, count: int) {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil { return }
 	if w.rect.w <= 0 || w.rect.h <= 0 { return }
 
 	//* Start with the whole container and cut the children out of it.
+	//* The strip of a tab host is not part of it: the strip holds the
+	//* tabs, so a panel dropped on it is a tab and not a fill.
+	base := w.rect
+	if w.type == .Tabs { base = tabs_content_rect(w) }
+	if base.w <= 0 || base.h <= 0 { return }
+
 	pieces: [MAX_FREE_PIECES]Rect
-	pieces[0] = w.rect
+	pieces[0] = base
 	n := 1
 
 	child := w.first_child
 	for child != INVALID_WIDGET_ID && n > 0 {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		next: [MAX_FREE_PIECES]Rect
 		m := 0
@@ -350,8 +371,8 @@ sort_pieces_by_size :: proc(pieces: ^[MAX_FREE_PIECES]Rect, n: int) {
 //* into it takes that space, as long as it fits. A panel is not empty
 //* space: it is a window, and a drop on it splits it or makes a tab.
 plan_fill_empty :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) -> bool {
-	p := widget_get(g, panel)
-	c := widget_get(g, container)
+	p := Widget_Get(g, panel)
+	c := Widget_Get(g, container)
 	if p == nil || c == nil { return false }
 	if c.type == .Panel || c.type == .Tabs { return false }
 	if c.first_child != INVALID_WIDGET_ID { return false }
@@ -368,8 +389,8 @@ plan_fill_empty :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) 
 //* children that leave a gap, and that the pointer is in that gap:
 //* a drop on a panel is a tab, not a fill.
 plan_fill :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID, p: Vec2) -> bool {
-	pw := widget_get(g, panel)
-	c := widget_get(g, container)
+	pw := Widget_Get(g, panel)
+	c := Widget_Get(g, container)
 	if pw == nil || c == nil { return false }
 	if c.first_child == INVALID_WIDGET_ID { return false }
 
@@ -408,8 +429,8 @@ dock_plan :: proc(
 	p: Vec2,
 ) -> Dock_Plan {
 	plan := Dock_Plan{}
-	pw := widget_get(g, panel)
-	c := widget_get(g, container)
+	pw := Widget_Get(g, panel)
+	c := Widget_Get(g, container)
 	if pw == nil || c == nil { return plan }
 	if panel == container { return plan }
 	//* A panel cannot be dropped into itself.
@@ -446,8 +467,8 @@ dock_plan :: proc(
 //* Plans a split drop: the container becomes a split along the axis
 //* the zone names, and the panel joins it.
 plan_split :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID, zone: Dock_Zone) {
-	c := widget_get(g, container)
-	p := widget_get(g, panel)
+	c := Widget_Get(g, container)
+	p := Widget_Get(g, panel)
 	if c == nil || p == nil { return }
 
 	axis := Split_Direction.Vertical
@@ -473,7 +494,7 @@ plan_split :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID, zone:
 	count := 0
 	child := c.first_child
 	for child != INVALID_WIDGET_ID && count < MAX_DOCK_SLOTS - 1 {
-		ch := widget_get(g, child)
+		ch := Widget_Get(g, child)
 		if ch == nil { break }
 		if child != panel {
 			plan.children[count] = child
@@ -536,7 +557,7 @@ plan_split_rects :: proc(g: ^GUI, plan: ^Dock_Plan, rect: Rect) {
 	total_weight := f32(0)
 	total_min := f32(0)
 	for i in 0 ..< plan.count {
-		ch := widget_get(g, plan.children[i])
+		ch := Widget_Get(g, plan.children[i])
 		if ch == nil { continue }
 		total_weight += plan.weights[i]
 		total_min += horizontal ? ch.min_size.x : ch.min_size.y
@@ -547,7 +568,7 @@ plan_split_rects :: proc(g: ^GUI, plan: ^Dock_Plan, rect: Rect) {
 
 	offset := horizontal ? rect.x : rect.y
 	for i in 0 ..< plan.count {
-		ch := widget_get(g, plan.children[i])
+		ch := Widget_Get(g, plan.children[i])
 		if ch == nil { continue }
 		min_size := horizontal ? ch.min_size.x : ch.min_size.y
 		size := min_size + available * (plan.weights[i] / total_weight)
@@ -571,8 +592,8 @@ plan_split_rects :: proc(g: ^GUI, plan: ^Dock_Plan, rect: Rect) {
 //* that is already a tab host simply gains a tab; anything else is
 //* replaced by a host whose first tab is the target itself.
 plan_tabs :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) {
-	c := widget_get(g, container)
-	p := widget_get(g, panel)
+	c := Widget_Get(g, container)
+	p := Widget_Get(g, panel)
 	if c == nil || p == nil { return }
 
 	plan.kind = .Tabs
@@ -593,7 +614,7 @@ plan_tabs :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) {
 		plan.tab_button_count = n
 		child := c.first_child
 		for child != INVALID_WIDGET_ID && plan.tab_widget_count < MAX_TABS {
-			ch := widget_get(g, child)
+			ch := Widget_Get(g, child)
 			if ch == nil { break }
 			plan.tab_widgets[plan.tab_widget_count] = child
 			plan.tab_widget_count += 1
@@ -606,7 +627,7 @@ plan_tabs :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) {
 		index := 0
 		child = c.first_child
 		for child != INVALID_WIDGET_ID {
-			ch := widget_get(g, child)
+			ch := Widget_Get(g, child)
 			if ch == nil { break }
 			if child == panel {
 				already = true
@@ -672,17 +693,17 @@ plan_tabs :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) {
 //* Plans a swap: the panel takes the target's slot and the target
 //* takes the panel's. Only panels that share a parent can swap.
 plan_swap :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) -> bool {
-	p := widget_get(g, panel)
-	c := widget_get(g, container)
+	p := Widget_Get(g, panel)
+	c := Widget_Get(g, container)
 	if p == nil || c == nil { return false }
 	if p.parent == INVALID_WIDGET_ID || p.parent != c.parent { return false }
 
 	plan.kind = .Swap
 	plan.container = container
 	plan.swap_panel_parent = p.parent
-	plan.swap_panel_index = widget_index_of(g, p.parent, panel)
+	plan.swap_panel_index = Widget_Index_Of(g, p.parent, panel)
 	plan.swap_host_parent = c.parent
-	plan.swap_host_index = widget_index_of(g, c.parent, container)
+	plan.swap_host_index = Widget_Index_Of(g, c.parent, container)
 
 	//* The panel lands in the target's slot, the target in the panel's.
 	plan.preview = c.rect
@@ -695,8 +716,25 @@ plan_swap :: proc(g: ^GUI, plan: ^Dock_Plan, panel, container: Widget_ID) -> boo
 
 //* == Applying ==
 
+//* Takes a widget out of a plan. A plan that names a widget that does
+//* not exist any more cannot be applied, so the names of the widgets
+//* that are gone are cleared.
+dock_plan_forget :: proc(plan: ^Dock_Plan, id: Widget_ID) {
+	if plan == nil { return }
+	if plan.container == id { plan.container = INVALID_WIDGET_ID }
+	if plan.tab_host == id { plan.tab_host = INVALID_WIDGET_ID }
+	if plan.swap_panel_parent == id { plan.swap_panel_parent = INVALID_WIDGET_ID }
+	if plan.swap_host_parent == id { plan.swap_host_parent = INVALID_WIDGET_ID }
+	for &child in plan.children {
+		if child == id { child = INVALID_WIDGET_ID }
+	}
+	for &tab in plan.tab_widgets {
+		if tab == id { tab = INVALID_WIDGET_ID }
+	}
+}
+
 //* Docks `panel` into `container` at `zone`.
-dock :: proc(g: ^GUI, panel, container: Widget_ID, zone: Dock_Zone) {
+Dock :: proc(g: ^GUI, panel, container: Widget_ID, zone: Dock_Zone) {
 	dock_swap := false
 	dock_with(g, panel, container, zone, dock_swap)
 }
@@ -707,7 +745,7 @@ dock_with :: proc(g: ^GUI, panel, container: Widget_ID, zone: Dock_Zone, swap: b
 	//* Without a pointer the drop is taken to be in the middle of the
 	//* container.
 	p := Vec2{}
-	if c := widget_get(g, container); c != nil {
+	if c := Widget_Get(g, container); c != nil {
 		p = Vec2{c.rect.x + c.rect.w * 0.5, c.rect.y + c.rect.h * 0.5}
 	}
 	plan := dock_plan(g, panel, container, zone, swap, p)
@@ -729,20 +767,22 @@ dock_apply :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 	case .None:
 		return
 	}
-	g.layout_dirty = true
+	//* The panel has a new place in the tree: the tree is measured and
+	//* laid out again where it has to be.
+	invalidate_all(g, Dirty_Flags{.Measure, .Arrange, .Visual, .Hit})
 }
 
 //* Applies a fill drop: the panel takes the empty space of the
 //* container.
 apply_fill :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 	container := plan.container
-	c := widget_get(g, container)
-	p := widget_get(g, panel)
+	c := Widget_Get(g, container)
+	p := Widget_Get(g, panel)
 	if c == nil || p == nil { return }
 	space := plan.preview
 
 	//* The panel leaves its old slot first.
-	widget_detach(g, panel)
+	Widget_Detach(g, panel)
 
 	//* A panel places its children where they are told to, so the
 	//* panel can be put exactly in the empty space. A box or a split
@@ -758,22 +798,24 @@ apply_fill :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 			space.x + space.w - c.rect.x,
 			space.y + space.h - c.rect.y,
 		}
+		invalidate(g, p.id, Dirty_Flags{.Arrange, .Hit})
 	}
-	widget_attach(g, container, panel)
+	Widget_Attach(g, container, panel)
 }
 
 //* Applies a split drop.
 apply_split :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 	container := plan.container
-	c := widget_get(g, container)
-	p := widget_get(g, panel)
+	c := Widget_Get(g, container)
+	p := Widget_Get(g, panel)
 	if c == nil || p == nil { return }
 
 	if !plan.create_split {
 		//* The container is already a split along that axis: the panel
 		//* becomes one of its slices.
-		widget_insert_at(g, container, panel, plan.panel_index)
+		Widget_Insert_At(g, container, panel, plan.panel_index)
 		p.weight = plan.weights[plan.panel_index]
+		invalidate(g, p.id, Dirty_Flags{.Arrange})
 		return
 	}
 
@@ -791,48 +833,52 @@ apply_split :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 
 	//* The panel leaves its old slot first, so the place the
 	//* container held is still known afterwards.
-	widget_detach(g, panel)
+	Widget_Detach(g, panel)
 
-	index := widget_index_of(g, parent, container)
+	index := Widget_Index_Of(g, parent, container)
 
-	split_id := widget(g, .Split, INVALID_WIDGET_ID, Widget_Opts{name = name})
-	split := widget_get(g, split_id)
+	split_id := New_Widget(g, .Split, INVALID_WIDGET_ID, Widget_Opts{name = name})
+	split := Widget_Get(g, split_id)
 	//* The split takes the container's place: the same layout, but no
 	//* style of its own, so the panels keep theirs.
 	split.anchors = anchors
 	split.offsets = offsets
 	split.min_size = min_size
+	split.base_min_size = min_size
 	split.weight = weight
 	split.grow_h = grow_h
 	split.grow_v = grow_v
 	split.separation = separation
 	split.data = Split_Data{direction = plan.axis}
+	invalidate(g, split_id, DIRTY_ALL)
 
 	if plan.panel_index == 0 {
-		widget_attach(g, split_id, panel)
-		widget_attach(g, split_id, container)
+		Widget_Attach(g, split_id, panel)
+		Widget_Attach(g, split_id, container)
 	} else {
-		widget_attach(g, split_id, container)
-		widget_attach(g, split_id, panel)
+		Widget_Attach(g, split_id, container)
+		Widget_Attach(g, split_id, panel)
 	}
 	p.weight = plan.weights[plan.panel_index]
 	c.weight = plan.weights[plan.panel_index == 0 ? 1 : 0]
+	invalidate(g, p.id, Dirty_Flags{.Arrange})
+	invalidate(g, c.id, Dirty_Flags{.Arrange})
 
 	if parent != INVALID_WIDGET_ID {
-		widget_insert_at(g, parent, split_id, index)
+		Widget_Insert_At(g, parent, split_id, index)
 	}
 }
 
 //* Applies a tab drop.
 apply_tabs :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 	container := plan.container
-	c := widget_get(g, container)
-	p := widget_get(g, panel)
+	c := Widget_Get(g, container)
+	p := Widget_Get(g, panel)
 	if c == nil || p == nil { return }
 
 	if !plan.create_tabs {
 		//* The host is already there: the panel is one more tab.
-		widget_insert_at(g, container, panel, plan.tab_index)
+		Widget_Insert_At(g, container, panel, plan.tab_index)
 		set_active_tab(g, container, panel)
 		return
 	}
@@ -849,23 +895,25 @@ apply_tabs :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 	separation := c.separation
 	name := c.name
 
-	widget_detach(g, panel)
-	index := widget_index_of(g, parent, container)
+	Widget_Detach(g, panel)
+	index := Widget_Index_Of(g, parent, container)
 
-	host_id := widget(g, .Tabs, INVALID_WIDGET_ID, Widget_Opts{name = name})
-	host := widget_get(g, host_id)
+	host_id := New_Widget(g, .Tabs, INVALID_WIDGET_ID, Widget_Opts{name = name})
+	host := Widget_Get(g, host_id)
 	host.anchors = anchors
 	host.offsets = offsets
 	host.min_size = min_size
+	host.base_min_size = min_size
 	host.weight = weight
 	host.grow_h = grow_h
 	host.grow_v = grow_v
 	host.separation = separation
+	invalidate(g, host_id, DIRTY_ALL)
 
-	widget_attach(g, host_id, container)
-	widget_attach(g, host_id, panel)
+	Widget_Attach(g, host_id, container)
+	Widget_Attach(g, host_id, panel)
 	if parent != INVALID_WIDGET_ID {
-		widget_insert_at(g, parent, host_id, index)
+		Widget_Insert_At(g, parent, host_id, index)
 	}
 	set_active_tab(g, host_id, panel)
 }
@@ -873,26 +921,29 @@ apply_tabs :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 //* Applies a swap: the panel and the target exchange their slots.
 apply_swap :: proc(g: ^GUI, panel: Widget_ID, plan: Dock_Plan) {
 	container := plan.container
-	widget_detach(g, panel)
-	widget_detach(g, container)
-	widget_insert_at(g, plan.swap_panel_parent, container, plan.swap_panel_index)
-	widget_insert_at(g, plan.swap_host_parent, panel, plan.swap_host_index)
+	Widget_Detach(g, panel)
+	Widget_Detach(g, container)
+	Widget_Insert_At(g, plan.swap_panel_parent, container, plan.swap_panel_index)
+	Widget_Insert_At(g, plan.swap_host_parent, panel, plan.swap_host_index)
 }
 
 //* Makes `tab` the visible tab of a tab host.
 set_active_tab :: proc(g: ^GUI, tabs, tab: Widget_ID) {
-	w := widget_get(g, tabs)
+	w := Widget_Get(g, tabs)
 	if w == nil { return }
 	if w.type != .Tabs { return }
 
 	index := 0
 	child := w.first_child
 	for child != INVALID_WIDGET_ID {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		if child == tab {
 			w.data = Tabs_Data{active = index}
-			g.layout_dirty = true
+			//* Another tab is showing now: the one that was showing
+			//* keeps no geometry, and the one that is showing now
+			//* takes the place.
+			invalidate(g, w.id, Dirty_Flags{.Measure, .Arrange, .Visual, .Hit})
 			return
 		}
 		index += 1
@@ -923,16 +974,19 @@ find_drop_target :: proc(g: ^GUI, dragged: Widget_ID, p: Vec2) -> Widget_ID {
 }
 
 drop_target_in :: proc(g: ^GUI, dragged, id: Widget_ID, p: Vec2) -> Widget_ID {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil { return INVALID_WIDGET_ID }
 	if !(.Visible in w.state) { return INVALID_WIDGET_ID }
 	if id == dragged || is_descendant(g, dragged, id) { return INVALID_WIDGET_ID }
+	//* A tab is not a container: the host that holds it is the one that
+	//* takes the drop.
+	if is_tab_of_host(g, id) { return INVALID_WIDGET_ID }
 
 	// Children first: the deepest container wins.
 	found := INVALID_WIDGET_ID
 	child := w.first_child
 	for child != INVALID_WIDGET_ID {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		if hit := drop_target_in(g, dragged, child, p); hit != INVALID_WIDGET_ID {
 			found = hit
@@ -954,15 +1008,18 @@ find_tab_host :: proc(g: ^GUI, dragged: Widget_ID, p: Vec2) -> Widget_ID {
 }
 
 tab_host_in :: proc(g: ^GUI, dragged, id: Widget_ID, p: Vec2) -> Widget_ID {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil { return INVALID_WIDGET_ID }
 	if !(.Visible in w.state) { return INVALID_WIDGET_ID }
 	if id == dragged || is_descendant(g, dragged, id) { return INVALID_WIDGET_ID }
+	//* A tab is not a host: the host that holds it takes the panel as
+	//* one more of its tabs.
+	if is_tab_of_host(g, id) { return INVALID_WIDGET_ID }
 
 	found := INVALID_WIDGET_ID
 	child := w.first_child
 	for child != INVALID_WIDGET_ID {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		if hit := tab_host_in(g, dragged, child, p); hit != INVALID_WIDGET_ID {
 			found = hit
@@ -982,14 +1039,14 @@ tab_host_in :: proc(g: ^GUI, dragged, id: Widget_ID, p: Vec2) -> Widget_ID {
 
 //* Finds the tab host whose strip the pointer is over.
 find_tab_strip :: proc(g: ^GUI, id: Widget_ID, p: Vec2) -> Widget_ID {
-	w := widget_get(g, id)
+	w := Widget_Get(g, id)
 	if w == nil { return INVALID_WIDGET_ID }
 	if !(.Visible in w.state) { return INVALID_WIDGET_ID }
 
 	found := INVALID_WIDGET_ID
 	child := w.first_child
 	for child != INVALID_WIDGET_ID {
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		if hit := find_tab_strip(g, child, p); hit != INVALID_WIDGET_ID {
 			found = hit
@@ -1019,7 +1076,7 @@ tab_at :: proc(g: ^GUI, global: Vec2) -> (host, tab: Widget_ID, button: Rect) {
 tab_at_in :: proc(g: ^GUI, id: Widget_ID, p: Vec2) -> (host, tab: Widget_ID, button: Rect) {
 	host = find_tab_strip(g, id, p)
 	if host == INVALID_WIDGET_ID { return }
-	w := widget_get(g, host)
+	w := Widget_Get(g, host)
 	if w == nil { return }
 
 	rects: [MAX_TABS]Rect
@@ -1029,7 +1086,7 @@ tab_at_in :: proc(g: ^GUI, id: Widget_ID, p: Vec2) -> (host, tab: Widget_ID, but
 		if rect_contains(rects[i], p.x, p.y) {
 			return host, child, rects[i]
 		}
-		c := widget_get(g, child)
+		c := Widget_Get(g, child)
 		if c == nil { break }
 		child = c.next_sibling
 	}

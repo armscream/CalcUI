@@ -38,6 +38,14 @@ text = "My Game"
 //* Creates the GUI context and the root widget. The backend must already
 //* be created: texture 0 is the backend's 1x1 white texel.
 Init_GUI :: proc(width, height: i32, backend: Backend) -> ^GUI {
+	return Init_GUI_With_Atlas(width, height, backend, ATLAS_DEFAULT_SIZE)
+}
+
+//* Creates the GUI with an atlas of a size of its own. The atlas is
+//* where the glyphs and the pictures live, and it takes sixteen bytes
+//* a pixel: the default of 2048 by 2048 is sixteen megabytes. A
+//* program that only shows text of one kind can ask for less.
+Init_GUI_With_Atlas :: proc(width, height: i32, backend: Backend, atlas_size: int) -> ^GUI {
 	log.info("Initializing GUI...")
 
 	g := new(GUI)
@@ -58,7 +66,7 @@ Init_GUI :: proc(width, height: i32, backend: Backend) -> ^GUI {
 	g.class_by_name = make(map[string]Widget_Class_ID)
 	//* The one texture of the whole UI. Every quad of every widget
 	//* comes out of it, so a window is one draw call.
-	g.atlas = atlas_make(ATLAS_DEFAULT_SIZE, ATLAS_DEFAULT_SIZE)
+	g.atlas = atlas_make(atlas_size, atlas_size)
 	g.atlas_texture = ATLAS_TEXTURE_ID
 	g.target = &g.draw
 	g.font_instances = make(map[Font_Instance_Key]Font_ID)

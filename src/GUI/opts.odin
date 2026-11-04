@@ -12,20 +12,20 @@ package GUI
 
 //* The options that every widget has.
 Base_Opts :: struct {
-	name:       string,
-	preset:     Anchor_Preset,
-	anchors:    Anchor,
-	offsets:    Offset,
-	min_size:   Vec2,
-	max_size:   Vec2,
-	weight:     f32,
-	fixed:      bool,
-	separation: f32,
-	draggable:  bool,
-	style:      Style,
-	use_theme:  bool,
-	variation:  string,
-	hidden:     bool,
+	name:          string,
+	preset:        Anchor_Preset,
+	anchors:       Anchor,
+	offsets:       Offset,
+	min_size:      Vec2,
+	max_size:      Vec2,
+	weight:        f32,
+	fixed:         bool,
+	separation:    f32,
+	draggable:     bool,
+	style:         Style,
+	use_theme:     bool,
+	variation:     string,
+	hidden:        bool,
 
 	//* The control features.
 	mouse_filter:  Mouse_Filter,
@@ -41,13 +41,12 @@ Base_Opts :: struct {
 
 //* The options of the primitive, made from the shared ones.
 base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
-	return Widget_Opts{
+	return Widget_Opts {
 		name = base.name,
 		preset = base.preset,
 		anchors = base.anchors,
 		offsets = base.offsets,
 		min_size = base.min_size,
-		custom_min_size = base.min_size,
 		custom_max_size = base.max_size,
 		weight = base.weight,
 		fixed = base.fixed,
@@ -72,8 +71,8 @@ base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
 //* A style with a background, a border and a margin on every side. It
 //* is the shape most widgets want, so it is made here.
 base_style :: proc(bg: Colour, border: Colour, width: f32, margin: f32) -> Style {
-	return Style{
-		box = StyleBox{
+	return Style {
+		box = StyleBox {
 			bg_color = bg,
 			border_color = {border, border, border, border},
 			border_width = {width, width, width, width},
