@@ -1,5 +1,11 @@
 # CalcUI
 
+[![Testing Status](https://github.com/armscream/CalcUI/actions/workflows/test.yml/badge.svg)](https://github.com/armscream/CalcUI/actions/workflows/test.yml)
+[![License](https://img.shields.io/badge/license-LGPLv3.0-blue)](LICENSE)
+[![Language](https://img.shields.io/badge/language-Odin-orange)](https://odin-lang.org/)
+[![GitHub](https://img.shields.io/badge/github-repo-blue?logo=github)](https://github.com/armscream/CalcUI)
+[![Sponsor](https://img.shields.io/badge/Sponsor-Pink?logo=github-sponsors)](https://github.com/sponsors/armscream)
+
 A GUI toolkit for [Odin](https://odin-lang.org/), built on SDL3 and the
 [Runa](src/GUI/dependencies/Runa) text engine.
 
