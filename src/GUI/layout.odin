@@ -1,22 +1,8 @@
-package GUI
-
-//* == The layout pass ==
-//* The tree is laid out every frame. A layout that is only done when
-//* something changed goes stale as soon as the data of a widget
-//* changes, and the data of a widget changes at runtime: a label gets
-//* a new text, a list gets a new row, a slider is moved.
-//
+//* The measure pass and the layout pass of the widget tree.
 //* The tree is walked every frame, but the work is only done where
-//* something changed. Every change says what it made stale (see
-//* invalidation.odin), and the measure pass and the layout pass leave
-//* the branches alone that nothing happened to. A change that goes
-//* around the setters asks for the whole tree to be done again, so
-//* nothing is ever left stale.
-//
-//* A widget of a container kind gets its children laid out by the
-//* container: a box stacks them, a split divides its space among them,
-//* a grid puts them in rows and columns. Every other widget places its
-//* children by their anchors.
+//* something changed; a change says what it made stale (see
+//* invalidation.odin).
+package GUI
 
 //* Text widgets grow to fit their text. This runs before the layout pass
 //* so the parent already sees the right minimum size.
@@ -25,11 +11,34 @@ measure_pass :: proc(g: ^GUI) {
 	measure_node(g, g.root)
 }
 
+
+snapshot_children :: proc(g: ^GUI, w: ^Widget) -> [dynamic]Widget_ID {
+	children: [dynamic]Widget_ID
+	if g == nil || w == nil {return children}
+	count := 0
+	child := w.first_child
+	for child != INVALID_WIDGET_ID {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		count += 1
+		child = c.next_sibling
+	}
+	if count == 0 {return children}
+	children = make([dynamic]Widget_ID, 0, count, context.allocator)
+	child = w.first_child
+	for child != INVALID_WIDGET_ID {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		append(&children, child)
+		child = c.next_sibling
+	}
+	return children
+}
+
 measure_node :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
-	//* Nothing under this widget changed: the sizes are the ones they
-	//* were, and they are right.
+	//* Nothing under this widget changed: the sizes are the ones they were.
 	if !(.Measure in w.subtree_dirty) {return}
 
 	//* The size of the widget is only worked out again when the widget
@@ -42,20 +51,18 @@ measure_node :: proc(g: ^GUI, id: Widget_ID) {
 		w.dirty -= Dirty_Flags{.Measure}
 	}
 
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
-		c := Widget_Get(g, child)
-		if c == nil {break}
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
+		if Widget_Get(g, child) == nil {continue}
 		measure_node(g, child)
-		child = c.next_sibling
 	}
 	w.subtree_dirty -= Dirty_Flags{.Measure}
 }
 
-//* Works out the smallest size of a widget: the size the program asked
-//* for, the size of its text and the size the program insists on. The
-//* size of the text is added to the padding of the style of the widget,
-//* so a widget with a text is as big as its text and its padding.
+//* The smallest size of a widget: the size the program asked for, the
+//* size of its text plus the padding of its style, and the size the
+//* program insists on.
 measure_widget :: proc(g: ^GUI, w: ^Widget) {
 	text := ""
 	#partial switch d in w.data {
@@ -93,12 +100,11 @@ measure_widget :: proc(g: ^GUI, w: ^Widget) {
 		w.min_size.y = w.base_min_size.y
 	}
 
-	//* A widget can ask for a size of its own.
 	w.min_size.x = max(w.min_size.x, w.custom_min_size.x)
 	w.min_size.y = max(w.min_size.y, w.custom_min_size.y)
 
-	//* A class can ask for a size of its own as well. The size it asks
-	//* for is never smaller than the size the program asked for.
+	//* A class can ask for a size of its own as well, and it is never
+	//* smaller than the size asked for before it.
 	if kind := widget_kind(g, w); kind.measure != nil {
 		size := kind.measure(g, w.id, w)
 		w.min_size.x = max(w.min_size.x, size.x)
@@ -106,7 +112,6 @@ measure_widget :: proc(g: ^GUI, w: ^Widget) {
 	}
 }
 
-//* The width of the longest word in the text.
 longest_word_width :: proc(g: ^GUI, font: Font_ID, text: string) -> f32 {
 	widest := f32(0)
 	start := 0
@@ -121,27 +126,15 @@ longest_word_width :: proc(g: ^GUI, font: Font_ID, text: string) -> f32 {
 	return widest
 }
 
-//* Lays the tree out. Measuring (text sizes) happens first so the
-//* parents already see the right minimum sizes.
-//
-//* The tree is only walked where something changed. A widget that did
-//* not move and that nothing happened to keeps the place it has, and
-//* so does everything under it.
 layout_pass :: proc(g: ^GUI) {
 	if g.root == INVALID_WIDGET_ID {return}
 
-	//* The counters say how much work this frame did.
 	g.measured_count = 0
 	g.arranged_count = 0
 
-	//* The flags of this frame are taken off the GUI. An invalidation
-	//* that happens while the tree is being laid out is for the next
-	//* frame: the tree is never half laid out.
 	pending := g.dirty
 	g.dirty = Dirty_Flags{}
 
-	//* The whole tree has to be done again: every widget is measured
-	//* and every widget is laid out, whatever the flags say.
 	if g.full_layout {
 		g.full_layout = false
 		for w in g.widgets {
@@ -152,22 +145,12 @@ layout_pass :: proc(g: ^GUI) {
 		pending += Dirty_Flags{.Measure, .Arrange}
 	}
 
-	if .Measure in pending {
-		measure_pass(g)
-	}
-	if .Arrange in pending {
-		arrange_pass(g)
-	}
+	if .Measure in pending {measure_pass(g)}
+	if .Arrange in pending {arrange_pass(g)}
 
-	//* The widget under the pointer is looked up again when the tree
-	//* moved under it: the widget that was under the pointer may not
-	//* be under it any more.
 	if .Hit in pending && g.pointer_known {
 		hot, _ := hit_test_top(g, g.global_pointer)
 		if hot != g.hot {
-			//* The look of the two widgets changed: the one that was
-			//* under the pointer is not under it any more, and the one
-			//* that is under it now was not under it before.
 			if old := Widget_Get(g, g.hot); old != nil {
 				invalidate_widget(g, old, Dirty_Flags{.Visual})
 			}
@@ -178,8 +161,6 @@ layout_pass :: proc(g: ^GUI) {
 		g.hot = hot
 	}
 
-	//* The hit test and the theme are done with: the pointer has been
-	//* looked up and the styles have been worked out again.
 	consumed := Dirty_Flags{}
 	if .Hit in pending {consumed += Dirty_Flags{.Hit}}
 	if .Theme in pending {consumed += Dirty_Flags{.Theme}}
@@ -192,13 +173,9 @@ layout_pass :: proc(g: ^GUI) {
 	}
 }
 
-//* Lays the tree out and the floating panels, which are windows of
-//* their own.
 arrange_pass :: proc(g: ^GUI) {
 	if g.root == INVALID_WIDGET_ID {return}
 	layout_node(g, g.root, g.viewport, g.viewport)
-	//* A floating panel is a window of its own, so it is laid out in
-	//* its own space.
 	for &f in g.floats {
 		rect := Rect {
 			x = 0,
@@ -214,7 +191,6 @@ layout_node :: proc(g: ^GUI, id: Widget_ID, rect, clip: Rect) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
 
-	//* A widget that has a largest size does not go past it.
 	new_rect := rect
 	if w.custom_max_size.x > 0 && new_rect.w > w.custom_max_size.x {
 		new_rect.w = w.custom_max_size.x
@@ -257,9 +233,6 @@ layout_node :: proc(g: ^GUI, id: Widget_ID, rect, clip: Rect) {
 	style := resolved_style(g, w)
 	inner := content_rect_with(new_rect, style.box.content_margin)
 
-	//* A widget that came after the first ones lays its children out
-	//* with its own hooks. The ones that were there from the beginning
-	//* are in the switch below.
 	if kind := widget_kind(g, w); kind.layout != nil {
 		kind.layout(g, id, w, inner)
 		forget_arrange(g, w)
@@ -288,25 +261,22 @@ layout_node :: proc(g: ^GUI, id: Widget_ID, rect, clip: Rect) {
 	case .AspectRatioContainer:
 		layout_aspect(g, w, inner)
 	case:
-		// A plain control positions its children by anchors.
-		child := w.first_child
-		for child != INVALID_WIDGET_ID {
-			c := Widget_Get(g, child)
-			if c == nil {break}
-			child_rect := resolve_rect(
-				new_rect,
-				c.anchors,
-				c.offsets,
-				c.min_size,
-				c.grow_h,
-				c.grow_v,
-			)
-			layout_node(g, child, child_rect, w.clip)
-			child = c.next_sibling
-		}
+		layout_by_anchors(g, w, new_rect)
 	}
 
 	forget_arrange(g, w)
+}
+
+
+layout_by_anchors :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
+		c := Widget_Get(g, child)
+		if c == nil {continue}
+		child_rect := resolve_rect(rect, c.anchors, c.offsets, c.min_size, c.grow_h, c.grow_v)
+		layout_node(g, child, child_rect, w.clip)
+	}
 }
 
 //* Forgets that a widget has to be laid out again. The widgets under
@@ -328,15 +298,8 @@ forget_arrange :: proc(g: ^GUI, w: ^Widget) {
 	}
 }
 
-//* Takes the geometry away from a whole branch: a tab that is not
-//* showing, or a panel that is being dragged. The widgets under it lose
-//* their place as well, so that they are placed again when the branch
-//* gets its geometry back. A change that was made under a branch that
-//* has no geometry is not lost this way: the place of a widget is
-//* worked out from its anchors and its offsets, not from the place it
-//* had.
 hide_branch :: proc(g: ^GUI, w: ^Widget) {
-	if w == nil { return }
+	if w == nil {return}
 	w.rect = Rect{}
 	w.clip = Rect{}
 	w.dirty -= Dirty_Flags{.Arrange}
@@ -344,9 +307,10 @@ hide_branch :: proc(g: ^GUI, w: ^Widget) {
 	child := w.first_child
 	for child != INVALID_WIDGET_ID {
 		c := Widget_Get(g, child)
-		if c == nil { break }
+		if c == nil {break}
+		next := c.next_sibling
 		hide_branch(g, c)
-		child = c.next_sibling
+		child = next
 	}
 }
 
@@ -359,14 +323,15 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	horizontal := !vertical
 	sep := w.separation
 
-	// First pass: minimum sizes and weights.
+	children := snapshot_children(g, w)
+	defer delete(children)
+
 	total_weight := f32(0)
 	total_min := f32(0)
 	count := 0
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
+		if c == nil {continue}
 		if keeps_size(c, horizontal) {
 			total_min += manual_size_of(c, horizontal)
 		} else {
@@ -374,7 +339,6 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			total_weight += c.weight
 		}
 		count += 1
-		child = c.next_sibling
 	}
 	if total_weight <= 0 {total_weight = 1}
 	if count == 0 {return}
@@ -383,10 +347,9 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	if available < 0 {available = 0}
 
 	offset := vertical ? rect.y : rect.x
-	child = w.first_child
-	for child != INVALID_WIDGET_ID {
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
+		if c == nil {continue}
 		size := f32(0)
 		if keeps_size(c, horizontal) {
 			size = manual_size_of(c, horizontal)
@@ -401,7 +364,6 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			layout_node(g, child, Rect{x = offset, y = rect.y, w = size, h = rect.h}, w.clip)
 			offset += size + sep
 		}
-		child = c.next_sibling
 	}
 }
 
@@ -417,19 +379,20 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	}
 	horizontal := dir == .Horizontal
 
+	children := snapshot_children(g, w)
+	defer delete(children)
+
 	total_weight := f32(0)
 	total_min := f32(0)
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
+		if c == nil {continue}
 		if keeps_size(c, horizontal) {
 			total_min += manual_size_of(c, horizontal)
 		} else {
 			total_min += horizontal ? c.min_size.x : c.min_size.y
 			total_weight += c.weight
 		}
-		child = c.next_sibling
 	}
 	if total_weight <= 0 {total_weight = 1}
 
@@ -437,10 +400,9 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	if available < 0 {available = 0}
 
 	offset := horizontal ? rect.x : rect.y
-	child = w.first_child
-	for child != INVALID_WIDGET_ID {
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
+		if c == nil {continue}
 		size := f32(0)
 		if keeps_size(c, horizontal) {
 			size = manual_size_of(c, horizontal)
@@ -455,30 +417,23 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			layout_node(g, child, Rect{x = rect.x, y = offset, w = rect.w, h = size}, w.clip)
 			offset += size
 		}
-		child = c.next_sibling
 	}
 }
 
-//* A Tabs shows one child at a time. The strip of buttons sits at the
-//* top of the node and the active tab fills the rest of it. A tab that
-//* is not showing keeps no geometry, so it is neither drawn nor hit.
+//* A tab that is not showing keeps no geometry, so it is neither drawn nor hit.
 layout_tabs :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	content := tabs_content_rect(w)
 
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
-		c := Widget_Get(g, child)
-		if c == nil {break}
-		//* Every child is laid out: the ones that are not showing keep
-		//* no geometry, and the layout pass works that out.
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
+		if Widget_Get(g, child) == nil {continue}
 		layout_node(g, child, content, w.clip)
-		child = c.next_sibling
 	}
 }
 
 //* A Grid puts its children in rows and columns. The number of columns
-//* is in the data of the widget; a column of 0 means one column for
-//* every child.
+//* is in the data of the widget; a count of 0 means one column.
 layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	columns := 1
 	#partial switch d in w.data {
@@ -518,8 +473,6 @@ layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		if row_h[row] < c.min_size.y {row_h[row] = c.min_size.y}
 	}
 
-	//* The space that is left is shared out among the columns that can
-	//* grow.
 	total_w := f32(0)
 	for w_ in col_w {total_w += w_}
 	available := rect.w - total_w - sep * f32(columns - 1)
@@ -556,9 +509,6 @@ layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	}
 }
 
-//* A Margin puts its child inside a margin of its own. The margin is
-//* in the data of the widget; the content margin of the style is added
-//* to it.
 layout_margin :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	margin := [4]f32{}
 	#partial switch d in w.data {
@@ -571,22 +521,20 @@ layout_margin :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		w = rect.w - margin[0] - margin[2],
 		h = rect.h - margin[1] - margin[3],
 	}
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
-		c := Widget_Get(g, child)
-		if c == nil {break}
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
+		if Widget_Get(g, child) == nil {continue}
 		layout_node(g, child, inner, w.clip)
-		child = c.next_sibling
 	}
 }
 
-//* A Center puts its child in the middle of the space it has, at the
-//* size the child asks for.
 layout_center :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
+		if c == nil {continue}
 		size := c.min_size
 		if size.x > rect.w {size.x = rect.w}
 		if size.y > rect.h {size.y = rect.h}
@@ -601,37 +549,29 @@ layout_center :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			},
 			w.clip,
 		)
-		child = c.next_sibling
 	}
 }
 
-//* A PanelContainer puts its child in all of the space it has, so that
-//* the child fills the panel.
 layout_panel_container :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
-		c := Widget_Get(g, child)
-		if c == nil {break}
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
+		if Widget_Get(g, child) == nil {continue}
 		layout_node(g, child, rect, w.clip)
-		child = c.next_sibling
 	}
 }
 
-//* A ScrollContainer shows a part of a child that is bigger than it.
-//* The child keeps its own size, and the container remembers how far it
-//* is scrolled.
 layout_scroll :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	scroll := Vec2{}
 	#partial switch d in w.data {
 	case Scroll_Data:
 		scroll = d.offset
 	}
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
-		//* The child is as big as it wants to be, and it is moved by
-		//* the scroll of the container.
+		if c == nil {continue}
 		size := c.min_size
 		inner := Rect {
 			x = rect.x - scroll.x,
@@ -640,21 +580,19 @@ layout_scroll :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			h = size.y,
 		}
 		layout_node(g, child, inner, w.clip)
-		child = c.next_sibling
 	}
 }
 
-//* A FlowContainer puts its children one after the other, and starts a
-//* new row when there is no room left.
 layout_flow :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	sep := w.separation
 	x := rect.x
 	y := rect.y
 	row_h := f32(0)
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
+		if c == nil {continue}
 		size := c.min_size
 		if size.x > rect.w {size.x = rect.w}
 		if x > rect.x && x + size.x > rect.x + rect.w {
@@ -666,12 +604,9 @@ layout_flow :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		layout_node(g, child, Rect{x = x, y = y, w = size.x, h = size.y}, w.clip)
 		x += size.x + sep
 		if size.y > row_h {row_h = size.y}
-		child = c.next_sibling
 	}
 }
 
-//* An AspectRatioContainer keeps the ratio of its child, so that the
-//* child is as wide as the box is tall, or the other way round.
 layout_aspect :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	ratio := f32(1)
 	#partial switch d in w.data {
@@ -680,10 +615,11 @@ layout_aspect :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	}
 	if ratio <= 0 {ratio = 1}
 
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
+	children := snapshot_children(g, w)
+	defer delete(children)
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil {break}
+		if c == nil {continue}
 		size := c.min_size
 		w_ := rect.w
 		h_ := w_ / ratio
@@ -702,11 +638,9 @@ layout_aspect :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			},
 			w.clip,
 		)
-		child = c.next_sibling
 	}
 }
 
-//* Resolve a widget's rect from its parent's rect (Godot's Control maths).
 resolve_rect :: proc(
 	parent: Rect,
 	anchors: Anchor,

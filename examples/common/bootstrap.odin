@@ -1,12 +1,7 @@
-//* == The shared parts of the examples ==
-//* Every example is a small program: it makes a window, makes a GUI,
-//* puts something in it and then runs a loop. That part is the same
-//* everywhere, so it lives here.
-//
+//* == Shared parts of the examples ==
+//* The loop every example shares: a window, a GUI, the widgets the
+//* setup function puts in it, and an update function called once a frame.
 //*   common.Run("CalcUI", setup, update)
-//
-//* The setup function puts the widgets in the GUI, and the update
-//* function is called once a frame, before the GUI is drawn.
 
 package common
 
@@ -23,19 +18,18 @@ import plat "../../src/Window"
 FONT_NAME :: "Roboto-Regular"
 FONT_DATA :: #load("../../assets/fonts/Roboto-Regular.ttf")
 
-//* The size the GUI's own text uses.
+//* The size of the body text and of the titles.
 BODY_SIZE :: 16
 TITLE_SIZE :: 28
 
-//* What an example gets to work with.
 App :: struct {
 	window: plat.Window,
 	gui:    ^GUI.GUI,
 	backend: GUI.Backend,
-	//* The state of the backend that was made.
+	//* The state of the backend in use. Which of the two is used
+	//* depends on --gpu.
 	renderer_state: Backend.Renderer_State,
 	gpu_state:      Backend.GPU_State,
-	//* The typeface the widgets use.
 	family: GUI.Font_Family_ID,
 }
 
@@ -140,8 +134,6 @@ Run :: proc(
 	first_frame := true
 	for !app.gui.quit_requested {
 		plat.Poll_Events(&app.window, &app.gui.events)
-		//* The GUI needs to know where the window is on the screen, so
-		//* it can tell a panel that was dropped outside of it.
 		app.gui.window_rect = plat.Global_Rect(app.window)
 		if update != nil {update(app)}
 		GUI.Handle_Events(app.gui)
@@ -151,7 +143,6 @@ Run :: proc(
 		plat.Sync_Popups(&app.window, app.gui.floats[:])
 		//* The pointer changes over an edge that can be pulled.
 		plat.Set_Cursor(&app.window, app.gui.cursor)
-		//* The clipboard of the GUI and of the system are kept in step.
 		plat.Sync_Clipboard(app.gui)
 
 		app.backend.submit(app.backend.ctx, &app.gui.draw)

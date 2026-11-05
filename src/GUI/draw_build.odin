@@ -1,26 +1,29 @@
-//* The building of the draw list: the tree is walked and every widget
-//* is drawn into the list of the window it belongs to.
+//* The tree is walked and every widget is drawn into the list of the window it belongs to.
 //* A floating panel is a window of its own and gets a list of its own.
 package GUI
 
 import "core:math"
 
-//* Fills the draw list of the main window, and the list of every
-//* floating panel.
+//* Fills the draw list of the main window, and the list of every floating panel.
 build_draw_list :: proc(g: ^GUI) {
 	g.target = &g.draw
+	g.draw.scale = g.scale
 	draw_list_clear(g.target, g.viewport)
 	if g.root != INVALID_WIDGET_ID {
 		draw_widget(g, g.root)
 		draw_drag_overlay(g)
-		//* The inspector is on top of everything, so that it can be
-		//* read whatever is under it.
 		draw_inspector(g)
 	}
 
 	for &f in g.floats {
-		rect := Rect{x = 0, y = 0, w = f.size.x, h = f.size.y}
+		rect := Rect {
+			x = 0,
+			y = 0,
+			w = f.size.x,
+			h = f.size.y,
+		}
 		g.target = &f.draw
+		f.draw.scale = g.scale
 		draw_list_clear(g.target, rect)
 		draw_widget(g, f.widget)
 	}
@@ -29,14 +32,14 @@ build_draw_list :: proc(g: ^GUI) {
 
 draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
-	if !(.Visible in w.state) { return }
+	if w == nil {return}
+	if !(.Visible in w.state) {return}
 	//* A widget being dragged is drawn at a floating ghost instead.
 	//* A panel that is a window of its own keeps being drawn: it is
 	//* the window that moves.
-	if g.drag.active && id == g.drag.widget && g.drag.float_index < 0 { return }
+	if g.drag.active && id == g.drag.widget && g.drag.float_index < 0 {return}
 	//* A tab that is not showing is not drawn at all.
-	if is_hidden_tab(g, id) { return }
+	if is_hidden_tab(g, id) {return}
 
 	//* The hooks of the widget: the ones of its class, or the ones of
 	//* its kind.
@@ -49,14 +52,10 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 		kind.update(g, id, w, g.dt)
 	}
 
-	//* The theme's style for the widget, with the widget's own style
-	//* on top of it.
 	style := resolved_style(g, w)
 
-	//* The children of the widget are cut to its own rect, unless it
-	//* says otherwise.
 	clipped := w.clip_contents
-	if clipped { draw_push_clip(g.target, w.rect) }
+	if clipped {draw_push_clip(g.target, w.rect)}
 
 	bg := resolved_bg(g, id, w)
 	radius := stylebox_radius(&style.box)
@@ -86,8 +85,6 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 
 	colour := resolved_text_colour(g, id, w)
 
-	//* The look of the widget has been drawn again, so it is not out of
-	//* date any more.
 	w.dirty -= Dirty_Flags{.Visual}
 	w.subtree_dirty -= Dirty_Flags{.Visual}
 
@@ -110,38 +107,29 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 		}
 	}
 
-	//* The children of the widget. A widget that draws them itself says
-	//* to, and the core leaves them alone.
 	if kind.draw == nil || !kind.owns_children {
 		draw_children(g, id, w)
 	}
 
-	//* The edges that can be pulled are marked, so the grip of the
-	//* panel under the pointer is visible.
 	if id == g.resize_hover {
 		draw_resize_grip(g, id, g.resize_hover_edges)
 	}
 
-	//* The widget that has the keyboard focus says so.
 	if g.focused == id && (.Enabled in w.state) {
 		draw_focus_ring(g, w)
 	}
 
-	if clipped { draw_pop_clip(g.target) }
+	if clipped {draw_pop_clip(g.target)}
 }
 
-//* The children of a widget, drawn one after the other. The number a
-//* child has in the order of the drawing decides when it is drawn: a
-//* child with a higher number is drawn later, so it lies on top of the
-//* others.
 draw_children :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
-	if w == nil { return }
+	if w == nil {return}
 	children: [dynamic]Widget_ID
 	defer delete(children)
 	z_sorted_children(g, w, &children)
 	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil { continue }
+		if c == nil {continue}
 		draw_widget(g, child)
 	}
 }
@@ -151,7 +139,7 @@ draw_children :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 draw_focus_ring :: proc(g: ^GUI, w: ^Widget) {
 	style := resolved_style(g, w)
 	colour := style.text.focus_colour
-	if colour.a == 0 { colour = RGBA(0.35, 0.74, 1.0, 0.9) }
+	if colour.a == 0 {colour = RGBA(0.35, 0.74, 1.0, 0.9)}
 	r := w.rect
 	t := f32(2)
 	draw_quad(
@@ -184,16 +172,20 @@ draw_focus_ring :: proc(g: ^GUI, w: ^Widget) {
 	)
 }
 
-//* The edges of a panel that can be pulled, drawn along the border of
-//* the panel.
 draw_resize_grip :: proc(g: ^GUI, id: Widget_ID, edges: Resize_Edges) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	r := w.rect
 	c := RGBA(0.35, 0.74, 1.0, 1)
 	t := f32(2)
 	if .Left in edges {
-		draw_quad(g.target, Rect{x = r.x, y = r.y, w = t, h = r.h}, g.atlas.white_uv, c, g.atlas_texture)
+		draw_quad(
+			g.target,
+			Rect{x = r.x, y = r.y, w = t, h = r.h},
+			g.atlas.white_uv,
+			c,
+			g.atlas_texture,
+		)
 	}
 	if .Right in edges {
 		draw_quad(
@@ -205,7 +197,13 @@ draw_resize_grip :: proc(g: ^GUI, id: Widget_ID, edges: Resize_Edges) {
 		)
 	}
 	if .Top in edges {
-		draw_quad(g.target, Rect{x = r.x, y = r.y, w = r.w, h = t}, g.atlas.white_uv, c, g.atlas_texture)
+		draw_quad(
+			g.target,
+			Rect{x = r.x, y = r.y, w = r.w, h = t},
+			g.atlas.white_uv,
+			c,
+			g.atlas_texture,
+		)
 	}
 	if .Bottom in edges {
 		draw_quad(
@@ -232,7 +230,12 @@ draw_header :: proc(g: ^GUI, w: ^Widget, style: Style) {
 			g.atlas_texture,
 		)
 	}
-	title := Rect{x = h.x + 8, y = h.y, w = h.w - 16, h = h.h}
+	title := Rect {
+		x = h.x + 8,
+		y = h.y,
+		w = h.w - 16,
+		h = h.h,
+	}
 	draw_text(g, style.text, w.name, title, resolved_text_colour(g, w.id, w))
 }
 
@@ -249,7 +252,7 @@ draw_tab_bar :: proc(g: ^GUI, w: ^Widget) {
 	child := w.first_child
 	for i in 0 ..< n {
 		c := Widget_Get(g, child)
-		if c == nil { break }
+		if c == nil {break}
 		r := rect_intersect(rects[i], bar)
 		if r.w > 0 {
 			bg := RGBA(0.13, 0.14, 0.17, 1)
@@ -259,7 +262,12 @@ draw_tab_bar :: proc(g: ^GUI, w: ^Widget) {
 				fg = RGBA(0.93, 0.95, 0.98, 1)
 			}
 			draw_quad(g.target, r, g.atlas.white_uv, bg, g.atlas_texture)
-			label := Rect{x = r.x + TAB_PADDING, y = r.y, w = r.w - TAB_PADDING * 2, h = r.h}
+			label := Rect {
+				x = r.x + TAB_PADDING,
+				y = r.y,
+				w = r.w - TAB_PADDING * 2,
+				h = r.h,
+			}
 			Font_Draw(g, Font_Of(g, c), c.name, label, fg, .Left)
 		}
 		child = c.next_sibling
@@ -281,7 +289,7 @@ content_rect :: proc(g: ^GUI, w: ^Widget) -> Rect {
 
 //* A rect without the padding it is given.
 content_rect_with :: proc(rect: Rect, pad: [4]f32) -> Rect {
-	return Rect{
+	return Rect {
 		x = rect.x + pad[0],
 		y = rect.y + pad[1],
 		w = rect.w - pad[0] - pad[2],
@@ -295,7 +303,13 @@ draw_text_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect, style
 	case Text_Input_Data:
 		tel := text_input_selection_rect(g, id, content)
 		if tel.w > 0 {
-			draw_quad(g.target, tel, g.atlas.white_uv, RGBA(0.25, 0.45, 0.78, 0.55), g.atlas_texture)
+			draw_quad(
+				g.target,
+				tel,
+				g.atlas.white_uv,
+				RGBA(0.25, 0.45, 0.78, 0.55),
+				g.atlas_texture,
+			)
 		}
 
 		font := Font_Of(g, w)
@@ -326,7 +340,7 @@ draw_text_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect, style
 	}
 }
 
-//* == The dock preview ==
+//* == dock preview ==
 //* While a panel is being dragged the tree shows what would happen:
 //* the places it can go, the rect it would occupy and the panel
 //* itself, opaque, in that rect.
@@ -336,7 +350,7 @@ draw_text_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect, style
 //* aside, the slot it came from - it is grey.
 
 draw_drag_overlay :: proc(g: ^GUI) {
-	if !g.drag.active { return }
+	if !g.drag.active {return}
 	plan := &g.drag.plan
 
 	if t := Widget_Get(g, g.drag.target); t != nil {
@@ -345,7 +359,13 @@ draw_drag_overlay :: proc(g: ^GUI) {
 
 	//* The content that gets pushed aside.
 	for i in 0 ..< plan.other_count {
-		draw_quad(g.target, plan.others[i], g.atlas.white_uv, RGBA(0.60, 0.63, 0.70, 0.12), g.atlas_texture)
+		draw_quad(
+			g.target,
+			plan.others[i],
+			g.atlas.white_uv,
+			RGBA(0.60, 0.63, 0.70, 0.12),
+			g.atlas_texture,
+		)
 		draw_outline(g, plan.others[i], RGBA(0.64, 0.67, 0.74, 0.45), 1)
 	}
 
@@ -355,10 +375,16 @@ draw_drag_overlay :: proc(g: ^GUI) {
 	case .Tabs:
 		//* The strip with the tabs it would show. The new tab is the
 		//* place the panel would land, so it is the bright one.
-		draw_quad(g.target, plan.tab_bar, g.atlas.white_uv, RGBA(0.10, 0.11, 0.13, 0.9), g.atlas_texture)
+		draw_quad(
+			g.target,
+			plan.tab_bar,
+			g.atlas.white_uv,
+			RGBA(0.10, 0.11, 0.13, 0.9),
+			g.atlas_texture,
+		)
 		for i in 0 ..< plan.tab_button_count {
 			r := rect_intersect(plan.tab_buttons[i], plan.tab_bar)
-			if r.w <= 0 { continue }
+			if r.w <= 0 {continue}
 			bg := RGBA(0.13, 0.14, 0.17, 0.95)
 			fg := RGBA(0.58, 0.61, 0.68, 1)
 			if i == plan.tab_index {
@@ -369,7 +395,12 @@ draw_drag_overlay :: proc(g: ^GUI) {
 			if i < plan.tab_widget_count {
 				w := Widget_Get(g, plan.tab_widgets[i])
 				if w != nil {
-					label := Rect{x = r.x + TAB_PADDING, y = r.y, w = r.w - TAB_PADDING * 2, h = r.h}
+					label := Rect {
+						x = r.x + TAB_PADDING,
+						y = r.y,
+						w = r.w - TAB_PADDING * 2,
+						h = r.h,
+					}
 					Font_Draw(g, Font_Of(g, w), w.name, label, fg, .Left)
 				}
 			}
@@ -403,8 +434,14 @@ draw_dock_zone :: proc(g: ^GUI, rect: Rect, zone: Dock_Zone) {
 	n := dock_zone_rects(rect, &rects)
 	active := dock_zone_index(zone)
 	for i in 0 ..< n {
-		if i == active { continue }
-		draw_quad(g.target, rects[i], g.atlas.white_uv, RGBA(0.60, 0.63, 0.70, 0.09), g.atlas_texture)
+		if i == active {continue}
+		draw_quad(
+			g.target,
+			rects[i],
+			g.atlas.white_uv,
+			RGBA(0.60, 0.63, 0.70, 0.09),
+			g.atlas_texture,
+		)
 		draw_outline(g, rects[i], RGBA(0.64, 0.67, 0.74, 0.26), 1)
 	}
 }
@@ -412,40 +449,72 @@ draw_dock_zone :: proc(g: ^GUI, rect: Rect, zone: Dock_Zone) {
 //* The panel, drawn at it would appear in the preview rect. The rect
 //* is the place the panel would land, so it is marked in blue.
 draw_panel_preview :: proc(g: ^GUI, rect: Rect, id: Widget_ID) {
-	if rect.w <= 0 || rect.h <= 0 { return }
+	if rect.w <= 0 || rect.h <= 0 {return}
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil {return}
 	bg := resolved_style(g, w).box.bg_color
-	if bg.a == 0 { bg = RGBA(0.16, 0.17, 0.21, 1) }
+	if bg.a == 0 {bg = RGBA(0.16, 0.17, 0.21, 1)}
 	draw_quad(g.target, rect, g.atlas.white_uv, bg, g.atlas_texture)
 	draw_quad(g.target, rect, g.atlas.white_uv, RGBA(0.24, 0.62, 1.0, 0.28), g.atlas_texture)
 	draw_outline(g, rect, RGBA(0.35, 0.74, 1.0, 1), 3)
-	title := Rect{x = rect.x + 8, y = rect.y, w = rect.w - 16, h = HEADER_HEIGHT}
+	title := Rect {
+		x = rect.x + 8,
+		y = rect.y,
+		w = rect.w - 16,
+		h = HEADER_HEIGHT,
+	}
 	Font_Draw(g, Font_Of(g, w), w.name, title, RGBA(1, 1, 1, 1), .Left)
 }
 
-//* The panel that follows the pointer. It is grey, because it is not
-//* the place the panel would land.
 draw_ghost :: proc(g: ^GUI) {
 	w := Widget_Get(g, g.drag.widget)
-	if w == nil { return }
+	if w == nil {return}
 	ghost := g.drag.ghost
-	if ghost.w <= 0 || ghost.h <= 0 { return }
+	if ghost.w <= 0 || ghost.h <= 0 {return}
 	bg := resolved_style(g, w).box.bg_color
-	if bg.a == 0 { bg = RGBA(0.18, 0.19, 0.23, 1) }
+	if bg.a == 0 {bg = RGBA(0.18, 0.19, 0.23, 1)}
 	draw_quad(g.target, ghost, g.atlas.white_uv, RGBA(bg.r, bg.g, bg.b, 0.9), g.atlas_texture)
 	draw_outline(g, ghost, RGBA(0.70, 0.73, 0.80, 0.9), 1)
-	title := Rect{x = ghost.x + 8, y = ghost.y, w = ghost.w - 16, h = HEADER_HEIGHT}
+	title := Rect {
+		x = ghost.x + 8,
+		y = ghost.y,
+		w = ghost.w - 16,
+		h = HEADER_HEIGHT,
+	}
 	Font_Draw(g, Font_Of(g, w), w.name, title, RGBA(1, 1, 1, 1), .Left)
 }
 
 //* A rectangle outline, drawn at four edges.
 draw_outline :: proc(g: ^GUI, r: Rect, c: Colour, t: f32) {
-	if t <= 0 || r.w <= 0 || r.h <= 0 { return }
-	draw_quad(g.target, Rect{x = r.x, y = r.y, w = r.w, h = t}, g.atlas.white_uv, c, g.atlas_texture)
-	draw_quad(g.target, Rect{x = r.x, y = r.y + r.h - t, w = r.w, h = t}, g.atlas.white_uv, c, g.atlas_texture)
-	draw_quad(g.target, Rect{x = r.x, y = r.y + t, w = t, h = r.h - t * 2}, g.atlas.white_uv, c, g.atlas_texture)
-	draw_quad(g.target, Rect{x = r.x + r.w - t, y = r.y + t, w = t, h = r.h - t * 2}, g.atlas.white_uv, c, g.atlas_texture)
+	if t <= 0 || r.w <= 0 || r.h <= 0 {return}
+	draw_quad(
+		g.target,
+		Rect{x = r.x, y = r.y, w = r.w, h = t},
+		g.atlas.white_uv,
+		c,
+		g.atlas_texture,
+	)
+	draw_quad(
+		g.target,
+		Rect{x = r.x, y = r.y + r.h - t, w = r.w, h = t},
+		g.atlas.white_uv,
+		c,
+		g.atlas_texture,
+	)
+	draw_quad(
+		g.target,
+		Rect{x = r.x, y = r.y + t, w = t, h = r.h - t * 2},
+		g.atlas.white_uv,
+		c,
+		g.atlas_texture,
+	)
+	draw_quad(
+		g.target,
+		Rect{x = r.x + r.w - t, y = r.y + t, w = t, h = r.h - t * 2},
+		g.atlas.white_uv,
+		c,
+		g.atlas_texture,
+	)
 }
 
 draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
@@ -492,28 +561,18 @@ draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
 	}
 }
 
-//* == The shapes ==
-
-//* A rectangle of the UI. When the corners are rounded and the backend
+//* When the corners are rounded and the backend
 //* has a shader, the corners are cut by the fragment shader; a backend
 //* without one gets them cut on the CPU, with a polygon.
 draw_rect :: proc(g: ^GUI, r: Rect, colour: Colour, radius: f32) {
-	if colour.a <= 0 { return }
-	if r.w <= 0 || r.h <= 0 { return }
+	if colour.a <= 0 {return}
+	if r.w <= 0 || r.h <= 0 {return}
 	if radius <= 0 {
 		draw_quad(g.target, r, g.atlas.white_uv, colour, g.atlas_texture)
 		return
 	}
 	if g.backend.supports_shapes {
-		draw_quad_shape(
-			g.target,
-			r,
-			g.atlas.white_uv,
-			colour,
-			g.atlas_texture,
-			.Solid,
-			radius,
-		)
+		draw_quad_shape(g.target, r, g.atlas.white_uv, colour, g.atlas_texture, .Solid, radius)
 		return
 	}
 	draw_round_polygon(g, r, colour, radius)
@@ -535,7 +594,7 @@ draw_round_polygon :: proc(g: ^GUI, r: Rect, colour: Colour, radius: f32) {
 	//* The four corners, and the angle each of them starts at. The
 	//* y axis grows downwards, so the angles turn the other way round
 	//* from the ones of a piece of paper.
-	centres := [4][2]f32{
+	centres := [4][2]f32 {
 		{r.x + rad, r.y + rad},
 		{r.x + r.w - rad, r.y + rad},
 		{r.x + r.w - rad, r.y + r.h - rad},
@@ -550,7 +609,7 @@ draw_round_polygon :: proc(g: ^GUI, r: Rect, colour: Colour, radius: f32) {
 	for c in 0 ..< 4 {
 		for t in 0 ..= CORNER_SEGMENTS {
 			a := (starts[c] + 90 * f32(t) / f32(CORNER_SEGMENTS)) * math.PI / 180
-			points[n] = [2]f32{
+			points[n] = [2]f32 {
 				centres[c][0] + rad * math.cos(a),
 				centres[c][1] + rad * math.sin(a),
 			}

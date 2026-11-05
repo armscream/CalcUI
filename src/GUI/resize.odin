@@ -10,17 +10,11 @@ package GUI
 //* container moves instead, and the container changes size in its own
 //* parent. A panel that is in a tab host is the content of that host,
 //* so the host is what changes size.
-//*
-//* The size a panel ends up with is kept, so the layout does not take
-//* it away again: a panel that was pulled wider stays wider.
 
 //* The width of the band around a panel that a pull can grab.
 RESIZE_GRIP :: 6
 
-//* The smallest size a panel can be pulled down to.
 RESIZE_MIN_SIZE :: 24
-
-//* == The grips ==
 
 //* True when the panel has a title bar of its own. A panel that lives
 //* in a tab strip is titled by its tab, so it has none.
@@ -36,11 +30,8 @@ resize_grip :: proc(g: ^GUI, w: ^Widget, p: Vec2) -> Resize_Edges {
 	if r.w <= 0 || r.h <= 0 {return edges}
 	if !rect_contains(r, p.x, p.y) {return edges}
 
-	//* The title bar is not a grip: a pull there moves the panel.
 	if has_header_of(g, w) && p.y < r.y + HEADER_HEIGHT {return edges}
 
-	//* A panel that is too small for two bands has one edge only, so
-	//* the bands never overlap.
 	if r.w > RESIZE_GRIP * 2 {
 		if p.x - r.x <= RESIZE_GRIP {edges += Resize_Edges{.Left}}
 		if r.x + r.w - p.x <= RESIZE_GRIP {edges += Resize_Edges{.Right}}
@@ -54,8 +45,6 @@ resize_grip :: proc(g: ^GUI, w: ^Widget, p: Vec2) -> Resize_Edges {
 
 //* The panel whose grip is under the pointer, and the edges it holds.
 find_resize_grip :: proc(g: ^GUI, global: Vec2) -> (id: Widget_ID, edges: Resize_Edges) {
-	//* A floating panel is a window of its own and sits on top of the
-	//* tree, so it is looked at first.
 	for i := len(g.floats) - 1; i >= 0; i -= 1 {
 		f := g.floats[i]
 		local := Vec2{global.x - f.pos.x, global.y - f.pos.y}
@@ -85,16 +74,12 @@ resize_grip_in :: proc(g: ^GUI, id: Widget_ID, p: Vec2) -> (Widget_ID, Resize_Ed
 		child = c.prev_sibling
 	}
 
-	//* A panel that is not draggable is not a window, so it has no
-	//* edges to pull.
 	if !w.draggable {return INVALID_WIDGET_ID, Resize_Edges{}}
 
 	edges := resize_grip(g, w, p)
 	if edges == (Resize_Edges{}) {return INVALID_WIDGET_ID, Resize_Edges{}}
 	return id, edges
 }
-
-//* == The sizes ==
 
 //* True when the panel keeps the size it was pulled to, instead of
 //* taking a share of the space of its parent.
@@ -130,12 +115,8 @@ keep_size :: proc(g: ^GUI, w: ^Widget, horizontal: bool, size: f32) {
 		w.manual_h = true
 		w.manual_size.y = sized
 	}
-	//* The panel keeps the size it was pulled to, so it is placed
-	//* again.
 	invalidate(g, w.id, Dirty_Flags{.Arrange, .Hit})
 }
-
-//* == The resize ==
 
 //* The resize that is not running. The index of the floating panel is
 //* FLOAT_NONE, so that a resize that is not running does not point at
@@ -152,11 +133,9 @@ resize_begin :: proc(g: ^GUI, id: Widget_ID, edges: Resize_Edges, global: Vec2) 
 	g.resize.origin = global
 	g.resize.last = global
 	g.resize.float_index = float_of(g, id)
-	//* The panel is pulled from now on, so it is placed again.
 	invalidate(g, id, Dirty_Flags{.Arrange, .Hit})
 }
 
-//* Moves the edges of the panel with the pointer.
 resize_update :: proc(g: ^GUI, global: Vec2) {
 	if !g.resize.active {return}
 	dx := global.x - g.resize.last.x
@@ -165,8 +144,6 @@ resize_update :: proc(g: ^GUI, global: Vec2) {
 	if dx == 0 && dy == 0 {return}
 
 	edges := g.resize.edges
-	//* How far each edge moves. An edge that was not grabbed does not
-	//* move at all.
 	dl, dr, dt, db := f32(0), f32(0), f32(0), f32(0)
 	if .Left in edges {dl = dx}
 	if .Right in edges {dr = dx}
@@ -174,19 +151,13 @@ resize_update :: proc(g: ^GUI, global: Vec2) {
 	if .Bottom in edges {db = dy}
 
 	if g.resize.float_index >= 0 {
-		//* The panel is a window of its own: the window is what
-		//* changes size.
 		resize_float(g, g.resize.float_index, dl, dt, dr, db)
 	} else {
 		resize_widget(g, g.resize.widget, dl, dt, dr, db)
 	}
-	//* The edges moved, so the panel and the panels around it are
-	//* placed again.
 	invalidate(g, g.resize.widget, Dirty_Flags{.Arrange, .Hit})
 }
 
-//* Ends the resize. The size the panel ended up with is kept, and the
-//* program is told about it.
 resize_end :: proc(g: ^GUI) {
 	if !g.resize.active {
 		g.resize = resize_state_none()
@@ -195,16 +166,12 @@ resize_end :: proc(g: ^GUI) {
 	id := g.resize.widget
 	size := Vec2{}
 	if g.resize.float_index >= 0 && g.resize.float_index < len(g.floats) {
-		//* A panel that is a window of its own has the size of the
-		//* window.
 		size = g.floats[g.resize.float_index].size
 	} else {
 		w := Widget_Get(g, id)
 		if w != nil {size = Vec2{w.manual_size.x, w.manual_size.y}}
 	}
 	g.resize = resize_state_none()
-	//* The panel keeps the size it was pulled to, so it is placed
-	//* again.
 	invalidate(g, id, Dirty_Flags{.Arrange, .Hit})
 	signal_resized(g, id, size)
 }
@@ -214,8 +181,6 @@ resize_end :: proc(g: ^GUI) {
 resize_cancel :: proc(g: ^GUI) {
 	resize_end(g)
 }
-
-//* == Moving the edges ==
 
 //* The axis a split or a box divides its children along. A split
 //* takes its direction from its own data, a box from its type.
@@ -245,25 +210,16 @@ resize_widget :: proc(g: ^GUI, id: Widget_ID, dl, dt, dr, db: f32) {
 		horizontal := container_horizontal(p)
 		if horizontal {
 			resize_in_container(g, p, w, true, dl, dr)
-			//* The height of the panel is the height of the split,
-			//* so the split is what changes.
 			if dt != 0 || db != 0 {resize_widget(g, p.id, 0, dt, 0, db)}
 		} else {
 			resize_in_container(g, p, w, false, dt, db)
-			//* The width of the panel is the width of the split, so
-			//* the split is what changes.
 			if dl != 0 || dr != 0 {resize_widget(g, p.id, dl, 0, dr, 0)}
 		}
 	case .Tabs:
-		//* A tab fills the content of its host, so the host is the
-		//* thing that changes size.
 		resize_widget(g, p.id, dl, dt, dr, db)
 	case:
-		//* A plain panel places its children by anchors: the offsets
-		//* are what move the edges.
 		resize_by_offset(g, w, dl, dt, dr, db)
 	}
-	//* The edges moved, so the panel is placed again.
 	invalidate(g, w.id, Dirty_Flags{.Arrange, .Hit})
 }
 
@@ -278,46 +234,30 @@ resize_by_offset :: proc(g: ^GUI, w: ^Widget, dl_in, dt_in, dr_in, db_in: f32) {
 	room_w := w.rect.w - w.min_size.x
 	room_h := w.rect.h - w.min_size.y
 
-	//* The left edge moves to the right: the panel gets narrower.
 	if dl > 0 && dl > room_w {dl = room_w}
-	//* The right edge moves to the left: the panel gets narrower.
 	if dr < 0 && -dr > room_w {dr = -room_w}
-	//* The top edge moves down: the panel gets shorter.
 	if dt > 0 && dt > room_h {dt = room_h}
-	//* The bottom edge moves up: the panel gets shorter.
 	if db < 0 && -db > room_h {db = -room_h}
 
 	w.offsets.left += dl
 	w.offsets.right += dr
 	w.offsets.top += dt
 	w.offsets.bottom += db
-	//* The panel sits in another place in its parent now, so the
-	//* parent lays it out again.
 	invalidate(g, w.id, Dirty_Flags{.Arrange, .Hit})
 }
 
-//* Resizes a child of a split or a box along the axis of that
-//* container. The edge that moves takes its space from the child on
-//* the far side of that edge. When there is no such child, the edge
-//* of the container moves, and the container changes size in its own
-//* parent.
+
 resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d_neg, d_pos: f32) {
-	//* The left or the top edge: the space goes to the child before.
 	if d_neg != 0 {
 		prev := Widget_Get(g, w.prev_sibling)
 		change := d_neg
 		if change > 0 {
-			//* The panel narrows: it cannot go below its minimum.
 			change = min(change, size_of(w, horizontal) - min_size_of(w, horizontal))
 		} else if prev != nil {
-			//* The panel widens: the child before it narrows, and it
-			//* cannot go below its minimum either.
 			change = max(change, min_size_of(prev, horizontal) - size_of(prev, horizontal))
 		}
 
 		if prev == nil {
-			//* There is no child before this one: the edge of the
-			//* container moves.
 			if horizontal {
 				resize_widget(g, p.id, change, 0, 0, 0)
 			} else {
@@ -329,13 +269,10 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 		keep_size(g, w, horizontal, size_of(w, horizontal) - change)
 	}
 
-	//* The right or the bottom edge: the space comes from the child
-	//* after.
 	if d_pos != 0 {
 		next := Widget_Get(g, w.next_sibling)
 		change := d_pos
 		if change > 0 {
-			//* The panel widens: the child after it narrows.
 			if next != nil {
 				change = min(change, size_of(next, horizontal) - min_size_of(next, horizontal))
 			}
@@ -345,8 +282,7 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 		}
 
 		if next == nil {
-			//* There is no child after this one: the edge of the
-			//* container moves.
+			//* There is no child after this one: the edge of the container moves.
 			if horizontal {
 				resize_widget(g, p.id, 0, 0, change, 0)
 			} else {
@@ -358,8 +294,6 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 		keep_size(g, w, horizontal, size_of(w, horizontal) + change)
 	}
 }
-
-//* == Floating panels ==
 
 //* Resizes a floating panel. The panel has a window of its own, so
 //* the window is what changes size. An edge that is pulled moves the
@@ -375,8 +309,6 @@ resize_float :: proc(g: ^GUI, index: int, dl_in, dt_in, dr_in, db_in: f32) {
 		minimum.y = max(minimum.y, w.min_size.y)
 	}
 
-	//* A panel cannot get smaller than its minimum, so an edge that
-	//* is pulled stops when the panel is at its smallest.
 	dl, dr := dl_in, dr_in
 	dt, db := dt_in, db_in
 	if dl != 0 && f.size.x - dl < minimum.x {dl = f.size.x - minimum.x}
@@ -389,8 +321,6 @@ resize_float :: proc(g: ^GUI, index: int, dl_in, dt_in, dr_in, db_in: f32) {
 	f.size.x += dr - dl
 	f.size.y += db - dt
 }
-
-//* == The pointer ==
 
 //* The grip under the pointer, and the cursor that goes with it. The
 //* cursor is what tells the user that the edge can be pulled.
@@ -414,7 +344,6 @@ update_resize_hover :: proc(g: ^GUI) {
 	g.cursor = cursor_of(edges)
 }
 
-//* The cursor that goes with the edges that can be pulled.
 cursor_of :: proc(edges: Resize_Edges) -> Cursor {
 	horizontal := .Left in edges || .Right in edges
 	vertical := .Top in edges || .Bottom in edges

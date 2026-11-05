@@ -1,15 +1,9 @@
-//* == The commands of the program ==
-//* A command is a thing the program can do, with the key that does it.
-//* The command palette shows the commands, and the keys of the
-//* shortcuts are given to the command they belong to.
-
 package GUI
 
 Shortcut :: struct {
 	key:    Key,
 	mods:   Mods,
-	//* Whether the command is done even when a widget that takes text
-	//* has the keyboard.
+//* Whether the command is done even when a widget that takes text has the keyboard.
 	always: bool,
 }
 
@@ -41,13 +35,12 @@ Command_Add :: proc(
 	return len(g.commands.list) - 1
 }
 
-//* Turns a command on or off.
 Command_Set_Enabled :: proc(g: ^GUI, index: int, enabled: bool) {
 	if index < 0 || index >= len(g.commands.list) {return}
 	g.commands.list[index].enabled = enabled
 }
 
-//* The number of a command, by its name, or -1.
+// returns -1 when there is no command with that name.
 Command_Find :: proc(g: ^GUI, name: string) -> int {
 	for command, i in g.commands.list {
 		if command.name == name {return i}
@@ -58,8 +51,6 @@ Command_Find :: proc(g: ^GUI, name: string) -> int {
 //* True when the key and the modifiers are the shortcut of a command.
 shortcut_matches :: proc(shortcut: Shortcut, key: Key, mods: Mods) -> bool {
 	if shortcut.key != key {return false}
-	//* The modifiers of the shortcut have to be there, and the ones
-	//* that are not in it must not be.
 	if (mods & shortcut.mods) != shortcut.mods {return false}
 	if (mods & ~shortcut.mods) != (Mods{}) {return false}
 	return true
@@ -71,17 +62,13 @@ command_for_key :: proc(g: ^GUI, key: Key, mods: Mods, has_text: bool) -> int {
 	for command, i in g.commands.list {
 		if !command.enabled {continue}
 		if !shortcut_matches(command.shortcut, key, mods) {continue}
-		//* A widget that takes text has the keyboard: the keys that
-		//* belong to it are not the keys of the program, unless the
-		//* command says that it is always there.
 		if has_text && !command.shortcut.always {continue}
 		return i
 	}
 	return -1
 }
 
-//* Does the command of a key, if there is one. It says whether it was
-//* done.
+//* Executes the key command, if valid; returns result.
 shortcut_fire :: proc(g: ^GUI, key: Key, mods: Mods) -> bool {
 	has_text := widget_takes_text(g, g.focused)
 	index := command_for_key(g, key, mods, has_text)

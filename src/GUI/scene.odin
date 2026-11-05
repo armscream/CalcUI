@@ -1,8 +1,13 @@
-//* == The scene file ==
-//* A scene file describes a tree of widgets in a text form, so that the
-//* look of a program can be written down without drawing it first. The
-//* format is the one of Godot: a list of nodes, and every node is a
-//* block of `key = value` lines that starts with a `[node ...]` line.
+//* The loader of scene files: a tree of widgets written down as text, in
+//* the format of Godot. The keys, the anchors, the styles and the rules
+//* of the loader are in docs/scene-format.md.
+
+package GUI
+
+//* == Scene file ==
+//* A scene file describes a tree of widgets in a text form: a list of
+//* nodes, and every node is a block of `key = value` lines that starts
+//* with a `[node ...]` line.
 //*
 //*   [node name="Root" type="Panel"]
 //*       anchors = {0, 0, 1, 1}
@@ -19,8 +24,6 @@
 //* constructor is skipped as well, and its children go to the node it
 //* would have hung under.
 
-package GUI
-
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -28,17 +31,8 @@ import virt "core:mem/virtual"
 import "core:strconv"
 import "core:strings"
 
-//* == The registry of the constructors ==
-//* The loader does not know how a widget is made: it asks for it. A
-//* program that brings a widget of its own puts its constructor in the
-//* table, and a scene file can then use it.
-//
-//* The table belongs to the GUI, so two programs in the same process do
-//* not tread on each other's widgets.
-
 Scene_Constructor :: proc(g: ^GUI, parent: Widget_ID, name: string, text: string) -> Widget_ID
 
-//* Puts the constructor of a kind of widget in the table of the GUI.
 scene_register :: proc(g: ^GUI, widget_type: Widget_Type, constructor: Scene_Constructor) {
 	if g == nil {return}
 	index := int(widget_type)
@@ -48,15 +42,12 @@ scene_register :: proc(g: ^GUI, widget_type: Widget_Type, constructor: Scene_Con
 	g.scene_constructors[index] = constructor
 }
 
-//* The constructor of a kind of widget, if there is one.
 scene_constructor :: proc(g: ^GUI, widget_type: Widget_Type) -> Scene_Constructor {
 	if g == nil {return nil}
 	index := int(widget_type)
 	if index < 0 || index >= len(g.scene_constructors) {return nil}
 	return g.scene_constructors[index]
 }
-
-//* == The constructors of the widgets that exist today ==
 
 scene_constructor_panel :: proc(
 	g: ^GUI,
@@ -420,7 +411,6 @@ scene_constructor_h_separator :: proc(
 	text: string,
 ) -> Widget_ID {
 	id := Make_Separator(g, parent, false)
-	//* The separator does not take a name of its own.
 	if w := Widget_Get(g, id); w != nil {w.name = name}
 	return id
 }
@@ -488,8 +478,6 @@ scene_constructor_file_dialog :: proc(
 ) -> Widget_ID {
 	return Make_File_Dialog(g, parent, File_Dialog_Opts{Base_Opts = Base_Opts{name = name}})
 }
-
-//* == The constructors of the widgets that came later ==
 
 scene_constructor_toast :: proc(
 	g: ^GUI,
@@ -669,7 +657,7 @@ scene_constructor_tooltip :: proc(
 	return Make_Tooltip(g, parent, Tooltip_Opts{Base_Opts = Base_Opts{name = name}, text = text})
 }
 
-//* == The constructors of the heavy widgets ==
+//* == Constructors for heavy widgets ==
 
 scene_constructor_chart :: proc(
 	g: ^GUI,
@@ -794,7 +782,6 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register(g, .ConfirmationDialog, scene_constructor_confirmation_dialog)
 	scene_register(g, .FileDialog, scene_constructor_file_dialog)
 
-	//* The widgets that came later.
 	scene_register(g, .Toast, scene_constructor_toast)
 	scene_register(g, .CommandPalette, scene_constructor_command_palette)
 	scene_register(g, .Rating, scene_constructor_rating)
@@ -814,7 +801,6 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register(g, .NumberInput, scene_constructor_number_input)
 	scene_register(g, .Tooltip, scene_constructor_tooltip)
 
-	//* The heavy widgets.
 	scene_register(g, .Chart, scene_constructor_chart)
 	scene_register(g, .NodeGraph, scene_constructor_node_graph)
 	scene_register(g, .Canvas, scene_constructor_canvas)
@@ -824,10 +810,6 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register(g, .AudioPlayer, scene_constructor_audio_player)
 }
 
-//* == The nodes of a scene file ==
-
-//* One node of a scene file: what the file says about a widget. The
-//* flags say which of the numbers the file gave.
 Scene_Node :: struct {
 	name:                string,
 	type:                string,
@@ -856,8 +838,6 @@ Scene_Node :: struct {
 	has_font_size:       bool,
 	has_visible:         bool,
 }
-
-//* == The parser ==
 
 //* Reads a scene file into the nodes it describes. The strings of the
 //* nodes are made in the allocator that is given, so that the widgets
@@ -916,16 +896,15 @@ scene_is_node_header :: proc(line: string) -> bool {
 
 //* The value of an attribute of the head of a node, e.g. the "type" of
 //* `[node name="Root" type="Panel"]`. The value is empty when the node
-//* does not have the attribute. The value is made in the allocator that
-//* is given, so that it is there for as long as the widgets are.
+//* does not have the attribute, and it is made in the allocator that is
+//* given, so that it is there for as long as the widgets are.
 scene_attr :: proc(header: string, key: string, allocator: mem.Allocator) -> string {
 	at := 0
 	for at < len(header) {
 		found := strings.index(header[at:], key)
 		if found < 0 {return ""}
 		start := at + found
-		//* The key has to begin a word, or "type" would be found in
-		//* "prototype".
+		//* The key has to begin a word, or "type" would be found in "prototype".
 		if start > 0 {
 			c := header[start - 1]
 			if !scene_is_space(c) && c != '[' {
@@ -1024,12 +1003,8 @@ scene_string :: proc(value: string, allocator: mem.Allocator) -> string {
 	if end < 0 {return strings.clone(rest, allocator)}
 	body := rest[:end]
 
-	//* Nothing to work out: the text is a copy of the line itself.
 	if strings.index(body, "\\") < 0 {return strings.clone(body, allocator)}
 
-	//* The text is built in the allocator that is given, so that the
-	//* builder does not need to be given back: the text stays where
-	//* it is.
 	builder: strings.Builder
 	if _, err := strings.builder_init_len_cap(&builder, 0, len(body), allocator); err != nil {
 		return strings.clone(body, allocator)
@@ -1067,7 +1042,6 @@ scene_string :: proc(value: string, allocator: mem.Allocator) -> string {
 scene_numbers :: proc(value: string, out: []f32) -> int {
 	count := 0
 	i := 0
-	//* The numbers are in braces, or they are not: both are the same.
 	braced := false
 	for i < len(value) {
 		if value[i] == '{' {
@@ -1092,7 +1066,6 @@ scene_numbers :: proc(value: string, out: []f32) -> int {
 	return count
 }
 
-//* One number of a value.
 scene_number :: proc(value: string) -> (f32, bool) {
 	return strconv.parse_f32(strings.trim_space(value))
 }
@@ -1105,30 +1078,19 @@ scene_bool :: proc(value: string) -> (bool, bool) {
 	return false, false
 }
 
-//* Whether a character is a space.
 scene_is_space :: proc(c: u8) -> bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
 }
 
-//* == The loader ==
 
-//* Makes the widgets of a scene file and puts them in the tree. The
-//* widget of the first node is returned: it is the root of the scene.
-//* A file with no nodes gives back an invalid widget.
 scene_load :: proc(g: ^GUI, text: string) -> Widget_ID {
 	scene_register_defaults(g)
-
-	//* The strings of the nodes are made in the arena of the GUI, so
-	//* that the widgets that are made of them keep strings that are
-	//* there for as long as the GUI is.
 	nodes := scene_parse(text, virt.arena_allocator(&g.arena))
 	defer delete(nodes)
 
-	//* The widgets that are made, by the name of their node.
 	built := make(map[string]Widget_ID)
 	defer delete(built)
 
-	//* The nodes whose parent is not made yet.
 	waiting: [dynamic]int
 	defer delete(waiting)
 
@@ -1140,8 +1102,6 @@ scene_load :: proc(g: ^GUI, text: string) -> Widget_ID {
 		if node.parent != "" {
 			p, found := built[node.parent]
 			if !found {
-				//* The parent comes later in the file: the node waits
-				//* for it.
 				append(&waiting, i)
 				continue
 			}
@@ -1151,8 +1111,6 @@ scene_load :: proc(g: ^GUI, text: string) -> Widget_ID {
 		id := scene_make(g, node, parent)
 		if node.name != "" {
 			if id == INVALID_WIDGET_ID {
-				//* The node was skipped: its children go to the node
-				//* it would have hung under.
 				built[node.name] = parent
 			} else {
 				built[node.name] = id
@@ -1165,7 +1123,6 @@ scene_load :: proc(g: ^GUI, text: string) -> Widget_ID {
 		scene_make_waiting(g, nodes, &built, &waiting)
 	}
 
-	//* The nodes whose parent never came: they go to the root.
 	for i in waiting {
 		node := nodes[i]
 		log.warnf("scene: the parent %q of %q is not in the file", node.parent, node.name)
@@ -1175,7 +1132,6 @@ scene_load :: proc(g: ^GUI, text: string) -> Widget_ID {
 	return root
 }
 
-//* Makes the nodes that were waiting for their parent.
 scene_make_waiting :: proc(
 	g: ^GUI,
 	nodes: [dynamic]Scene_Node,
@@ -1228,7 +1184,6 @@ scene_make :: proc(g: ^GUI, node: Scene_Node, parent: Widget_ID) -> Widget_ID {
 	return scene_place(g, constructor(g, parent, node.name, node.text), node, widget_type)
 }
 
-//* Puts the look of a node on the widget that was made for it.
 scene_place :: proc(
 	g: ^GUI,
 	id: Widget_ID,
@@ -1239,7 +1194,6 @@ scene_place :: proc(
 	w := Widget_Get(g, id)
 	if w == nil {return INVALID_WIDGET_ID}
 
-	//* The node places the widget in its parent.
 	if node.has_anchors {
 		w.anchors = Anchor{node.anchors[0], node.anchors[1], node.anchors[2], node.anchors[3]}
 	}
@@ -1256,14 +1210,8 @@ scene_place :: proc(
 	if node.has_visible && !node.visible {
 		w.state -= Widget_State{.Visible}
 	}
-
-	//* The widget takes the theme, so that it has a look even when the
-	//* file says nothing about it.
 	w.use_theme = true
 	w.style = scene_style(node)
-
-	//* A rectangle of one colour takes its colour from the background
-	//* of the node.
 	if widget_type == .ColorRect && node.has_bg {
 		#partial switch &d in w.data {
 		case Color_Rect_Data:

@@ -1,16 +1,14 @@
-//* == The options of the widgets ==
-//* Every kind of widget has its own options, and they all share the
-//* options that every widget has. The shared ones are in Base_Opts, so
-//* a program only has to name the ones that are different.
-//
+package GUI
+
+//* == widget options ==
 //*   GUI.Make_Button(g, parent, GUI.Button_Opts{
 //*       Base_Opts = GUI.Base_Opts{name = "ok"},
 //       text = "OK",
 //   })
 
-package GUI
+//* The shared options are in Base_Opts, so
+//* a program only has to name the ones that are different.
 
-//* The options that every widget has.
 Base_Opts :: struct {
 	name:          string,
 	preset:        Anchor_Preset,
@@ -37,9 +35,11 @@ Base_Opts :: struct {
 	clip_contents: Clip_Contents,
 	tooltip:       string,
 	z_index:       int,
+	access_role:        Access_Role,
+	access_name:        string,
+	access_description: string,
 }
 
-//* The options of the primitive, made from the shared ones.
 base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
 	return Widget_Opts {
 		name = base.name,
@@ -65,11 +65,13 @@ base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
 		clip_contents = base.clip_contents,
 		tooltip = base.tooltip,
 		z_index = base.z_index,
+		access_role = base.access_role,
+		access_name = base.access_name,
+		access_description = base.access_description,
 	}
 }
 
-//* A style with a background, a border and a margin on every side. It
-//* is the shape most widgets want, so it is made here.
+//* A style with a background, a border and a margin on every side.
 base_style :: proc(bg: Colour, border: Colour, width: f32, margin: f32) -> Style {
 	return Style {
 		box = StyleBox {

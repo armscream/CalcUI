@@ -1,20 +1,16 @@
 # CalcUI
 
-[![Testing Status](https://github.com/armscream/CalcUI/actions/workflows/test.yml/badge.svg)](https://github.com/armscream/CalcUI/actions/workflows/test.yml)
+[![Tests](https://github.com/armscream/CalcUI/actions/workflows/test.yml/badge.svg)](https://github.com/armscream/CalcUI/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-LGPLv3.0-blue)](LICENSE)
 [![Language](https://img.shields.io/badge/language-Odin-orange)](https://odin-lang.org/)
 [![GitHub](https://img.shields.io/badge/github-repo-blue?logo=github)](https://github.com/armscream/CalcUI)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Pink?logo=github-sponsors)](https://github.com/sponsors/armscream)
 
-A GUI toolkit for [Odin](https://odin-lang.org/), built on SDL3 and the
-[Runa](src/GUI/dependencies/Runa) text engine.
+CalcUI is a retained-mode GUI toolkit written in [Odin](https://odin-lang.org/), built on SDL3 and the [Runa](src/GUI/dependencies/Runa) text engine.
 
-CalcUI is a *retained* mode GUI toolkit: a program builds a tree of widgets and keeps it. The widgets have their own identity, so a thing that happens to a widget can be found again, and the tree can be rearranged without losing anything.
+The toolkit uses a persistent widget tree. Widgets have their own identities and state, and can be moved or rearranged without having to rebuild the interface.
 
-The whole of a window is drawn in a single draw call. Everything the GUI
-draws — the solid rectangles, the glyphs of every font, the images —
-comes out of one atlas, and the clip is worked out while the draw list
-is built. One texture and one command.
+Rendering is batched into a single draw call per window. Rectangles, text and images share a texture atlas, with clipping handled during draw-list construction.
 
 ```odin
 import GUI "calcui/src/GUI"
@@ -36,109 +32,128 @@ GUI.Make_Button(g, g.root, GUI.Button_Opts{
 })
 ```
 
-## The parts
+## Project structure
 
-| Directory | What is in it |
+| Directory | Description |
 |---|---|
-| `src/GUI` | The toolkit itself: the widget tree, the layout, the draw pass, the text, the atlas, the theme. It knows nothing about SDL. |
-| `src/Backend` | The two backends: the SDL3 renderer and the SDL3 GPU (Vulkan, D3D12, Metal). |
-| `src/Window` | The window: the events, the popups, the cursor, the clipboard. |
-| `examples` | The examples, one directory each. |
-| `assets/fonts` | The typeface the examples use. |
-| `tools` | The small tools: the shaders, the picture of one frame. |
+| `src/GUI` | Core toolkit: widget tree, layout, rendering, text, atlas and themes. Independent of SDL. |
+| `src/Backend` | SDL3 renderer and SDL3 GPU backends (Vulkan, D3D12 and Metal). |
+| `src/Window` | Window management, events, popups, cursor and clipboard. |
+| `examples` | Example applications demonstrating the toolkit. |
+| `assets/fonts` | Fonts used by the examples. |
+| `tools` | Development tools, shaders and frame capture utilities. |
 
 ## Building
 
-The examples are built with [the Odin compiler](https://odin-lang.org/):
+CalcUI requires the [Odin compiler](https://odin-lang.org/).
 
-```
-examples\build.bat          # on Windows
-./examples/build.sh         # on Linux and macOS
+Build the examples:
+
+```sh
+# Windows
+examples\build.bat
+
+# Linux and macOS
+./examples/build.sh
 ```
 
-or one at a time:
+Or build an individual example:
 
-```
+```sh
 odin build examples\01_gallery -out:gallery.exe
 odin run examples\01_gallery
 ```
 
-The GPU backend is chosen with `--gpu`; without it the SDL3 renderer is
-used:
+The SDL3 renderer is used by default. Pass `--gpu` to use the SDL3 GPU backend:
 
-```
+```sh
 odin run examples\01_gallery -- --gpu
 ```
 
 ## Tests
 
-The toolkit has no window and no screen in its tests: they build a GUI
-with a backend that does nothing, and look at what comes out.
+The tests use a headless backend, allowing the widget tree and GUI logic to be tested without opening a window.
 
-```
+```sh
 odin test src\GUI
 odin check src\GUI -no-entry-point
 ```
 
 ## Custom widgets
 
-Every widget belongs to a *class*: the hooks that say how it is drawn,
-how big it is, what it does with the mouse and the keyboard. A program registers a class of its own and makes its widgets with it, and nothing outside the class has to be changed for the widget to work:
+Custom widgets are registered as classes. A class defines the callbacks used for drawing, measurement and input, along with optional lifecycle and layout hooks.
+
+Register a class with `Widget_Register_Class`, then create instances with `Make_Custom_Widget`:
 
 ```odin
 class := GUI.Widget_Register_Class(g, GUI.Widget_Class_Desc{
-	name = "Gauge",
-	kind = GUI.Widget_Kind{
-		draw    = gauge_draw,
-		measure = gauge_measure,
-		click   = gauge_click,
-	},
+    name = "Gauge",
+    kind = GUI.Widget_Kind{
+        draw    = gauge_draw,
+        measure = gauge_measure,
+        click   = gauge_click,
+    },
 })
 
-id := GUI.Make_Custom_Widget(g, parent, class, GUI.Base_Opts{name = "gauge"})
+id := GUI.Make_Custom_Widget(
+    g,
+    parent,
+    class,
+    GUI.Base_Opts{name = "gauge"},
+)
 ```
 
-See [docs/extending.md](docs/extending.md).
+Custom widgets can also define signals and default styles, and can be used in scene files when a constructor is registered.
 
-## Examples (not all included currently)
+See [docs/extending.md](docs/extending.md) for details.
 
-| Example | What it shows |
+## Examples
+
+| Example | Description |
 |---|---|
-| `00_hello` | The smallest program: a label, a button and a text field. |
-| `01_gallery` | The whole toolkit: a toolbar, panels that can be docked into each other, and a showcase of the text. |
-| `02_docking` | Two panels with title bars, and the dragging that docks them. |
-| `03_text` | The sizes, the colours, the alignment and the wrapping of the text. |
-| `04_overlays` | A panel that is torn out of the tree and gets a window of its own. |
-| `05_theming` | A theme: the look of a kind of widget, and a variation of it. |
-| `06_data` | The widgets that hold data: a check box, a slider, a progress bar, a list and a tree. |
-| `07_widgets` | The widgets Godot does not have: the combo box, the search field, the number input, the date and the time pickers, the chat, the table, the toast and the command palette. |
-| `08_heavy` | The heavy features: the chart, the node graph, the canvas, the drawing, the file viewer and the editor. |
-| `09_scene` | A program that puts its widgets in a scene file, and the default theme that gives them a look. |
+| `00_hello` | Basic window with a label, button and text field. |
+| `01_gallery` | Widget gallery, toolbar, dockable panels and text showcase. |
+| `02_docking` | Docking panels with title bars and drag-and-drop support. |
+| `03_text` | Text sizing, colours, alignment and wrapping. |
+| `04_overlays` | Detached panels displayed in separate windows. |
+| `05_theming` | Themes, widget styles and style variations. |
+| `06_data` | Checkboxes, sliders, progress bars, lists and trees. |
+| `07_widgets` | Combo boxes, search fields, number inputs, date and time pickers, chat, tables, toasts and command palette. |
+| `08_heavy` | Charts, node graphs, canvas, drawing, file viewer and editor widgets. |
+| `09_scene` | Loading widget trees from scene files and applying a default theme. |
+
+Some examples may not be included in the current repository state.
 
 ## Documentation
 
-| Document | What is in it |
+| Document | Description |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | How the toolkit is put together: the tree, the frame, the atlas, the layout, the input. |
-| [docs/contracts.md](docs/contracts.md) | The rules the toolkit and its backends keep to: the coordinates, the order of the drawing, the clip, the atlas, the life of a resource. |
-| [docs/widgets.md](docs/widgets.md) | Every widget, what it does and how a program uses it. |
-| [docs/extending.md](docs/extending.md) | How a program brings a widget of its own: the class, the hooks, the signals and the theme. |
-| [docs/theme.md](docs/theme.md) | The look of the widgets: the style, the style box, the theme and the default theme. |
-| [docs/scene-format.md](docs/scene-format.md) | The scene file: the tree of nodes, the anchors, the styles and the signals. |
+| [docs/Usage.md](docs/Usage.md) | Basic toolkit usage and API overview. |
+| [docs/extending.md](docs/extending.md) | Creating and registering custom widgets. |
+| [docs/scene-format.md](docs/scene-format.md) | Scene file format and loading. |
 
 ## Shaders
 
-The GPU backend draws with a shader that cuts the rounded corners of a
-rectangle. The shader is compiled ahead of time, and the compiled file
-is kept in the repository, so a build needs nothing but the compiler:
+The GPU backend uses shaders for rendering, including rounded rectangle clipping.
 
-```
+Compiled shader files are included in the repository, so building CalcUI does not require a shader compiler.
+
+To rebuild the shaders:
+
+```sh
+# Windows
 src\Backend\build_shaders.bat
-src\Backend/build_shaders.sh
+
+# Linux and macOS
+src/Backend/build_shaders.sh
 ```
 
-The script needs `glslc`, which comes with the Vulkan SDK.
+Shader compilation requires `glslc`, included with the Vulkan SDK.
 
 ## License
 
-CalcUI is under the LGPL-3.0 licence. SDL and Runa are under zlib & The parts that were ported from Skald are under the BSD 2-Clause licence and say so at the top of the file. See `NOTICE`.
+CalcUI is licensed under LGPL-3.0.
+
+SDL and Runa are licensed under zlib. Code ported from Skald is licensed under BSD-2-Clause, with attribution included in the relevant source files.
+
+See [NOTICE](NOTICE) for third-party notices.

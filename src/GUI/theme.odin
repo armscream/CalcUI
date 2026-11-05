@@ -1,22 +1,10 @@
+//* The look of the widgets: a theme holds a style for each kind of
+//* widget, a style for each state, and named variations of a type.
+//* A style is sparse: it names the fields it changes in its `set`, and
+//* when `set` is empty the fields that are set are worked out from
+//* their values.
 package GUI
 
-//* == The theme ==
-//* A theme holds the look of every kind of widget: a style for each
-//* type, a style for each state a widget can be in, and named
-//* variations of a type. A widget that takes the theme starts from
-//* the style of its type and puts its own style on top of it.
-//
-//* A style is sparse: the fields in its `set` are the ones it changes.
-//* When `set` is empty the fields that are set are worked out from
-//* their values, so a style only has to name what it changes.
-//
-//* Every kind of item of a theme is named, the way Godot does it: a
-//* type can hold several style boxes, several colours, several fonts.
-//* The names a widget uses are the ones of Godot: "normal",
-//* "font_color", "separation", and so on.
-
-//* The fields of a style that are set. A style that has no set of its
-//* own says which fields it changes by their values.
 style_fields_of :: proc(s: ^Style) -> bit_set[Style_Field] {
 	if s.set != (bit_set[Style_Field]{}) {return s.set}
 	fields: bit_set[Style_Field]
@@ -126,27 +114,12 @@ apply_text_style :: proc(base: ^Text_Style, over: ^Text_Style) {
 	if .Shadow_Offset in fields {base.shadow_offset = over.shadow_offset}
 }
 
-//* == Resolution ==
-
-//* The style of a widget: the theme's style for its type, with the
-//* widget's own style on top of it. Only a widget that takes the
-//* theme gets the theme's style; the others keep the GUI's own.
-//
-//* The style is worked out again every time it is asked for, because
-//* the theme can change under the widget. The result is kept, and the
-//* things it was worked out from are kept with it, so that a widget
-//* whose nothing changed is not worked out again.
-//
-//* The style is kept with the widget, so the pointer is good until the
-//* style of that widget is worked out again.
 resolved_style :: proc(g: ^GUI, w: ^Widget) -> ^Style {
 	if w == nil { return nil }
 	if style_cache_is_good(g, w) {
 		return &w.style_cache.style
 	}
 	base := g.default_style
-	//* The class of the widget has a look of its own: it is what the
-	//* widget gets when the theme says nothing about it.
 	if c, ok := class_get(g, w.class); ok {
 		apply_style(&base, &c.kind.style)
 	}
@@ -165,10 +138,6 @@ resolved_style :: proc(g: ^GUI, w: ^Widget) -> ^Style {
 	return &w.style_cache.style
 }
 
-//* True when the style that is kept for a widget is still the right
-//* one. The style of the widget, the theme it takes and the theme
-//* itself are all looked at, so a program that writes to a widget
-//* itself is not left with a style that is out of date.
 style_cache_is_good :: proc(g: ^GUI, w: ^Widget) -> bool {
 	if w == nil {return false}
 	c := &w.style_cache
@@ -181,8 +150,6 @@ style_cache_is_good :: proc(g: ^GUI, w: ^Widget) -> bool {
 	return true
 }
 
-//* Throws the styles that are kept away. It is called when the theme
-//* or the default style of the GUI changes.
 style_cache_drop :: proc(g: ^GUI) {
 	if g == nil {return}
 	for w in g.widgets {
@@ -191,16 +158,8 @@ style_cache_drop :: proc(g: ^GUI) {
 	}
 }
 
-//* The theme's entry for a widget: the entry of its class when the
-//* theme has one, or the entry of its type.
-//
-//* A class of a program's own is named in the theme, and the name of
-//* the class is what the theme looks it up by. The entry of the type
-//* is what the widgets that are built in are looked up by.
 theme_entries_for :: proc(g: ^GUI, w: ^Widget) -> (Theme_Type, bool) {
 	if g == nil || g.theme == nil || w == nil { return {}, false }
-	//* The class of the widget comes first: a class of its own has a
-	//* name of its own in the theme.
 	if c, ok := class_get(g, w.class); ok {
 		name := c.name
 		if name == "" { name = c.kind.theme_name }
@@ -212,9 +171,6 @@ theme_entries_for :: proc(g: ^GUI, w: ^Widget) -> (Theme_Type, bool) {
 	return {}, false
 }
 
-//* The theme's style for a widget: the style of its type, with the
-//* style of its variation on top of it. The theme's own typeface and
-//* size are the base of them all.
 theme_style :: proc(g: ^GUI, w: ^Widget) -> Style {
 	base := Style{}
 	if g.theme == nil {return base}
@@ -232,8 +188,6 @@ theme_style :: proc(g: ^GUI, w: ^Widget) -> Style {
 	return base
 }
 
-//* The theme's style for a state of a widget. A variation has its own
-//* states, and they take the place of the ones of the type.
 theme_state_style :: proc(g: ^GUI, w: ^Widget, state: Style_State) -> (^Style, bool) {
 	if g.theme == nil || !w.use_theme {return nil, false}
 	if w.variation != "" {
@@ -253,7 +207,6 @@ theme_state_style :: proc(g: ^GUI, w: ^Widget, state: Style_State) -> (^Style, b
 	return nil, false
 }
 
-//* The style of one state.
 state_style_of :: proc(states: ^State_Styles, state: Style_State) -> (^Style, bool) {
 	switch state {
 	case .Hovered:
@@ -270,7 +223,6 @@ state_style_of :: proc(states: ^State_Styles, state: Style_State) -> (^Style, bo
 	return nil, false
 }
 
-//* The state a widget is in, for the theme's sake.
 widget_style_state :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Style_State {
 	if !(.Enabled in w.state) {return .Disabled}
 	if g.active == id {return .Pressed}
@@ -279,9 +231,6 @@ widget_style_state :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Style_State {
 	return .Normal
 }
 
-//* The style of a widget in the state it is in: its own style with the
-//* theme's entry for that state on top. The pointer is to a style of
-//* the widget, so it is good until the next call for that widget.
 resolved_state_style :: proc(
 	g: ^GUI,
 	w: ^Widget,
@@ -319,7 +268,6 @@ resolved_bg :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Colour {
 	return bg
 }
 
-//* The colour of the text of a widget, in the state it is in.
 resolved_text_colour :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Colour {
 	state := widget_style_state(g, id, w)
 	s, _ := resolved_state_style(g, w, state)
@@ -333,19 +281,12 @@ resolved_text_colour :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Colour {
 	case .Hovered:
 		if s.text.hover_colour.a > 0 {return s.text.hover_colour}
 	}
-	//* The focus of a widget has its own colour, but a widget that is
-	//* not enabled does not get it.
 	if g.focused == id && (.Enabled in w.state) && s.text.focus_colour.a > 0 {
 		return s.text.focus_colour
 	}
 	return c
 }
 
-//* == The named items ==
-//* A colour, a number, a font or an icon of a kind of widget. The
-//* widget's own style wins, then the variation, then the type.
-
-//* The colour a widget of this kind uses under a name.
 theme_color :: proc(g: ^GUI, w: ^Widget, name: string) -> Colour {
 	if g.theme == nil {return {}}
 	if w.variation != "" {
@@ -359,7 +300,6 @@ theme_color :: proc(g: ^GUI, w: ^Widget, name: string) -> Colour {
 	return {}
 }
 
-//* The number a widget of this kind uses under a name.
 theme_constant :: proc(g: ^GUI, w: ^Widget, name: string) -> f32 {
 	if g.theme == nil {return 0}
 	if w.variation != "" {
@@ -373,7 +313,6 @@ theme_constant :: proc(g: ^GUI, w: ^Widget, name: string) -> f32 {
 	return 0
 }
 
-//* The icon a widget of this kind uses under a name.
 theme_icon :: proc(g: ^GUI, w: ^Widget, name: string) -> Texture_ID {
 	if g.theme == nil {return INVALID_TEXTURE_ID}
 	if entries, ok := theme_entries_for(g, w); ok {
@@ -382,7 +321,6 @@ theme_icon :: proc(g: ^GUI, w: ^Widget, name: string) -> Texture_ID {
 	return INVALID_TEXTURE_ID
 }
 
-//* The font a widget of this kind uses under a name.
 theme_font :: proc(g: ^GUI, w: ^Widget, name: string) -> Font_ID {
 	if g.theme == nil {return INVALID_FONT_ID}
 	if entries, ok := theme_entries_for(g, w); ok {
@@ -391,7 +329,6 @@ theme_font :: proc(g: ^GUI, w: ^Widget, name: string) -> Font_ID {
 	return INVALID_FONT_ID
 }
 
-//* The size of the font a widget of this kind uses under a name.
 theme_font_size :: proc(g: ^GUI, w: ^Widget, name: string) -> f32 {
 	if g.theme == nil {return 0}
 	if entries, ok := theme_entries_for(g, w); ok {
@@ -400,13 +337,10 @@ theme_font_size :: proc(g: ^GUI, w: ^Widget, name: string) -> f32 {
 	return 0
 }
 
-//* == Making a theme ==
-
-//* The name of the style box that a type uses when it does not name
-//* another one.
+//* THEMES
 THEME_NORMAL :: "normal"
 
-//* A theme with nothing in it.
+//* empty theme
 Theme_Make :: proc() -> ^Theme {
 	t := new(Theme)
 	t.types = make(map[Widget_Type]Theme_Type)
@@ -415,7 +349,7 @@ Theme_Make :: proc() -> ^Theme {
 	return t
 }
 
-//* The look of one kind of widget.
+//* widget specific theme lookup.
 theme_entries_of :: proc(t: ^Theme, widget_type: Widget_Type) -> Theme_Type {
 	entries, ok := t.types[widget_type]
 	if !ok {
@@ -468,7 +402,6 @@ Theme_Set_Class :: proc(t: ^Theme, name: string, style: Style) {
 	theme_changed(t)
 }
 
-//* A named style box of a class of widget.
 theme_set_class_stylebox :: proc(t: ^Theme, name: string, item: string, box: StyleBox) {
 	entries := theme_class_entries_of(t, name)
 	entries.styleboxes[item] = box
@@ -476,7 +409,6 @@ theme_set_class_stylebox :: proc(t: ^Theme, name: string, item: string, box: Sty
 	theme_changed(t)
 }
 
-//* A named colour of a class of widget.
 Theme_Set_Class_Color :: proc(t: ^Theme, name: string, item: string, colour: Colour) {
 	entries := theme_class_entries_of(t, name)
 	entries.colors[item] = colour
@@ -484,7 +416,6 @@ Theme_Set_Class_Color :: proc(t: ^Theme, name: string, item: string, colour: Col
 	theme_changed(t)
 }
 
-//* A named number of a class of widget.
 Theme_Set_Class_Constant :: proc(t: ^Theme, name: string, item: string, value: f32) {
 	entries := theme_class_entries_of(t, name)
 	entries.constants[item] = value
@@ -492,7 +423,6 @@ Theme_Set_Class_Constant :: proc(t: ^Theme, name: string, item: string, value: f
 	theme_changed(t)
 }
 
-//* The style of a state of a class of widget.
 Theme_Set_Class_State :: proc(
 	t: ^Theme,
 	name: string,
@@ -518,7 +448,6 @@ Theme_Set_Class_State :: proc(
 	theme_changed(t)
 }
 
-//* The style of a widget type.
 Theme_Set_Type :: proc(t: ^Theme, widget_type: Widget_Type, style: Style) {
 	entries := theme_entries_of(t, widget_type)
 	entries.styleboxes[THEME_NORMAL] = style.box
@@ -527,7 +456,6 @@ Theme_Set_Type :: proc(t: ^Theme, widget_type: Widget_Type, style: Style) {
 	theme_changed(t)
 }
 
-//* A named style box of a widget type.
 theme_set_stylebox :: proc(t: ^Theme, widget_type: Widget_Type, name: string, box: StyleBox) {
 	entries := theme_entries_of(t, widget_type)
 	entries.styleboxes[name] = box
@@ -535,7 +463,6 @@ theme_set_stylebox :: proc(t: ^Theme, widget_type: Widget_Type, name: string, bo
 	theme_changed(t)
 }
 
-//* A named colour of a widget type.
 theme_set_color :: proc(t: ^Theme, widget_type: Widget_Type, name: string, colour: Colour) {
 	entries := theme_entries_of(t, widget_type)
 	entries.colors[name] = colour
@@ -543,7 +470,6 @@ theme_set_color :: proc(t: ^Theme, widget_type: Widget_Type, name: string, colou
 	theme_changed(t)
 }
 
-//* A named number of a widget type.
 theme_set_constant :: proc(t: ^Theme, widget_type: Widget_Type, name: string, value: f32) {
 	entries := theme_entries_of(t, widget_type)
 	entries.constants[name] = value
@@ -551,7 +477,6 @@ theme_set_constant :: proc(t: ^Theme, widget_type: Widget_Type, name: string, va
 	theme_changed(t)
 }
 
-//* A named font of a widget type.
 theme_set_font :: proc(t: ^Theme, widget_type: Widget_Type, name: string, font: Font_ID) {
 	entries := theme_entries_of(t, widget_type)
 	entries.fonts[name] = font
@@ -559,7 +484,6 @@ theme_set_font :: proc(t: ^Theme, widget_type: Widget_Type, name: string, font: 
 	theme_changed(t)
 }
 
-//* A named font size of a widget type.
 theme_set_font_size :: proc(t: ^Theme, widget_type: Widget_Type, name: string, size: f32) {
 	entries := theme_entries_of(t, widget_type)
 	entries.font_sizes[name] = size
@@ -567,7 +491,6 @@ theme_set_font_size :: proc(t: ^Theme, widget_type: Widget_Type, name: string, s
 	theme_changed(t)
 }
 
-//* A named icon of a widget type.
 theme_set_icon :: proc(t: ^Theme, widget_type: Widget_Type, name: string, icon: Texture_ID) {
 	entries := theme_entries_of(t, widget_type)
 	entries.icons[name] = icon
@@ -633,7 +556,6 @@ Theme_Set_Variation_State :: proc(
 	theme_changed(t)
 }
 
-//* A named colour of a named variation.
 theme_set_variation_color :: proc(
 	t: ^Theme,
 	name: string,
@@ -685,8 +607,7 @@ Theme_Set_Family :: proc(t: ^Theme, family: Font_Family_ID) {
 	theme_changed(t)
 }
 
-//* The size the theme's text uses. A size of 0 is the GUI's default
-//* size.
+//* The size the theme's text uses. A size of 0 is the GUI's default size.
 Theme_Set_Size :: proc(t: ^Theme, size: f32) {
 	if t == nil {return}
 	if t.size == size {return}
@@ -735,7 +656,6 @@ GUI_Set_Default_Style :: proc(g: ^GUI, style: Style) {
 	g.default_style = style
 	g.style_epoch += 1
 	style_cache_drop(g)
-	//* The look of every widget changed.
 	flags := Dirty_Flags{.Visual}
 	if measured {flags += Dirty_Flags{.Measure}}
 	invalidate_all(g, flags)

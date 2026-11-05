@@ -1,42 +1,27 @@
-//* == The inspector ==
 //* An overlay that says what the program is doing: how long the frame
 //* took, how many things were drawn, and what is under the pointer.
-//*
-//* It is off until the program turns it on, because a program that
-//* wants to look pretty does not want a box in the corner.
 
 package GUI
 
 import "core:fmt"
 
-//* The state of the inspector.
 Inspector :: struct {
-	//* Whether the overlay is drawn.
 	enabled:    bool,
-	//* Whether the widget under the pointer is looked at.
 	inspecting: bool,
 }
 
-//* Turns the overlay on or off.
 inspector_enable :: proc(g: ^GUI, enabled: bool) {
 	g.inspector.enabled = enabled
 }
 
-//* Whether the overlay is on.
 inspector_is_enabled :: proc(g: ^GUI) -> bool {
 	return g.inspector.enabled
 }
 
-//* Turns the looking at the widgets on or off. It is on by itself: a
-//* program that wants to see the numbers does not need to see the
-//* widgets.
 inspector_inspect :: proc(g: ^GUI, inspecting: bool) {
 	g.inspector.inspecting = inspecting
 }
 
-//* The overlay itself: a box in the corner with the numbers of the
-//* frame in it, and the widget under the pointer when the program asks
-//* for it.
 draw_inspector :: proc(g: ^GUI) {
 	if !g.inspector.enabled {return}
 
@@ -66,8 +51,6 @@ draw_inspector :: proc(g: ^GUI) {
 		}
 	}
 
-	//* The box is as wide as the longest line and as tall as the
-	//* number of them.
 	width := f32(0)
 	for line in lines {
 		size := Font_Measure(g, Font_Of(g, Widget_Get(g, g.root)), line).x
@@ -104,7 +87,6 @@ atlas_bytes :: proc(g: ^GUI) -> int {
 	return (g.atlas.width * g.atlas.height * 4) / (1024 * 1024)
 }
 
-//* A thin border around a rect.
 draw_border_box :: proc(g: ^GUI, rect: Rect, colour: Colour) {
 	t := f32(1)
 	draw_quad(g.target, Rect{rect.x, rect.y, rect.w, t}, g.atlas.white_uv, colour, g.atlas_texture)

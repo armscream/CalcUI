@@ -1,6 +1,5 @@
-//* The GUI core: a retained widget tree, a layout pass and an input
-//* model. It knows nothing about windows or renderers — it only produces
-//* a Draw_List that a backend consumes.
+//* The GUI core: a retained widget tree, a layout pass and an input model.
+//* It produces a Draw_List and knows nothing about windows or renderers.
 package GUI
 
 import "core:math"
@@ -10,21 +9,19 @@ import runa "./dependencies/Runa"
 import virt "core:mem/virtual"
 
 //* == Backend vtable ==
-//* Declared here, implemented by the Backend package. The window handle
-//* is a rawptr so no SDL type leaks into the core. The rules a backend
-//* keeps to are in docs/contracts.md.
+//* Implemented by the Backend package. The window handle is a rawptr so no
+//* SDL type leaks into the core. The rules are in docs/contracts.md.
 Backend :: struct {
 	ctx:                    rawptr,
 	create:                 proc(ctx, window: rawptr, w, h: i32) -> bool,
 	destroy:                proc(ctx: rawptr),
 	resize:                 proc(ctx: rawptr, w, h: i32) -> bool,
 	upload_texture:         proc(ctx: rawptr, id: Texture_ID, pixels: []u8, w, h: i32) -> bool,
-	//* Uploads the parts of a texture that changed, in one call. The
-	//* pixels of each part are RGBA in rows, and they are only valid
-	//* for the call. A backend that cannot do this gets the whole
-	//* texture through upload_texture instead.
+	//* Uploads the parts of a texture that changed, in one call. The pixels
+	//* of each part are RGBA in rows and are only valid for the call. A
+	//* backend that cannot do this gets the whole texture instead.
 	upload_texture_regions: proc(ctx: rawptr, id: Texture_ID, regions: []Texture_Upload) -> bool,
-	//* Gives a texture back. Called when the GUI gives the atlas up.
+	//* Gives a texture back, when the GUI gives the atlas up.
 	destroy_texture:        proc(ctx: rawptr, id: Texture_ID),
 	submit:                 proc(ctx: rawptr, dl: ^Draw_List),
 	//* Renders a draw list into the window of a floating panel. The
@@ -36,7 +33,6 @@ Backend :: struct {
 	supports_shapes:        bool,
 }
 
-//* A part of a texture that goes up to the backend.
 Texture_Upload :: struct {
 	pixels: []u8,
 	w, h, x, y: i32,
@@ -52,37 +48,30 @@ Vec2 :: struct {
 
 //* == The arithmetic on a point ==
 //* Odin has no operator overloading, so the arithmetic on a point is
-//* done with these. They are here because the arithmetic on points is
-//* most of the toolkit.
+//* done with these.
 
-//* One point added to another.
 vec2_add :: proc(a, b: Vec2) -> Vec2 {
 	return Vec2{a.x + b.x, a.y + b.y}
 }
 
-//* One point taken away from another.
 vec2_sub :: proc(a, b: Vec2) -> Vec2 {
 	return Vec2{a.x - b.x, a.y - b.y}
 }
 
-//* A point scaled by a number.
 vec2_scale :: proc(a: Vec2, s: f32) -> Vec2 {
 	return Vec2{a.x * s, a.y * s}
 }
 
-//* A point added to a point in place.
 vec2_add_to :: proc(a: ^Vec2, b: Vec2) {
 	a.x += b.x
 	a.y += b.y
 }
 
-//* A point taken away from a point in place.
 vec2_sub_from :: proc(a: ^Vec2, b: Vec2) {
 	a.x -= b.x
 	a.y -= b.y
 }
 
-//* How long a point is.
 vec2_length :: proc(a: Vec2) -> f32 {
 	return math.sqrt(a.x * a.x + a.y * a.y)
 }
@@ -104,18 +93,17 @@ ATLAS_TEXTURE_ID :: Texture_ID(1)
 
 //* == Floating panels ==
 //* A panel can be torn out of the dock tree. It then lives in a window
-//* of its own, somewhere on the screen, and can be dragged anywhere.
+//* of its own and can be dragged anywhere on the screen.
 Float_Panel :: struct {
-	widget: Widget_ID, // the panel
+	widget: Widget_ID,
 	pos:    Vec2, // its top left, in screen pixels
-	size:   Vec2, // its size, in pixels
+	size:   Vec2, // in pixels
 	title:  string,
-	draw:   Draw_List, // the list it is drawn into
+	draw:   Draw_List,
 }
 
 //* == Widget Tree ==
 Widget_Type :: enum {
-	//* The ones CalcUI started with.
 	Panel,
 	Button,
 	Label,
@@ -205,8 +193,7 @@ Widget_Type :: enum {
 Mouse_Filter :: enum {
 	//* The widget takes the mouse, and the events stop there.
 	Stop,
-	//* The widget takes the mouse, but the events go on to the widgets
-	//* behind it.
+	//* The widget takes the mouse, but the events go on behind it.
 	Pass,
 	//* The widget does not take the mouse at all.
 	Ignore,
@@ -218,20 +205,17 @@ Focus_Mode :: enum {
 	None,
 	//* The widget is focused when it is clicked.
 	Click,
-	//* The widget is focused when it is clicked, and when the tab key
-	//* reaches it.
+	//* Focused when it is clicked and when the tab key reaches it.
 	All,
 }
 
-//* Whether a widget cuts its children to its own rect.
 Clip_Contents :: enum {
-	//* The widget cuts its children to its own rect. This is what a
-	//* widget gets when nothing is asked for, and it is the safe
-	//* choice: a child that runs out of its parent is cut off.
+	//* Cuts the children to its own rect. This is what a widget gets
+	//* when nothing is asked for, and it is the safe choice: a child
+	//* that runs out of its parent is cut off.
 	Default,
-	//* The widget cuts its children to its own rect.
 	On,
-	//* The children of the widget are drawn outside of it.
+	//* The children are drawn outside of it.
 	Off,
 }
 
@@ -242,8 +226,7 @@ Size_Flag :: enum u8 {
 	Fill          = 1,
 	//* The widget takes a share of the space that is left over.
 	Expand        = 2,
-	//* The widget keeps its minimum size and sits in the middle of the
-	//* space it is given.
+	//* Keeps its minimum size and sits in the middle of the space given.
 	Shrink_Center = 4,
 }
 Size_Flags :: bit_set[Size_Flag]
@@ -254,18 +237,14 @@ Layout_Direction :: enum {
 	Inherit,
 	//* The direction of the language of the platform.
 	Locale,
-	//* Left to right.
 	LTR,
-	//* Right to left.
 	RTL,
 }
 
-//* A handle to a widget. It names the slot the widget has in the
-//* table of the GUI and the generation of the widget that is in that
-//* slot. A widget that is destroyed leaves a handle behind that names
-//* nothing, and a widget that is made again in the same slot gets a
-//* new generation, so the handle of the old one is never mistaken for
-//* the handle of the new one.
+//* A handle to a widget: the slot it has in the table of the GUI and the
+//* generation of the widget in that slot. A destroyed widget leaves a handle
+//* behind that names nothing, and a widget made again in the same slot gets
+//* a new generation, so the old handle is never mistaken for the new one.
 Widget_ID :: struct {
 	//* The slot of the widget. The first slot is 1, so that 0 is
 	//* never the handle of a widget.
@@ -283,8 +262,7 @@ INVALID_WIDGET_ID :: Widget_ID {
 }
 
 //* == Text ==
-//* How the text of a widget sits in its box and how it is broken into
-//* lines.
+//* How the text of a widget sits in its box and how it is broken into lines.
 Text_Align :: enum {
 	Left,
 	Center,
@@ -292,21 +270,18 @@ Text_Align :: enum {
 	Fill, // both edges are pushed out to the box
 }
 
-//* Where the text sits in its box, vertically.
 V_Align :: enum {
 	Top,
 	Center,
 	Bottom,
 }
 
-//* How the text is broken into lines.
 Text_Wrap :: enum {
 	Off, // the text stays on one line
 	Word, // the text breaks at word boundaries
 	Anywhere, // the text breaks anywhere, even inside a word
 }
 
-//* What is done to the string before it is laid out.
 Text_Transform :: enum {
 	None,
 	Upper,
@@ -314,7 +289,6 @@ Text_Transform :: enum {
 	Capitalize, // the first letter of every word
 }
 
-//* What happens when the text does not fit.
 Text_Overrun :: enum {
 	None, // the text runs out of the box
 	Ellipsis, // the text is cut short and an ellipsis is added
@@ -331,10 +305,9 @@ Widget_State_Flag :: enum {
 }
 
 //* == Declarative layout input ==
-//* Anchor positions a widget inside its parent. The zero value of
-//* Widget_Opts has to mean something useful, so the anchor comes from
-//* a preset (Fill by default) and the raw anchors are only used for
-//* .Custom.
+//* An anchor positions a widget inside its parent. The zero value of
+//* Widget_Opts has to mean something useful, so the anchor comes from a
+//* preset (Fill by default) and the raw anchors are only used for .Custom.
 Anchor_Preset :: enum {
 	Fill, // the whole parent
 	Top_Left,
@@ -393,7 +366,6 @@ Dock_Plan :: struct {
 	kind:              Dock_Kind,
 	axis:              Split_Direction,
 
-	//* The container the drop happens on.
 	container:         Widget_ID,
 
 	//* The split the drop would create. When `create_split` is set the
@@ -459,45 +431,36 @@ anchor_of :: proc(preset: Anchor_Preset, custom: Anchor) -> Anchor {
 }
 
 //* == Style ==
-//* The appearance of a widget. A field that is not in `set` comes from
-//* the theme, or from the GUI's own default; when `set` is empty the
-//* fields that are set are worked out from their values, so a style
-//* only has to name what it changes.
-//
-//* The box is the box around the widget: its background, its border,
-//* its corners and the space kept free inside it. The text is the
-//* style of the text inside it.
+//* The appearance of a widget. A field that is not in `set` comes from the
+//* theme, or from the GUI's own default; when `set` is empty the fields that
+//* are set are worked out from their values, so a style only has to name
+//* what it changes.
+//* The box is the box around the widget: its background, its border, its
+//* corners and the space kept free inside it. The text is the style of the
+//* text inside it.
 Style :: struct {
 	set:  bit_set[Style_Field],
 	box:  StyleBox,
 	text: Text_Style,
 }
 
-//* The style of a widget as it was last worked out, and the things it
-//* was worked out from. The style is worked out again when any of them
-//* changed, so a program that writes to a widget itself is not left
-//* with a style that is out of date.
+//* The style of a widget as it was last worked out, and the things it was
+//* worked out from. It is worked out again when any of them changed, so a
+//* program that writes to a widget itself is not left with a stale style.
 Style_Cache :: struct {
-	//* The style as it was worked out.
 	style:           Style,
 	//* The style of the widget in the state it is in, and the style of
 	//* the theme for that state. They are the room the styles of the
-	//* states are worked out in, so that a style is not copied for
-	//* every widget of every frame.
+	//* states are worked out in, so a style is not copied for every
+	//* widget of every frame.
 	state:           Style,
 	theme_state:     Style,
-	//* The style of the widget itself.
 	style_of_widget: Style,
-	//* The style every widget starts from.
 	default_style:   Style,
-	//* Whether the widget took the theme.
 	use_theme:       bool,
-	//* The name of the variation the widget took.
 	variation:       string,
-	//* The number of the look of the GUI. It goes up when the theme or
-	//* the default style changes.
+	//* The number of the look of the GUI when the style was worked out.
 	epoch:           int,
-	//* Whether there is a style to give back.
 	valid:           bool,
 }
 
@@ -515,12 +478,11 @@ Style_Field :: enum {
 
 //* == Text style ==
 //* How the text of a widget looks. The zero value means "whatever the
-//* GUI's default is", so a widget that says nothing about its text
-//* still looks right.
-//
-//* A field that is not in `set` comes from the theme, or from the
-//* built-in default. When `set` is empty the fields that are set are
-//* worked out from their values, the same way a style's fields are.
+//* GUI's default is", so a widget that says nothing about its text still
+//* looks right.
+//* A field that is not in `set` comes from the theme, or from the built-in
+//* default. When `set` is empty the fields that are set are worked out from
+//* their values, the same way a style's fields are.
 Text_Style :: struct {
 	set:             bit_set[Text_Field],
 
@@ -536,18 +498,14 @@ Text_Style :: struct {
 	disabled_colour: Colour,
 	focus_colour:    Colour,
 
-	//* How the text sits in its box.
 	align:           Text_Align,
 	valign:          V_Align,
 
-	//* The lines.
 	wrap:            Text_Wrap,
 	spacing:         f32, // extra pixels between the lines
 
-	//* What is done to the string before it is laid out.
 	transform:       Text_Transform,
 
-	//* What happens when the text does not fit.
 	overrun:         Text_Overrun,
 	clip:            bool,
 
@@ -582,15 +540,13 @@ Text_Field :: enum {
 }
 
 //* == Theme ==
-//* The look of every kind of widget, in one place. A theme has a style
-//* for every widget type, a style for every state a widget can be in,
-//* and named variations of a type.
+//* The look of every kind of widget, in one place. A theme has a style for
+//* every widget type, a style for every state a widget can be in, and named
+//* variations of a type.
 Theme :: struct {
-	//* The look of every widget type.
 	types:      map[Widget_Type]Theme_Type,
 	//* The look of the classes that are not one of the built-in types.
-	//* A class of a program's own is named here, and the name of the
-	//* class is what the theme looks it up by.
+	//* A class of a program's own is looked up by its name.
 	classes:    map[string]Theme_Type,
 	//* The named variations of a type, e.g. "danger" for a Button.
 	variations: map[string]Variation,
@@ -598,15 +554,13 @@ Theme :: struct {
 	//* the GUI's default family; a size of 0 is the default size.
 	family:     Font_Family_ID,
 	size:       f32,
-	//* The GUI the theme is on. A theme that is changed while it is on
-	//* a GUI says so, so that the widgets that take the theme are
-	//* measured and drawn again.
+	//* The GUI the theme is on. A theme changed while it is on a GUI says so, so
+	//* that the widgets that take the theme are measured and drawn again.
 	owner:      ^GUI,
 }
 
-//* The look of one kind of widget. Every kind of item is named, the
-//* way Godot does it, so a type can hold several style boxes, several
-//* colours and several fonts.
+//* The look of one kind of widget. Every kind of item is named, the way
+//* Godot does it, so a type can hold several style boxes, colours and fonts.
 Theme_Type :: struct {
 	styleboxes: map[string]StyleBox,
 	colors:     map[string]Colour,
@@ -614,7 +568,6 @@ Theme_Type :: struct {
 	fonts:      map[string]Font_ID,
 	font_sizes: map[string]f32,
 	icons:      map[string]Texture_ID,
-	//* The text style of the type.
 	text:       Text_Style,
 	states:     State_Styles,
 }
@@ -625,7 +578,6 @@ Variation :: struct {
 	of:        Widget_Type,
 	style:     Style,
 	states:    State_Styles,
-	//* The named items of the variation.
 	colors:    map[string]Colour,
 	constants: map[string]f32,
 }
@@ -653,9 +605,8 @@ Split_Direction :: enum {
 	Vertical,
 }
 
-//* Odin unions name their variants by type, so each payload gets its own
-//* type. The core switches on the active variant and only reads the
-//* fields of the matching case.
+//* Odin unions name their variants by type, so each payload gets its own type.
+//* The core switches on the active variant and reads only its fields.
 None_Data :: struct {}
 
 Widget_Data :: union {
@@ -749,16 +700,14 @@ Text_Input_Data :: struct {
 Widget :: struct {
 	id:               Widget_ID,
 	type:             Widget_Type,
-	//* The class of the widget: what it does. A widget of a program's
-	//* own has a class of its own; a widget that is built in has the
-	//* class of its kind.
+	//* The class of the widget: what it does. A widget of a program's own
+	//* has a class of its own; a built-in widget has the class of its kind.
 	class:            Widget_Class_ID,
 	name:             string,
 	parent:           Widget_ID,
 
-	//* Whether the widget is being destroyed. A widget that is
-	//* destroyed says so before anything else happens, so that it
-	//* cannot be destroyed twice.
+	//* Whether the widget is being destroyed. A widget that is destroyed
+	//* says so before anything else happens, so it cannot be destroyed twice.
 	freeing:          bool,
 
 	// Intrusive child list: O(1) detach/attach, which is what docking
@@ -772,18 +721,17 @@ Widget :: struct {
 	grow_h:           Grow,
 	grow_v:           Grow,
 	min_size:         Vec2,
-	//* The smallest size the program asked for. The size of the text
-	//* of the widget is added to it by the measure pass, so the size of
-	//* a widget whose text got shorter goes down again.
+	//* The smallest size the program asked for. The size of the text is
+	//* added to it by the measure pass, so a widget whose text got shorter
+	//* shrinks again.
 	base_min_size:    Vec2,
 	weight:           f32, // share of the parent's split axis
 	separation:       f32, // gap between children of a VBox / HBox
 	draggable:        bool, // shows a title bar and can be dragged to dock
 
-	//* The size the panel was pulled to, in pixels. A panel that was
-	//* resized by hand keeps that size: the layout gives it this
-	//* instead of a share of the space. The flags say which axis the
-	//* size belongs to.
+	//* The size the panel was pulled to, in pixels. A panel resized by hand
+	//* keeps that size: the layout gives it this instead of a share of the
+	//* space. The flags say which axis the size belongs to.
 	manual_size:      Vec2,
 	manual_w:         bool,
 	manual_h:         bool,
@@ -793,8 +741,6 @@ Widget :: struct {
 	content:          Rect,
 	clip:             Rect,
 	style:            Style,
-	//* Whether the widget takes the theme's style for its type, and
-	//* which named variation of that type it is.
 	use_theme:        bool,
 	variation:        string,
 	state:            Widget_State,
@@ -802,28 +748,19 @@ Widget :: struct {
 
 	//* == The control features ==
 
-	//* What the widget does with the mouse.
 	mouse_filter:     Mouse_Filter,
-	//* How the widget gets the keyboard focus.
 	focus_mode:       Focus_Mode,
 	//* The widgets the arrow keys move to: left, top, right, bottom.
 	focus_neighbour:  [4]Widget_ID,
-	//* The widgets the tab key moves to.
 	focus_next:       Widget_ID,
 	focus_previous:   Widget_ID,
-	//* The place of the widget in the order of the tab key.
 	tab_index:        int,
-	//* How the widget takes up the space of its parent.
 	size_flags_h:     Size_Flags,
 	size_flags_v:     Size_Flags,
-	//* The share of the space of the parent when more than one widget
-	//* wants it.
+	//* The share of the space of the parent when more than one widget wants it.
 	stretch_ratio:    f32,
-	//* Whether the children of the widget are cut to its own rect.
 	clip_contents:    bool,
-	//* The text that is shown when the pointer rests on the widget.
 	tooltip_text:     string,
-	//* The size the widget asks for, and the size it never goes past.
 	custom_min_size:  Vec2,
 	custom_max_size:  Vec2,
 	//* The order the widget is drawn in. A widget with a higher number
@@ -834,31 +771,30 @@ Widget :: struct {
 	rotation:         f32,
 	scale:            Vec2,
 	pivot_offset:     Vec2,
-	//* The direction the text of the widget runs in.
 	layout_direction: Layout_Direction,
-	//* The signals of the widget.
 	signals:          Signals,
+	//* What the widget says about itself to whatever reads the screen
+	//* for a person who cannot see it.
+	access:           Access_Info,
 
 	//* == The invalidation ==
 	//* What is out of date about the widget itself, and what is out of
-	//* date about the whole branch under it. The measure pass and the
-	//* layout pass use the second one to leave a branch alone that
-	//* nothing happened to.
+	//* date about the whole branch under it. The measure and layout passes
+	//* use the second one to leave a branch alone that nothing happened to.
 	dirty:            Dirty_Flags,
 	subtree_dirty:    Dirty_Flags,
 
 	//* == The style cache ==
-	//* The style of the widget as it was last worked out, and the
-	//* things it was worked out from. The style is worked out again
-	//* when any of them changed, so a program that writes to the style
-	//* of a widget itself is not left with a stale one.
+	//* The style of the widget as it was last worked out, and the things
+	//* it was worked out from. It is worked out again when any of them
+	//* changed, so a program that writes to the style itself is not left
+	//* with a stale one.
 	style_cache:      Style_Cache,
 }
 
 //* == Widget creation options ==
-//* Everything a widget needs at birth. Runtime changes go through the
-//* setters (see setter.odin), so that the toolkit knows what a change
-//* made stale.
+//* Everything a widget needs at birth. Runtime changes go through the setters
+//* (see setter.odin), so that the toolkit knows what a change made stale.
 Widget_Opts :: struct {
 	name:            string,
 	preset:          Anchor_Preset,
@@ -870,7 +806,7 @@ Widget_Opts :: struct {
 	separation:      f32, // gap between the children of a VBox / HBox
 	draggable:       bool, // draw a title bar and allow drag-to-dock
 	style:           Style,
-	use_theme:       bool, // take the theme's style for this widget type
+	use_theme:       bool,
 	variation:       string, // a named variation of the widget type
 	hidden:          bool,
 	split:           Split_Direction,
@@ -889,6 +825,11 @@ Widget_Opts :: struct {
 	custom_min_size: Vec2,
 	custom_max_size: Vec2,
 	z_index:         int,
+	//* What the widget says about itself to whatever reads the screen
+	//* for a person who cannot see it.
+	access_role:        Access_Role,
+	access_name:        string,
+	access_description: string,
 }
 
 //* == Resizing ==
@@ -896,7 +837,6 @@ Widget_Opts :: struct {
 //* corners. The edges are the grips: a press on one starts a resize
 //* and the edge follows the pointer from then on.
 
-//* The edges of a panel that can be pulled.
 Resize_Edge :: enum {
 	Left,
 	Right,
@@ -904,14 +844,12 @@ Resize_Edge :: enum {
 	Bottom,
 }
 
-//* The edges a resize holds.
 Resize_Edges :: bit_set[Resize_Edge]
 
-//* A resize in progress.
 Resize_State :: struct {
 	active:      bool,
-	widget:      Widget_ID, // the panel being resized
-	edges:       Resize_Edges, // the edges that are being pulled
+	widget:      Widget_ID,
+	edges:       Resize_Edges,
 	origin:      Vec2, // where the pointer went down
 	last:        Vec2, // where the pointer was at the last step
 	float_index: int, // the floating panel it lives in, or FLOAT_NONE
@@ -921,21 +859,13 @@ Resize_State :: struct {
 //* that goes with it.
 Cursor :: enum {
 	Default,
-	//* The pointer that says that something can be picked.
 	Pointer,
-	//* The pointer that says that text can be written.
 	Text,
-	//* The pointer that says that a place can be aimed at.
 	Crosshair,
-	//* The pointer that says that the thing is busy.
 	Wait,
-	//* The pointer that says that the thing cannot be used.
 	Not_Allowed,
-	//* The pointer that says that the thing can be moved.
 	Grab,
-	//* The pointer that says that the thing is being moved.
 	Grabbing,
-	//* The pointer that says that the thing is being resized.
 	Resize_NS,
 	Resize_W,
 	Resize_E,
@@ -955,11 +885,11 @@ Drag_State :: struct {
 	active:      bool,
 	armed:       bool, // the pointer is down on a handle, but has not moved
 	origin:      Vec2, // where the pointer went down
-	widget:      Widget_ID, // the widget being dragged
+	widget:      Widget_ID,
 	target:      Widget_ID, // the container under the pointer
 	tab_host:    Widget_ID, // the container that would take the panel as a tab
 	zone:        Dock_Zone, // which edge of the target
-	kind:        Dock_Kind, // what the drop would do
+	kind:        Dock_Kind,
 	grab:        Vec2, // pointer offset inside the dragged widget
 	pos:         Vec2, // pointer position, in screen pixels
 	ghost:       Rect, // where the dragged widget is drawn
@@ -977,40 +907,40 @@ GUI :: struct {
 	//* The table of the widgets. Every widget that was ever made has a
 	//* slot in it; the slot holds the widget itself.
 	widgets:                   [dynamic]^Widget,
-	//* How many times each slot of the table has been used. The
-	//* generation of a widget is the number of its slot, so a widget
-	//* that is made again in a slot that was used before gets a new
-	//* handle.
+	//* How many times each slot of the table has been used. A widget
+	//* made again in a slot that was used before gets a new handle.
 	widget_generations:        [dynamic]u32,
-	//* The slots of the table that are free. A widget that is made
-	//* again takes one of them, so that the table does not grow for
-	//* ever.
+	//* The slots of the table that are free. A widget that is made again
+	//* takes one of them, so that the table does not grow for ever.
 	free_widgets:              [dynamic]u32,
 	root:                      Widget_ID,
 	viewport:                  Rect,
-	//* Where the main window is on the screen, in screen pixels. A
+	//* How many physical pixels one logical unit is worth. The GUI
+	//* works in logical units; the draw list is in physical pixels.
+	scale:                     f32,
+	//* Where the main window is on the screen, in logical pixels. A
 	//* panel dropped outside of it floats instead of docking.
 	window_rect:               Rect,
 
-	//* The panels that were torn out of the tree. Each one has a
-	//* window of its own.
 	floats:                    [dynamic]Float_Panel,
+	//* The popups that are open, the topmost one last.
+	popups:                    [dynamic]Popup_Entry,
 	events:                    [dynamic]Event,
 	pointer:                   Vec2,
 	global_pointer:            Vec2,
-	//* Whether the pointer has ever been moved. The widget under the
-	//* pointer is looked up again when the tree moves under it, but
-	//* only when the pointer is known.
+	//* Whether the pointer has ever been moved. The widget under the pointer
+	//* is looked up again when the tree moves under it, but only when the
+	//* pointer is known.
 	pointer_known:             bool,
 	lmb_down:                  bool,
 	lmb_pressed:               bool,
 	lmb_released:              bool,
 	mods:                      Mods,
+	event_handled:             bool,
 	hot:                       Widget_ID,
 	active:                    Widget_ID,
 	focused:                   Widget_ID,
-	//* The slider that is being moved, when the pointer is on one.
-	slider_active:             Widget_ID,
+	slider_active:             Widget_ID, // currently active slider
 	quit_requested:            bool,
 	drag:                      Drag_State,
 	resize:                    Resize_State,
@@ -1025,8 +955,6 @@ GUI :: struct {
 	//* list, or the list of the floating panel being drawn.
 	target:                    ^Draw_List,
 	backend:                   Backend,
-	//* The one texture of the whole UI: the white texel, the glyphs of
-	//* every font and the images all live in it.
 	atlas:                     ^UI_Atlas,
 	atlas_texture:             Texture_ID,
 	//* How many times the atlas could not give out the space that was
@@ -1039,14 +967,12 @@ GUI :: struct {
 	//* from the top, whatever the flags say. This is the way out for a
 	//* program that writes to a widget itself.
 	full_layout:               bool,
-	//* How many widgets the measure pass measured and the layout pass
-	//* laid out in the last frame. They are there to see whether the
-	//* work was done or left alone.
+	//* How many widgets the measure pass measured and the layout pass laid
+	//* out in the last frame, to see whether the work was done or left alone.
 	measured_count:            int,
 	arranged_count:            int,
-	//* The number of the look of the GUI. It goes up when the theme or
-	//* the default style changes, so that the styles that were worked
-	//* out before are worked out again.
+	//* The number of the look of the GUI. It goes up when the theme or the
+	//* default style changes, so the styles worked out before are done again.
 	style_epoch:               int,
 
 	// Text.
@@ -1063,39 +989,26 @@ GUI :: struct {
 	cache_ready:               bool,
 	upload_buf:                []u8,
 
-	//* The theme: the look of every kind of widget, in one place.
 	theme:                     ^Theme,
-	//* The commands of the program, and the keys that do them.
 	commands:                  Commands,
 	//* The hooks of the kinds of the widgets. A widget that came after
 	//* the first ones puts its hooks here.
 	kinds:                     [dynamic]Widget_Kind,
-	//* The classes of the widgets. Every widget belongs to a class: the
-	//* class says what the widget does. A program that brings a widget
-	//* of its own registers a class of its own here, and nothing
-	//* outside the class has to be changed for the widget to work.
 	classes:                   [dynamic]Widget_Class,
-	//* The class of a kind of widget, by the type of the kind.
 	class_by_type:             map[Widget_Type]Widget_Class_ID,
-	//* The class of a kind of widget, by the name of the kind.
 	class_by_name:             map[string]Widget_Class_ID,
-	//* The connections to the signals of the widgets. A signal is rare
-	//* and the table is short, so one table for the whole GUI is
-	//* enough.
+	//* The connections to the signals of the widgets. A signal is rare and
+	//* the table is short, so one table for the whole GUI is enough.
 	signal_conns:              [dynamic]Signal_Conn_Entry,
-	//* The constructors of the widgets for the scene loader. Every GUI
-	//* has a table of its own, so that a program can bring a widget of
-	//* its own without touching the other programs.
+	//* The constructors of the widgets for the scene loader. Every GUI has
+	//* a table of its own, so a program can bring a widget of its own alone.
 	scene_constructors:        [dynamic]Scene_Constructor,
 	scene_defaults_registered: bool,
-	//* How long the last frame took, in seconds. A widget that counts
-	//* down needs it.
+	//* How long the last frame took, in seconds. A widget that counts down needs it.
 	dt:                        f32,
 	//* The overlay that says what the program is doing.
 	inspector:                 Inspector,
-	//* The sizes of the texts that have been measured.
 	measure_cache:             map[Measure_Key]Vec2,
-	//* When the last frame was.
 	last_frame:                i64,
 	//* The clipboard, shared with the window.
 	clipboard:                 Clipboard,
@@ -1104,6 +1017,10 @@ GUI :: struct {
 	//* The style every widget starts from. It is the GUI's own look,
 	//* used where the theme says nothing.
 	default_style:             Style,
+	//* What the platform is told about the widgets, when the platform
+	//* has a bridge of its own.
+	access_bridge:             Access_Bridge,
+	access_epoch:              int,
 }
 
 //* == Colour helper ==
@@ -1117,9 +1034,8 @@ Scale_Colour :: proc(c: Colour, f: f32) -> Colour {
 	return Colour{r = c.r * f, g = c.g * f, b = c.b * f, a = c.a}
 }
 
-//* The style of a piece of text: the ink, the size and the typeface. A
-//* size of 0 is the GUI's default size and a family of 0 is the GUI's
-//* default family.
+//* The style of a piece of text: the ink, the size and the typeface. A size
+//* of 0 is the GUI's default size and a family of 0 is the default family.
 Make_Text_Style :: proc(
 	colour: Colour,
 	size: f32 = 0,

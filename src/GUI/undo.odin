@@ -1,27 +1,22 @@
-//* == The undo stack ==
-//* A widget that can be edited keeps its changes on a stack, so that
-//* the last one can be taken back. The stack belongs to the widget,
-//* because two text fields have two histories.
+//* The undo stack of a widget that can be edited: the changes are kept on a
+//* stack, so that the last one can be taken back. The stack belongs to the
+//* widget, because two text fields have two histories.
 
 package GUI
 
+//* == The undo stack ==
+
 //* One change that can be taken back.
 Undo_Record :: struct {
-	//* What was there before the change.
 	before: string,
-	//* What there is now.
 	after:  string,
-	//* The widget the change belongs to.
 	widget: Widget_ID,
-	//* Where the caret was before the change.
 	caret:  int,
 }
 
-//* The history of a widget.
 Undo_Stack :: struct {
 	records: [dynamic]Undo_Record,
-	//* The record that is looked at now. Everything after it has been
-	//* taken back.
+	//* The record that is looked at now: everything after it has been taken back.
 	at:      int,
 	//* How many records the stack holds at most.
 	limit:   int,
@@ -32,8 +27,7 @@ UNDO_LIMIT :: 100
 
 //* Remembers a change, so that it can be taken back.
 undo_push :: proc(stack: ^Undo_Stack, record: Undo_Record) {
-	//* Everything that was taken back is forgotten when a new change
-	//* is made.
+	//* Everything that was taken back is forgotten when a new change is made.
 	if stack.at < len(stack.records) {
 		resize(&stack.records, stack.at)
 	}
@@ -56,8 +50,7 @@ undo_can_redo :: proc(stack: ^Undo_Stack) -> bool {
 	return stack.at < len(stack.records)
 }
 
-//* Takes the last change back. The record that comes back says what
-//* the text was before the change and what it is now.
+//* Takes the last change back and gives the record of it back.
 undo_step :: proc(stack: ^Undo_Stack) -> (Undo_Record, bool) {
 	if !undo_can_undo(stack) {return {}, false}
 	stack.at -= 1

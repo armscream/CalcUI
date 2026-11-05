@@ -1,6 +1,12 @@
+//* == Keyboard and Pointer input ==
+//* The events come in one by one, and every one of them is given to the
+//* widget it belongs to. The widget that is pressed takes the pointer
+//* until the button is let go, and the widget that has the focus takes
+//* the keys.
+
 package GUI
 
-//* The height of a draggable widget's title bar.
+//* The height of the title bar of a draggable widget, in pixels.
 HEADER_HEIGHT :: 24
 
 hit_test_top :: proc(g: ^GUI, global: Vec2) -> (id: Widget_ID, local: Vec2) {
@@ -17,155 +23,64 @@ hit_test_top :: proc(g: ^GUI, global: Vec2) -> (id: Widget_ID, local: Vec2) {
 	return hit_test(g, g.root, local), local
 }
 
+//* The widgets under a point that take the mouse, from the topmost one
+//* down: the chain of the event. The widget that was hit is the first
+//* of them, and a widget with the filter .Stop ends the chain.
+pointer_chain :: proc(g: ^GUI, global: Vec2) -> (chain: [dynamic]Widget_ID, local: Vec2) {
+	for i := len(g.floats) - 1; i >= 0; i -= 1 {
+		f := g.floats[i]
+		local = Vec2{global.x - f.pos.x, global.y - f.pos.y}
+		if !rect_contains(Rect{x = 0, y = 0, w = f.size.x, h = f.size.y}, local.x, local.y) {
+			continue
+		}
+		hits_that_take_the_mouse(g, f.widget, local, &chain)
+		if len(chain) > 0 { return chain, local }
+	}
+	local = main_window_pos(g, global)
+	hits_that_take_the_mouse(g, g.root, local, &chain)
+	return chain, local
+}
+
+chain_target :: proc(chain: ^[dynamic]Widget_ID) -> Widget_ID {
+	if len(chain^) == 0 { return INVALID_WIDGET_ID }
+	return chain^[0]
+}
+
+//* Stops event propagation
+Event_Handled :: proc(g: ^GUI) {
+	if g == nil { return }
+	g.event_handled = true
+}
+
+Event_Is_Handled :: proc(g: ^GUI) -> bool {
+	if g == nil { return false }
+	return g.event_handled
+}
+
 Handle_Events :: proc(g: ^GUI) {
-	for ev in g.events {
+	// Queue events for the next frame, start frame first with queues prior
+	// to new events, this prevents inputs from being thrown away.
+	events := g.events
+	g.events = [dynamic]Event{}
+	defer delete(events)
+	old_hot := g.hot
+	old_active := g.active
+	old_focused := g.focused
+	g.lmb_pressed = false
+	g.lmb_released = false
+	defer widget_states_sync(g, old_hot, old_active, old_focused, g.hot, g.active, g.focused)
+	for ev in events {
 		#partial switch e in ev {
 		case Mouse_Move_Event:
-			g.pointer = e.pos
-			g.global_pointer = e.global
-			g.pointer_known = true
-			if g.resize.active {
-				resize_update(g, e.global)
-			} else if g.drag.armed {
-				drag_update(g, e.global)
-			} else if g.slider_active != INVALID_WIDGET_ID {
-				//* The slider under the pointer follows it.
-				slider_move_to(g, g.slider_active, e.pos)
-			} else {
-				hot, _ := hit_test_top(g, e.global)
-				g.hot = hot
-			}
-			//* The widget under the pointer is told that it moved.
-			fire_pointer(g, g.hot, Pointer_Event {
-				kind = .Move,
-				pos = e.pos,
-				global = e.global,
-			})
+			handle_mouse_move(g, e)
 		case Mouse_Down_Event:
-			g.pointer = e.pos
-			g.global_pointer = e.global
-			g.pointer_known = true
-			//* A floating panel sits on top of the tree, so it is
-			//* looked at first.
-			hot, local := hit_test_top(g, e.global)
-			g.hot = hot
-			//* Any click takes the focus away from a text field: the
-			//* caret and the selection both disappear.
-			focus_clear(g)
-			g.active = g.hot
-			g.lmb_down = true
-			g.lmb_pressed = true
-			//* The widget under the pointer is told that the button
-			//* went down on it.
-			fire_pointer(g, g.hot, Pointer_Event {
-				kind = .Down,
-				pos = e.pos,
-				global = e.global,
-				button = e.button,
-				clicks = e.clicks,
-			})
-			//* A slider takes the pointer: it follows it until the
-			//* button is let go.
-			if is_slider(Widget_Get(g, g.hot)) {
-				g.slider_active = g.hot
-				slider_move_to(g, g.hot, e.pos)
-				break
-			}
-			//* A tab button switches tabs, and dragging it moves the
-			//* panel it stands for.
-			if host, tab, button := tab_at(g, e.global); tab != INVALID_WIDGET_ID {
-				set_active_tab(g, host, tab)
-				if !drag_start_tab(g, tab, e.pos, button, e.global) {
-					g.active = INVALID_WIDGET_ID
-				}
-				break
-			}
-			//* An edge of a panel is a grip: pulling on it resizes the panel.
-			if id, edges := find_resize_grip(g, e.global); id != INVALID_WIDGET_ID {
-				resize_begin(g, id, edges, e.global)
-				break
-			}
-			if drag_start(g, g.hot, e.pos, e.global) {
-				// The drag owns the mouse until it ends.
-				break
-			}
-			focus_click(g, g.hot, local, e.clicks)
+			handle_mouse_down(g, e)
 		case Mouse_Up_Event:
-			g.pointer = e.pos
-			g.global_pointer = e.global
-			g.pointer_known = true
-			g.lmb_down = false
-			g.lmb_released = true
-			g.slider_active = INVALID_WIDGET_ID
-			if g.resize.active {
-				//* The resize owns the mouse until it ends.
-				resize_end(g)
-			} else if g.drag.active {
-				drag_end(g, e.global)
-			} else {
-				if g.drag.armed {
-					//* The pointer never travelled far enough: this
-					//* was a click, not a drag.
-					drag_cancel(g)
-				}
-				up, _ := hit_test_top(g, e.global)
-				//* The widget under the pointer is told that the
-				//* button came up over it.
-				fire_pointer(g, up, Pointer_Event {
-					kind = .Up,
-					pos = e.pos,
-					global = e.global,
-					button = e.button,
-				})
-				if g.active != INVALID_WIDGET_ID && g.active == up {
-					// Pointer capture: the click fires on whatever was
-					// pressed, even if the pointer moved off it.
-					fire_click(g, g.active)
-				}
-			}
-			g.active = INVALID_WIDGET_ID
+			handle_mouse_up(g, e)
 		case Wheel_Event:
-			//* The wheel turns over the widget under the pointer.
-			if g.pointer_known {
-				hot, _ := hit_test_top(g, g.global_pointer)
-				fire_pointer(g, hot, Pointer_Event {
-					kind = .Wheel,
-					pos = g.pointer,
-					global = g.global_pointer,
-					amount = e.amount,
-				})
-			}
+			handle_wheel(g, e)
 		case Key_Down_Event:
-			g.mods = e.mods
-			if e.key == .Escape {
-				if g.resize.active {
-					resize_cancel(g)
-					break
-				}
-				if g.drag.armed {
-					drag_cancel(g)
-					break
-				}
-				g.quit_requested = true
-				break
-			}
-			//* The tab key moves the focus from one widget to the next one.
-			if e.key == .Tab {
-				next := focus_next(g, g.focused, !(.Shift in e.mods))
-				if next != INVALID_WIDGET_ID { focus_set(g, next) }
-				break
-			}
-			//* The arrow keys move the focus too, unless the widget
-			//* that has it uses them itself.
-			if direction := arrow_direction(e.key); direction >= 0 {
-				if !uses_arrow_keys(g, g.focused) {
-					next := focus_neighbour(g, g.focused, direction)
-					if next != INVALID_WIDGET_ID { focus_set(g, next) }
-				}
-				fire_key(g, g.focused, e)
-				break
-			}
-			fire_key(g, g.focused, e)
+			handle_key_down(g, e)
 		case Key_Up_Event:
 			g.mods = e.mods
 		case Text_Input_Event:
@@ -177,17 +92,258 @@ Handle_Events :: proc(g: ^GUI) {
 			g.ime_text = e.text
 		case Resized_Event:
 			g.viewport = Rect{x = 0, y = 0, w = e.size.x, h = e.size.y}
-			//* The window is a different size now, so every widget is
-			//* placed again.
 			invalidate_all(g, Dirty_Flags{.Arrange, .Hit})
 			if g.backend.resize != nil {
-				g.backend.resize(g.backend.ctx, i32(e.size.x), i32(e.size.y))
+				//* backend works in physical pixels.
+				g.backend.resize(
+					g.backend.ctx,
+					i32(e.size.x * g.scale),
+					i32(e.size.y * g.scale),
+				)
 			}
 		case Quit_Event:
 			g.quit_requested = true
 		}
 	}
-	clear(&g.events)
+}
+
+handle_mouse_move :: proc(g: ^GUI, e: Mouse_Move_Event) {
+	g.pointer = e.pos
+	g.global_pointer = e.global
+	g.pointer_known = true
+
+	if g.resize.active {
+		resize_update(g, e.global)
+	} else if g.drag.armed {
+		drag_update(g, e.global)
+	} else if g.slider_active != INVALID_WIDGET_ID {
+		slider_move_to(g, g.slider_active, e.pos)
+	}
+
+	chain, _ := pointer_chain(g, e.global)
+	defer delete(chain)
+	g.hot = chain_target(&chain)
+
+	if g.active != INVALID_WIDGET_ID {
+		fire_pointer(g, g.active, Pointer_Event {
+			kind = .Move,
+			pos = e.pos,
+			global = e.global,
+		})
+		return
+	}
+	fire_pointer_chain(g, &chain, Pointer_Event {
+		kind = .Move,
+		pos = e.pos,
+		global = e.global,
+	})
+}
+
+handle_mouse_down :: proc(g: ^GUI, e: Mouse_Down_Event) {
+	g.pointer = e.pos
+	g.global_pointer = e.global
+	g.pointer_known = true
+
+	chain, local := pointer_chain(g, e.global)
+	defer delete(chain)
+	hot := chain_target(&chain)
+	g.hot = hot
+
+	//* The left button takes the focus away from a text field: the caret
+	//* and the selection both disappear. The other buttons leave the
+	//* keyboard where it is: a right click opens a menu, and the menu
+	//* gives the keyboard back when it closes.
+	if e.button == .Left { focus_clear(g) }
+
+	g.lmb_down = true
+	g.lmb_pressed = true
+
+// The widget that captures the pointer, rcv's events until pointer is released
+	g.active = INVALID_WIDGET_ID
+	if e.button == .Left { g.active = hot }
+
+	fire_pointer_chain(g, &chain, Pointer_Event {
+		kind = .Down,
+		pos = e.pos,
+		global = e.global,
+		button = e.button,
+		clicks = e.clicks,
+	})
+
+//* A slider takes the pointer: follows it until the button is let go.
+	if is_slider(Widget_Get(g, hot)) {
+		g.slider_active = hot
+		slider_move_to(g, hot, e.pos)
+		return
+	}
+
+	if host, tab, button := tab_at(g, e.global); tab != INVALID_WIDGET_ID {
+		set_active_tab(g, host, tab)
+		if !drag_start_tab(g, tab, e.pos, button, e.global) {
+			g.active = INVALID_WIDGET_ID
+		}
+		return
+	}
+	//* An edge of a panel is a grip: pulling on it resizes the panel.
+	if id, edges := find_resize_grip(g, e.global); id != INVALID_WIDGET_ID {
+		resize_begin(g, id, edges, e.global)
+		return
+	}
+	if drag_start(g, hot, e.pos, e.global) {
+		// The drag owns the mouse until it ends.
+		return
+	}
+	focus_click(g, hot, local, e.clicks)
+}
+
+handle_mouse_up :: proc(g: ^GUI, e: Mouse_Up_Event) {
+	g.pointer = e.pos
+	g.global_pointer = e.global
+	g.pointer_known = true
+	g.lmb_down = false
+	g.lmb_released = true
+	g.slider_active = INVALID_WIDGET_ID
+
+	if g.resize.active {
+		// The resize owns the mouse until it ends.
+		resize_end(g)
+		g.active = INVALID_WIDGET_ID
+		return
+	}
+	if g.drag.active {
+		drag_end(g, e.global)
+		g.active = INVALID_WIDGET_ID
+		return
+	}
+	if g.drag.armed {
+// The pointer never travelled far enough: this was a click, not a drag.
+		drag_cancel(g)
+	}
+
+	chain, _ := pointer_chain(g, e.global)
+	defer delete(chain)
+	up := chain_target(&chain)
+	g.hot = up
+
+	if g.active != INVALID_WIDGET_ID {
+		fire_pointer(g, g.active, Pointer_Event {
+			kind = .Up,
+			pos = e.pos,
+			global = e.global,
+			button = e.button,
+		})
+	} else {
+		fire_pointer_chain(g, &chain, Pointer_Event {
+			kind = .Up,
+			pos = e.pos,
+			global = e.global,
+			button = e.button,
+		})
+	}
+
+	if g.active != INVALID_WIDGET_ID && g.active == up {
+		fire_click(g, g.active) // click on same widget.
+	}
+	g.active = INVALID_WIDGET_ID
+}
+
+handle_wheel :: proc(g: ^GUI, e: Wheel_Event) {
+	//* The wheel turns over the widget under the pointer.
+	if !g.pointer_known { return }
+	chain, _ := pointer_chain(g, g.global_pointer)
+	defer delete(chain)
+	g.hot = chain_target(&chain)
+	fire_pointer_chain(g, &chain, Pointer_Event {
+		kind = .Wheel,
+		pos = g.pointer,
+		global = g.global_pointer,
+		amount = e.amount,
+	})
+}
+
+handle_key_down :: proc(g: ^GUI, e: Key_Down_Event) {
+	g.mods = e.mods
+	//* The key is not dealt with until a widget says that it is.
+	g.event_handled = false
+
+	//* The escape key undoes what is going on: first the resize, then
+	//* the drag, then the popup that is on top of the others, then the
+	//* widget that has the focus, and at the end the program itself.
+	if e.key == .Escape {
+		if g.resize.active {
+			resize_cancel(g)
+			return
+		}
+		if g.drag.armed {
+			drag_cancel(g)
+			return
+		}
+		if popup_close_top(g) { return }
+		fire_key(g, g.focused, e)
+		if g.event_handled { return }
+		g.quit_requested = true
+		return
+	}
+
+	//* The tab key moves the focus from one widget to the next one.
+	if e.key == .Tab {
+		fire_key(g, g.focused, e)
+		if g.event_handled { return }
+		next := focus_next(g, g.focused, !(.Shift in e.mods))
+		if next != INVALID_WIDGET_ID { focus_set(g, next) }
+		return
+	}
+
+	if shortcut_fire(g, e.key, e.mods) {
+		Event_Handled(g)
+		return
+	}
+
+	if direction := arrow_direction(e.key); direction >= 0 {
+		focused := g.focused
+		//* The widget that has the focus is the one that gets the key,
+		//* even when the key moves the focus away from it.
+		fire_key(g, focused, e)
+		if g.event_handled { return }
+		if !uses_arrow_keys(g, focused) {
+			next := focus_neighbour(g, focused, direction)
+			if next != INVALID_WIDGET_ID { focus_set(g, next) }
+		}
+		return
+	}
+
+	fire_key(g, g.focused, e)
+}
+
+//* Tells the widgets of a chain what the pointer did. The chain is
+//* walked from the topmost widget down, and it ends at the widget that
+//* stops it.
+fire_pointer_chain :: proc(g: ^GUI, chain: ^[dynamic]Widget_ID, e: Pointer_Event) {
+	g.event_handled = false
+	for id in chain^ {
+		if g.event_handled { return }
+		fire_pointer(g, id, e)
+	}
+}
+
+Widget_Capture_Pointer :: proc(g: ^GUI, id: Widget_ID) -> bool {
+	if g == nil { return false }
+	w := Widget_Get(g, id)
+	if w == nil { return false }
+	if !(.Enabled in w.state) { return false }
+	g.active = id
+	return true
+}
+
+Widget_Release_Pointer :: proc(g: ^GUI) {
+	if g == nil { return }
+	g.active = INVALID_WIDGET_ID
+	g.slider_active = INVALID_WIDGET_ID
+}
+
+Pointer_Captured :: proc(g: ^GUI) -> Widget_ID {
+	if g == nil { return INVALID_WIDGET_ID }
+	return g.active
 }
 
 fire_click :: proc(g: ^GUI, id: Widget_ID) {
@@ -195,10 +351,13 @@ fire_click :: proc(g: ^GUI, id: Widget_ID) {
 	if w == nil { return }
 	if !(.Enabled in w.state) { return }
 
-	//* A widget that came after the first ones has its own hooks.
+	pressed := w.signals.on_pressed
+
+	//* A custom class has a hook of its own, and it is used instead of
+	//* the built-in one.
 	if kind := widget_kind(g, w); kind.click != nil {
 		kind.click(g, id, w)
-		signal_pressed(g, id)
+		if pressed != nil { pressed(g, id) }
 		return
 	}
 
@@ -206,12 +365,9 @@ fire_click :: proc(g: ^GUI, id: Widget_ID) {
 	case Button_Data:
 		if d.on_click != nil { d.on_click(g, id) }
 	}
-	signal_pressed(g, id)
+	if pressed != nil { pressed(g, id) }
 }
 
-//* Tells a widget what the pointer did to it. The place of the pointer
-//* is given in the window of the GUI and in the widget itself, so a
-//* widget does not have to work out where the pointer is in it.
 fire_pointer :: proc(g: ^GUI, id: Widget_ID, e: Pointer_Event) {
 	if g == nil || id == INVALID_WIDGET_ID { return }
 	w := Widget_Get(g, id)
@@ -224,7 +380,6 @@ fire_pointer :: proc(g: ^GUI, id: Widget_ID, e: Pointer_Event) {
 	kind.pointer(g, id, w, event)
 }
 
-//* The item of a list under the pointer, and the picking of it.
 item_list_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	style := resolved_style(g, w)
 	content := content_rect_with(w.rect, style.box.content_margin)
@@ -233,7 +388,6 @@ item_list_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	item_list_select(g, id, index)
 }
 
-//* The item of a tree under the pointer, and the picking of it.
 tree_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	style := resolved_style(g, w)
 	content := content_rect_with(w.rect, style.box.content_margin)
@@ -242,7 +396,6 @@ tree_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	tree_select_item(g, id, index)
 }
 
-//* True when the widget is a slider, so that the pointer can move it.
 is_slider :: proc(w: ^Widget) -> bool {
 	if w == nil { return false }
 	#partial switch d in w.data {
@@ -252,7 +405,6 @@ is_slider :: proc(w: ^Widget) -> bool {
 	return false
 }
 
-//* Moves a slider to the place of the pointer.
 slider_move_to :: proc(g: ^GUI, id: Widget_ID, p: Vec2) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -274,8 +426,6 @@ slider_move_to :: proc(g: ^GUI, id: Widget_ID, p: Vec2) {
 	}
 }
 
-//* The direction an arrow key points at: left, top, right, bottom. The
-//* number is -1 when the key is not an arrow key.
 arrow_direction :: proc(key: Key) -> int {
 	#partial switch key {
 	case .Left:  return 0
@@ -286,12 +436,10 @@ arrow_direction :: proc(key: Key) -> int {
 	return -1
 }
 
-//* True when the widget uses the arrow keys itself, so that they do not
-//* move the focus.
+// Would lose focus during arrow-key operation if False
 uses_arrow_keys :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	w := Widget_Get(g, id)
 	if w == nil { return false }
-	//* A class can say that it uses the arrow keys itself.
 	if kind := widget_kind(g, w); kind.uses_arrow_keys { return true }
 	#partial switch d in w.data {
 	case Text_Input_Data:
@@ -301,6 +449,7 @@ uses_arrow_keys :: proc(g: ^GUI, id: Widget_ID) -> bool {
 }
 
 //* == Dragging ==
+
 header_rect :: proc(w: ^Widget) -> Rect {
 	return Rect{x = w.rect.x, y = w.rect.y, w = w.rect.w, h = HEADER_HEIGHT}
 }
@@ -421,27 +570,21 @@ drag_refresh :: proc(g: ^GUI, global: Vec2) {
 	g.drag.kind = g.drag.plan.kind
 }
 
-//* Drops the dragged widget into its target.
 drag_end :: proc(g: ^GUI, global: Vec2) {
 	if g.drag.active {
-		//* The plan is worked out again, so the drop uses the place
-		//* the button came up at.
 		drag_refresh(g, global)
 
 		if g.drag.plan.kind != .None {
 			if g.drag.float_index >= 0 {
-				//* The panel goes back into the tree.
 				unfloat_panel(g, g.drag.float_index)
 				g.drag.float_index = FLOAT_NONE
 			}
 			dock_apply(g, g.drag.widget, g.drag.plan)
 		} else if g.drag.float_index < 0 && outside_main_window(g, global) {
-			//* Dropped outside of the window: the panel floats and
-			//* gets a window of its own.
+			//* Dropped outside of the window: floats the panel.
 			pos := Vec2{global.x - g.drag.grab.x, global.y - g.drag.grab.y}
 			Make_Float_Panel(g, g.drag.widget, pos, g.drag.size)
 		}
-		//* The widget was moved, so the program is told how far it went.
 		delta := Vec2{global.x - g.drag.origin.x, global.y - g.drag.origin.y}
 		signal_dragged(g, g.drag.widget, delta)
 	}
@@ -457,14 +600,13 @@ drag_cancel :: proc(g: ^GUI) {
 	g.drag = drag_state_none()
 }
 
-//* The drag that is not running. The index of the floating panel is
-//* FLOAT_NONE, so that a drag that is not running does not point at
+//* The drag that is not running. FLOAT_NONE is the index of the
+//* floating panel, so that a drag that is not running does not point at
 //* the first floating panel.
 drag_state_none :: proc() -> Drag_State {
 	return Drag_State{float_index = FLOAT_NONE}
 }
 
-//* True when `node` is inside `ancestor`'s subtree.
 is_descendant :: proc(g: ^GUI, ancestor, node: Widget_ID) -> bool {
 	w := Widget_Get(g, node)
 	for w != nil {

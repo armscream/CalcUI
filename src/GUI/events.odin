@@ -1,3 +1,7 @@
+//* The events the window layer hands to the GUI: the pointer, the keys, the
+//* text that was typed and the size of the window.
+//* A position is given twice: once in the window of the GUI and once on the
+//* screen.
 package GUI
 
 Mouse_Button :: enum { Left, Middle, Right }

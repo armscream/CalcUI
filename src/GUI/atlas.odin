@@ -1,25 +1,18 @@
-//* == The UI atlas ==
-//* Everything the GUI draws comes out of one texture: the white texel
-//* that the solid quads sample, the glyphs of every font and the
-//* images. One texture means one draw call, so the atlas is the
-//* reason the whole UI can be drawn in a single call.
-//
+package GUI
+
+//* == UI atlas ==
 //* The atlas owns a copy of the pixels. A change is written into that
 //* copy and only the region that changed is uploaded, so a glyph that
 //* is rasterized does not cost a 16 MiB upload.
 //
-//* The space is handed out with a shelf allocator: the shelves are
-//* stacked from the top of the atlas downwards, and a new region goes
-//* on the first shelf that is tall enough and has room left. Regions
-//* that are not pinned - the images - can be thrown out when the atlas
-//* is full; the glyphs are pinned, because a glyph that is thrown out
-//* would have to be rasterized again.
+//* The shelves are stacked from the top of the atlas downwards, and a
+//* new region goes on the first shelf that is tall enough and has room
+//* left. The glyphs are pinned, because a glyph that is thrown out
+//* would have to be rasterized again; the images are not.
 //
 //* A region is named by its slot and by a generation. The generation
 //* goes up when the space is given back, so a handle to a region that
 //* is gone never names the region that took its place.
-
-package GUI
 
 //* The size of the atlas, in pixels, when nothing else is asked for.
 //* 2048x2048 of RGBA is 16 MiB.
@@ -72,7 +65,6 @@ UI_Atlas :: struct {
 	frame:   u64,
 	white:   Atlas_Region,
 	white_uv: [4]f32,
-	//* The scratch buffer the uploads are put together in.
 	scratch:  []u8,
 	//* The parts that are waiting to go up, and where they are in the scratch buffer.
 	uploads:  [dynamic]Texture_Upload,
@@ -91,7 +83,6 @@ atlas_make :: proc(width, height: int) -> ^UI_Atlas {
 	a.height = height
 	a.pixels = make([]u8, width * height * 4)
 
-	//* The white texel: four by four white pixels at the top left.
 	for y in 0 ..< ATLAS_WHITE_SIZE {
 		for x in 0 ..< ATLAS_WHITE_SIZE {
 			at := (y * width + x) * 4
@@ -126,8 +117,6 @@ atlas_destroy :: proc(a: ^UI_Atlas) {
 	free(cast(rawptr) a)
 }
 
-//* == Handing out space ==
-
 //* Hands out a region of `w` x `h` pixels. A pinned region is never
 //* thrown out; an unpinned one is the first to go when the atlas is
 //* full. The region is invalid when there is no room for it.
@@ -140,8 +129,7 @@ atlas_alloc :: proc(a: ^UI_Atlas, w, h: int, pinned: bool) -> Atlas_Region {
 
 	//* Try again after throwing something out: the space that is
 	//* freed is the space that is used. A region that is not pinned
-	//* can always be thrown out to make room, whatever the region that
-	//* asks for the room is.
+	//* can always be thrown out to make room
 	for {
 		if region, ok := atlas_alloc_raw(a, w, h); ok {
 			return atlas_commit(a, region, w, h, pinned)
@@ -228,7 +216,6 @@ atlas_alloc_raw :: proc(a: ^UI_Atlas, w, h: int) -> (Atlas_Region, bool) {
 	return atlas_region(a, 0, y, w, h), true
 }
 
-//* Takes a block out of the free list.
 atlas_take_block :: proc(blocks: ^[dynamic]Atlas_Block, index: int) {
 	ordered_remove(blocks, index)
 }
@@ -432,7 +419,6 @@ atlas_next_frame :: proc(a: ^UI_Atlas) {
 	a.frame += 1
 }
 
-//* How many regions are still in use.
 atlas_live_count :: proc(a: ^UI_Atlas) -> int {
 	n := 0
 	for &alloc in a.allocs {

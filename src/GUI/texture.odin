@@ -1,26 +1,15 @@
-//* == The pictures ==
-//* A picture is put into the atlas like everything else, so it costs no
-//* draw call of its own. The atlas gives the space back when it is
-//* full: a picture that is not used for a while is the first to go.
-//
-//* A PNG is read with the reader of the Odin core, so the toolkit does
-//* not need a picture library of its own.
-
 package GUI
 
 import "core:image/png"
 
-//* A picture that lives in the atlas.
 Texture :: struct {
-	//* The place of the picture in the atlas.
 	region: Atlas_Region,
 	//* Its size in pixels.
 	size:   [2]i32,
-	//* The uv of the picture in the atlas.
 	uv:     [4]f32,
 }
 
-//* Puts a picture into the atlas. The pixels are RGBA, four bytes
+//* Puts a tex into the atlas. The pixels are RGBA, four bytes
 //* each, and there are `w` * `h` of them.
 texture_from_pixels :: proc(g: ^GUI, pixels: []u8, w, h: int) -> Texture {
 	if w <= 0 || h <= 0 {return Texture{}}
@@ -44,9 +33,8 @@ texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 	channels := image.channels
 	if w <= 0 || h <= 0 {return {}, false}
 
-	//* The reader gives the rows of the picture one after the other.
-	//* They are copied into the atlas, which wants four bytes for
-	//* every pixel.
+	//* The reader gives the rows of the picture one after the other. They are
+	//* copied into the atlas, which wants four bytes for every pixel.
 	source := image.pixels.buf[image.pixels.off:]
 	if len(source) < w * h * channels {return {}, false}
 
@@ -87,28 +75,29 @@ texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 	return texture, true
 }
 
-//* Gives the space of a picture back to the atlas.
 texture_free :: proc(g: ^GUI, texture: Texture) {
 	if texture.region.id < 0 {return}
 	atlas_free(g.atlas, texture.region)
 }
 
-//* Draws a picture in a rect. The picture keeps its shape: it is put
-//* in the middle of the rect when it does not fill it.
-//
-//* A picture that was thrown out of the atlas is not drawn: the space
-//* it had belongs to something else now.
+texture_logical_size :: proc(g: ^GUI, texture: Texture) -> Vec2 {
+	scale := g.scale
+	if !(scale > 0) {scale = 1}
+	return Vec2 {
+		x = f32(texture.size[0]) / scale,
+		y = f32(texture.size[1]) / scale,
+	}
+}
+
 draw_texture :: proc(g: ^GUI, texture: Texture, rect: Rect, colour: Colour) {
 	if !atlas_region_valid(g.atlas, texture.region) {return}
 	if rect.w <= 0 || rect.h <= 0 {return}
 
-	//* The picture is on the screen, so it is the last one to be
-	//* thrown out of the atlas.
 	atlas_touch(g.atlas, texture.region)
 
-	//* The place of the picture in the rect.
-	w := f32(texture.size[0])
-	h := f32(texture.size[1])
+	size := texture_logical_size(g, texture)
+	w := size.x
+	h := size.y
 	if w <= 0 || h <= 0 {return}
 	scale := min(rect.w / w, rect.h / h)
 	drawn := Rect {
