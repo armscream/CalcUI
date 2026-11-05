@@ -1,9 +1,6 @@
-//* The SDL3 GPU backend.
-//
-//* This is where the renderer-agnostic design pays off: one
-//* implementation of the draw list serves Vulkan, D3D11, D3D12, Metal
-//* and OpenGL, because SDL's GPU API abstracts them. The device is
-//* chosen by SDL from the shader format the UI needs.
+//* The SDL3 GPU backend: one draw list and one implementation of it,
+//* and SDL's GPU API picks the driver (Vulkan, D3D12, Metal, OpenGL).
+//* The rules this backend keeps to are in docs/contracts.md.
 package Backend
 
 import sdl "vendor:sdl3"
@@ -22,6 +19,21 @@ UBO :: struct {
 	viewport: [2]f32,
 }
 
+//* What a target needs to draw a list of its own: the buffers of its
+//* geometry and the size of its window.
+GPU_Slot :: struct {
+	vertex_buf:  ^sdl.GPUBuffer,
+	index_buf:   ^sdl.GPUBuffer,
+	vertex_size: int,
+	index_size:  int,
+	//* The geometry that was uploaded last. A list that did not change
+	//* is not sent again.
+	vertices:    []GUI.Draw_Vertex,
+	indices:     []u32,
+	width:       f32,
+	height:      f32,
+}
+
 GPU_State :: struct {
 	device:   ^sdl.GPUDevice,
 	window:   ^sdl.Window,
@@ -30,31 +42,23 @@ GPU_State :: struct {
 
 	textures: [dynamic]^sdl.GPUTexture,
 
-	vertex_buf:  ^sdl.GPUBuffer,
-	index_buf:   ^sdl.GPUBuffer,
-	vertex_size: int,
-	index_size:  int,
-
-	width:  f32,
-	height: f32,
+	//* The target of the main window comes first, the floating panels
+	//* follow.
+	slots: [dynamic]GPU_Slot,
 
 	//* The windows of the floating panels. They share the device and
 	//* the textures with the main window.
 	targets: [dynamic]GPU_Target,
 }
 
-//* A floating panel: its window and the size of its swapchain.
+//* A floating panel: the window it has of its own.
 GPU_Target :: struct {
 	window: ^sdl.Window,
-	width:  f32,
-	height: f32,
 }
 
 gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 	st := cast(^GPU_State)ctx
 	st.window = cast(^sdl.Window)window
-	st.width = f32(w)
-	st.height = f32(h)
 
 	//* SPIR-V only: the UI shaders are compiled with glslc.
 	device := sdl.CreateGPUDevice({.SPIRV}, true, nil)
@@ -126,8 +130,7 @@ gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 		},
 	)
 
-	//* The atlas is the one texture of the UI. It is made by the first
-	//* upload, which the GUI does when it flushes the atlas.
+	append(&st.slots, GPU_Slot{width = f32(w), height = f32(h)})
 	return true
 }
 
@@ -141,8 +144,24 @@ gpu_destroy :: proc(ctx: rawptr) {
 	clear(&st.textures)
 	delete(st.textures)
 
-	if st.vertex_buf != nil { sdl.ReleaseGPUBuffer(st.device, st.vertex_buf) }
-	if st.index_buf != nil { sdl.ReleaseGPUBuffer(st.device, st.index_buf) }
+	for &slot in st.slots {
+		if slot.vertex_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.vertex_buf) }
+		if slot.index_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.index_buf) }
+		delete(slot.vertices)
+		delete(slot.indices)
+	}
+	clear(&st.slots)
+	delete(st.slots)
+
+	for target in st.targets {
+		if target.window != nil {
+			sdl.ReleaseWindowFromGPUDevice(st.device, target.window)
+		}
+	}
+	clear(&st.targets)
+	delete(st.targets)
+
+	if st.window != nil { sdl.ReleaseWindowFromGPUDevice(st.device, st.window) }
 	if st.sampler != nil { sdl.ReleaseGPUSampler(st.device, st.sampler) }
 	if st.pipeline != nil { sdl.ReleaseGPUGraphicsPipeline(st.device, st.pipeline) }
 	if st.device != nil { sdl.DestroyGPUDevice(st.device) }
@@ -153,114 +172,159 @@ gpu_destroy :: proc(ctx: rawptr) {
 gpu_resize :: proc(ctx: rawptr, w, h: i32) -> bool {
 	st := cast(^GPU_State)ctx
 	if st == nil { return false }
-	st.width = f32(w)
-	st.height = f32(h)
+	if len(st.slots) == 0 { return false }
+	st.slots[0].width = f32(w)
+	st.slots[0].height = f32(h)
 	return true
 }
 
-//* Creates or updates a texture and uploads its pixels.
+//* == The textures ==
+
 gpu_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w, h: i32) -> bool {
-	return gpu_upload_region(ctx, id, pixels, w, h, 0, 0)
-}
-
-//* Uploads a part of a texture. The atlas is far too big to be sent
-//* again every time one glyph changes, so only the part that changed
-//* goes up.
-gpu_upload_texture_region :: proc(
-	ctx: rawptr,
-	id: GUI.Texture_ID,
-	pixels: []u8,
-	w, h, x, y: i32,
-) -> bool {
-	return gpu_upload_region(ctx, id, pixels, w, h, x, y)
-}
-
-//* The upload itself: the texture is made when it is not there yet,
-//* and the pixels are put into the region that is asked for.
-gpu_upload_region :: proc(
-	ctx: rawptr,
-	id: GUI.Texture_ID,
-	pixels: []u8,
-	w, h, x, y: i32,
-) -> bool {
 	st := cast(^GPU_State)ctx
 	if st == nil || st.device == nil { return false }
 	if w <= 0 || h <= 0 { return false }
 	if len(pixels) < int(w) * int(h) * 4 { return false }
 
-	idx := int(id)
-	for len(st.textures) <= idx {
-		append(&st.textures, nil)
-	}
+	if gpu_make_texture(st, id, w, h) == nil { return false }
 
-	tex := st.textures[idx]
-	if tex == nil {
-		tex = sdl.CreateGPUTexture(
-			st.device,
-			sdl.GPUTextureCreateInfo {
-				type = .D2,
-				format = .R8G8B8A8_UNORM,
-				usage = {.SAMPLER},
-				width = u32(w),
-				height = u32(h),
-				layer_count_or_depth = 1,
-				num_levels = 1,
-				sample_count = ._1,
-			},
-		)
-		if tex == nil { return false }
-		st.textures[idx] = tex
-	}
+	region := GUI.Texture_Upload{pixels = pixels, w = w, h = h, x = 0, y = 0}
+	regions := [1]GUI.Texture_Upload{region}
+	return gpu_upload_texture_regions(ctx, id, regions[:])
+}
 
-	//* The rows of the region follow each other: the transfer says how
-	//* many pixels there are in a row, and that is the stride.
-	row_bytes := int(w) * 4
-	size := row_bytes * int(h)
+//* Uploads the parts of a texture that changed, in one copy pass and
+//* one command buffer.
+gpu_upload_texture_regions :: proc(
+	ctx: rawptr,
+	id: GUI.Texture_ID,
+	regions: []GUI.Texture_Upload,
+) -> bool {
+	st := cast(^GPU_State)ctx
+	if st == nil || st.device == nil { return false }
+	if len(regions) == 0 { return true }
+
+	tex := gpu_texture(st, id)
+	if tex == nil { return false }
+
+	//* The pixels of every part are put together in one buffer.
+	total := 0
+	for &region in regions {
+		if region.w <= 0 || region.h <= 0 { continue }
+		if len(region.pixels) < int(region.w) * int(region.h) * 4 { continue }
+		total += len(region.pixels)
+	}
+	if total == 0 { return true }
 
 	transfer := sdl.CreateGPUTransferBuffer(
 		st.device,
-		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = u32(size)},
+		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = u32(total)},
 	)
 	if transfer == nil { return false }
 
 	dst := sdl.MapGPUTransferBuffer(st.device, transfer, false)
-	mem.copy(dst, raw_data(pixels), size)
+	if dst == nil {
+		sdl.ReleaseGPUTransferBuffer(st.device, transfer)
+		return false
+	}
+	at := 0
+	for &region in regions {
+		if region.w <= 0 || region.h <= 0 { continue }
+		if len(region.pixels) < int(region.w) * int(region.h) * 4 { continue }
+		mem.copy(cast(rawptr)(cast(uintptr)dst + uintptr(at)), raw_data(region.pixels), len(region.pixels))
+		at += len(region.pixels)
+	}
 	sdl.UnmapGPUTransferBuffer(st.device, transfer)
 
 	cmd := sdl.AcquireGPUCommandBuffer(st.device)
 	copy_pass := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUTexture(
-		copy_pass,
-		sdl.GPUTextureTransferInfo {
-			transfer_buffer = transfer,
-			offset = 0,
-			pixels_per_row = u32(w),
-			rows_per_layer = u32(h),
-		},
-		sdl.GPUTextureRegion {
-			texture = tex,
-			x = u32(max(x, 0)),
-			y = u32(max(y, 0)),
-			w = u32(w),
-			h = u32(h),
-			d = 1,
-		},
-		false,
-	)
+	at = 0
+	for &region in regions {
+		if region.w <= 0 || region.h <= 0 { continue }
+		if len(region.pixels) < int(region.w) * int(region.h) * 4 { continue }
+		sdl.UploadToGPUTexture(
+			copy_pass,
+			sdl.GPUTextureTransferInfo {
+				transfer_buffer = transfer,
+				offset          = u32(at),
+				//* Zero means the rows follow each other tightly, with
+				//* the width of the region.
+				pixels_per_row  = 0,
+				rows_per_layer  = 0,
+			},
+			sdl.GPUTextureRegion {
+				texture = tex,
+				x       = u32(max(region.x, 0)),
+				y       = u32(max(region.y, 0)),
+				w       = u32(region.w),
+				h       = u32(region.h),
+				d       = 1,
+			},
+			false,
+		)
+		at += len(region.pixels)
+	}
 	sdl.EndGPUCopyPass(copy_pass)
-	if !sdl.SubmitGPUCommandBuffer(cmd) { return false }
+	ok := sdl.SubmitGPUCommandBuffer(cmd)
 	sdl.ReleaseGPUTransferBuffer(st.device, transfer)
-	return true
+	return ok
 }
+
+gpu_texture :: proc(st: ^GPU_State, id: GUI.Texture_ID) -> ^sdl.GPUTexture {
+	idx := int(id)
+	if idx < 0 || idx >= len(st.textures) { return nil }
+	return st.textures[idx]
+}
+
+gpu_make_texture :: proc(st: ^GPU_State, id: GUI.Texture_ID, w, h: i32) -> ^sdl.GPUTexture {
+	idx := int(id)
+	for len(st.textures) <= idx {
+		append(&st.textures, nil)
+	}
+	tex := st.textures[idx]
+	if tex != nil { return tex }
+	if w <= 0 || h <= 0 { return nil }
+
+	tex = sdl.CreateGPUTexture(
+		st.device,
+		sdl.GPUTextureCreateInfo {
+			type = .D2,
+			format = .R8G8B8A8_UNORM,
+			usage = {.SAMPLER},
+			width = u32(w),
+			height = u32(h),
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = ._1,
+		},
+	)
+	if tex == nil { return nil }
+	st.textures[idx] = tex
+	return tex
+}
+
+gpu_destroy_texture :: proc(ctx: rawptr, id: GUI.Texture_ID) {
+	st := cast(^GPU_State)ctx
+	if st == nil { return }
+	idx := int(id)
+	if idx >= len(st.textures) { return }
+	if st.textures[idx] != nil {
+		sdl.ReleaseGPUTexture(st.device, st.textures[idx])
+		st.textures[idx] = nil
+	}
+}
+
+//* == The drawing ==
 
 gpu_submit :: proc(ctx: rawptr, dl: ^GUI.Draw_List) {
 	st := cast(^GPU_State)ctx
 	if st == nil || st.device == nil { return }
-	gpu_render(st, st.window, st.width, st.height, dl)
+	if len(st.slots) == 0 { return }
+	gpu_render(st, 0, st.window, st.slots[0].width, st.slots[0].height, dl)
 }
 
 //* Renders a draw list into the window of a floating panel. The window
-//* is given a swapchain the first time it is used.
+//* is claimed for the device the first time it is used.
 gpu_submit_target :: proc(ctx: rawptr, dl: ^GUI.Draw_List, window: rawptr) {
 	st := cast(^GPU_State)ctx
 	if st == nil || st.device == nil { return }
@@ -275,45 +339,41 @@ gpu_submit_target :: proc(ctx: rawptr, dl: ^GUI.Draw_List, window: rawptr) {
 	}
 	if index < 0 {
 		if !sdl.ClaimWindowForGPUDevice(st.device, handle) { return }
-		w, h: i32
-		sdl.GetWindowSizeInPixels(handle, &w, &h)
-		append(&st.targets, GPU_Target{window = handle, width = f32(w), height = f32(h)})
+		append(&st.targets, GPU_Target{window = handle})
+		append(&st.slots, GPU_Slot{})
 		index = len(st.targets) - 1
 	}
-	target := st.targets[index]
-	gpu_render(st, target.window, target.width, target.height, dl)
+
+	//* The window can be made bigger or smaller at any time, so its
+	//* size is asked for every frame.
+	w, h: i32
+	sdl.GetWindowSizeInPixels(handle, &w, &h)
+	slot := &st.slots[index + 1]
+	slot.width = f32(w)
+	slot.height = f32(h)
+	gpu_render(st, index + 1, handle, slot.width, slot.height, dl)
 }
 
-//* Draws a list into one window.
-gpu_render :: proc(st: ^GPU_State, window: ^sdl.Window, width, height: f32, dl: ^GUI.Draw_List) {
-	// Upload the geometry.
-	vertex_bytes := len(dl.vertices) * size_of(Vertex)
-	index_bytes := len(dl.indices) * size_of(u32)
-	if vertex_bytes > 0 {
-		st.vertex_buf = ensure_buffer(
-			st,
-			raw_data(dl.vertices),
-			vertex_bytes,
-			{.VERTEX},
-			st.vertex_buf,
-			&st.vertex_size,
-		)
-	}
-	if index_bytes > 0 {
-		st.index_buf = ensure_buffer(
-			st,
-			raw_data(dl.indices),
-			index_bytes,
-			{.INDEX},
-			st.index_buf,
-			&st.index_size,
-		)
-	}
-	if st.vertex_buf == nil || st.index_buf == nil { return }
+gpu_render :: proc(
+	st: ^GPU_State,
+	slot_index: int,
+	window: ^sdl.Window,
+	width, height: f32,
+	dl: ^GUI.Draw_List,
+) {
+	if slot_index < 0 || slot_index >= len(st.slots) { return }
+	slot := &st.slots[slot_index]
 
 	cmd_buf := sdl.AcquireGPUCommandBuffer(st.device)
 	swapchain: ^sdl.GPUTexture
-	if !sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain, nil, nil) { return }
+	if !sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain, nil, nil) {
+		_ = sdl.SubmitGPUCommandBuffer(cmd_buf)
+		return
+	}
+
+	//* The geometry goes up in the same command buffer as the drawing.
+	transfers: [2]^sdl.GPUTransferBuffer
+	gpu_upload_geometry(st, cmd_buf, slot, dl, &transfers)
 
 	colour_target := sdl.GPUColorTargetInfo {
 		texture = swapchain,
@@ -332,8 +392,11 @@ gpu_render :: proc(st: ^GPU_State, window: ^sdl.Window, width, height: f32, dl: 
 	ubo := UBO{viewport = {width, height}}
 	sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
 
-	sdl.BindGPUVertexBuffers(pass, 0, &(sdl.GPUBufferBinding{buffer = st.vertex_buf}), 1)
-	sdl.BindGPUIndexBuffer(pass, sdl.GPUBufferBinding{buffer = st.index_buf}, ._32BIT)
+	empty := len(dl.vertices) == 0 || len(dl.indices) == 0
+	if !empty {
+		sdl.BindGPUVertexBuffers(pass, 0, &(sdl.GPUBufferBinding{buffer = slot.vertex_buf}), 1)
+		sdl.BindGPUIndexBuffer(pass, sdl.GPUBufferBinding{buffer = slot.index_buf}, ._32BIT)
+	}
 
 	//* The clip is already worked out in the draw list, so there is no
 	//* scissor here. Everything the window shows comes out of the one
@@ -355,54 +418,115 @@ gpu_render :: proc(st: ^GPU_State, window: ^sdl.Window, width, height: f32, dl: 
 	}
 
 	sdl.EndGPURenderPass(pass)
-	if !sdl.SubmitGPUCommandBuffer(cmd_buf) { return }
+	_ = sdl.SubmitGPUCommandBuffer(cmd_buf)
+
+	//* The transfer buffers live until the command buffer is done.
+	for transfer in transfers {
+		if transfer != nil { sdl.ReleaseGPUTransferBuffer(st.device, transfer) }
+	}
 }
 
-//* Uploads `data` into a GPU buffer, recreating the buffer when the
-//* data outgrows it.
-ensure_buffer :: proc(
+//* Puts the geometry of a list into the buffers of a target. A list
+//* that did not change is not sent again.
+gpu_upload_geometry :: proc(
 	st: ^GPU_State,
-	data: rawptr,
-	size: int,
-	usage: sdl.GPUBufferUsageFlags,
-	buf: ^sdl.GPUBuffer,
-	capacity: ^int,
-) -> ^sdl.GPUBuffer {
-	if size <= 0 { return buf }
+	cmd: ^sdl.GPUCommandBuffer,
+	slot: ^GPU_Slot,
+	dl: ^GUI.Draw_List,
+	transfers: ^[2]^sdl.GPUTransferBuffer,
+) {
+	changed :=
+		len(slot.vertices) != len(dl.vertices) ||
+		len(slot.indices) != len(dl.indices) ||
+		!same_bytes(raw_data(slot.vertices), raw_data(dl.vertices), len(dl.vertices) * size_of(GUI.Draw_Vertex)) ||
+		!same_bytes(raw_data(slot.indices), raw_data(dl.indices), len(dl.indices) * size_of(u32))
 
-	out := buf
-	if out == nil || size > capacity^ {
-		if out != nil { sdl.ReleaseGPUBuffer(st.device, out) }
-		capacity^ = max(size, 4096)
-		out = sdl.CreateGPUBuffer(
+	vertex_bytes := len(dl.vertices) * size_of(Vertex)
+	index_bytes := len(dl.indices) * size_of(u32)
+	if vertex_bytes == 0 || index_bytes == 0 { return }
+
+	if slot.vertex_buf == nil || vertex_bytes > slot.vertex_size {
+		if slot.vertex_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.vertex_buf) }
+		slot.vertex_size = max(vertex_bytes, 4096)
+		slot.vertex_buf = sdl.CreateGPUBuffer(
 			st.device,
-			sdl.GPUBufferCreateInfo{usage = usage, size = u32(capacity^)},
+			sdl.GPUBufferCreateInfo{usage = {.VERTEX}, size = u32(slot.vertex_size)},
 		)
-		if out == nil { return nil }
+		if slot.vertex_buf == nil { return }
+		changed = true
+	}
+	if slot.index_buf == nil || index_bytes > slot.index_size {
+		if slot.index_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.index_buf) }
+		slot.index_size = max(index_bytes, 4096)
+		slot.index_buf = sdl.CreateGPUBuffer(
+			st.device,
+			sdl.GPUBufferCreateInfo{usage = {.INDEX}, size = u32(slot.index_size)},
+		)
+		if slot.index_buf == nil { return }
+		changed = true
 	}
 
+	if !changed { return }
+
+	copy_pass := sdl.BeginGPUCopyPass(cmd)
+	transfers[0] = upload_buffer(st, copy_pass, raw_data(dl.vertices), vertex_bytes, slot.vertex_buf)
+	transfers[1] = upload_buffer(st, copy_pass, raw_data(dl.indices), index_bytes, slot.index_buf)
+	sdl.EndGPUCopyPass(copy_pass)
+
+	//* The copy is only kept when the geometry really went up.
+	keep_geometry(slot, dl)
+}
+
+same_bytes :: proc(a, b: rawptr, n: int) -> bool {
+	if n <= 0 { return true }
+	return mem.compare_ptrs(a, b, n) == 0
+}
+
+//* Keeps a copy of the geometry, so the next frame can tell whether it
+//* changed.
+keep_geometry :: proc(slot: ^GPU_Slot, dl: ^GUI.Draw_List) {
+	if len(slot.vertices) != len(dl.vertices) {
+		delete(slot.vertices)
+		slot.vertices = make([]GUI.Draw_Vertex, len(dl.vertices))
+	}
+	if len(slot.indices) != len(dl.indices) {
+		delete(slot.indices)
+		slot.indices = make([]u32, len(dl.indices))
+	}
+	copy(slot.vertices[:], dl.vertices[:])
+	copy(slot.indices[:], dl.indices[:])
+}
+
+//* Uploads data into a GPU buffer. The transfer buffer is given back to
+//* the caller, which frees it after the command buffer is submitted.
+upload_buffer :: proc(
+	st: ^GPU_State,
+	copy_pass: ^sdl.GPUCopyPass,
+	data: rawptr,
+	size: int,
+	buf: ^sdl.GPUBuffer,
+) -> ^sdl.GPUTransferBuffer {
 	transfer := sdl.CreateGPUTransferBuffer(
 		st.device,
 		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = u32(size)},
 	)
-	if transfer == nil { return out }
+	if transfer == nil { return nil }
 
 	dst := sdl.MapGPUTransferBuffer(st.device, transfer, false)
-	mem.copy(dst, data, size)
+	if dst == nil {
+		sdl.ReleaseGPUTransferBuffer(st.device, transfer)
+		return nil
+	}
+	mem.copy(cast(rawptr)cast(uintptr)dst, data, size)
 	sdl.UnmapGPUTransferBuffer(st.device, transfer)
 
-	cmd := sdl.AcquireGPUCommandBuffer(st.device)
-	copy_pass := sdl.BeginGPUCopyPass(cmd)
 	sdl.UploadToGPUBuffer(
 		copy_pass,
 		sdl.GPUTransferBufferLocation{transfer_buffer = transfer},
-		sdl.GPUBufferRegion{buffer = out, offset = 0, size = u32(size)},
+		sdl.GPUBufferRegion{buffer = buf, offset = 0, size = u32(size)},
 		false,
 	)
-	sdl.EndGPUCopyPass(copy_pass)
-	if !sdl.SubmitGPUCommandBuffer(cmd) { return out }
-	sdl.ReleaseGPUTransferBuffer(st.device, transfer)
-	return out
+	return transfer
 }
 
 load_shader :: proc(

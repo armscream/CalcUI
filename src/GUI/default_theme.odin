@@ -1,10 +1,10 @@
+//* The look of the GUI when the program wants one: a dark theme and a
+//* light theme, with a style for every kind of widget.
+//* The GUI ships no theme of its own; the widgets have no look until
+//* one of these is put on them.
+package GUI
+
 //* == The default theme ==
-//* The GUI ships no theme of its own: the widgets have no look until the
-//* program gives them one. These two themes are that look, one for the
-//* dark and one for the light. Every kind of widget has a style in them,
-//* so a program that puts one of them on the GUI has a GUI that looks
-//* finished.
-//
 //*   theme := GUI.default_theme_dark()
 //*   GUI.GUI_Set_Theme(g, theme)
 //
@@ -15,8 +15,6 @@
 //* A widget takes the theme when it is made with `use_theme = true`, or
 //* when `default_theme_use` is called after the tree is built.
 
-package GUI
-
 //* The colours of a theme. A program that wants a colour that goes with
 //* the theme asks for the palette.
 Theme_Palette :: struct {
@@ -26,13 +24,9 @@ Theme_Palette :: struct {
 	surface: Colour,
 	//* The background of a field: a text field, a list, a tree.
 	field: Colour,
-	//* The background of a button.
 	button: Colour,
-	//* The background of a button under the pointer.
 	hover: Colour,
-	//* The background of a button that is pressed.
 	pressed: Colour,
-	//* The background of a widget that cannot be used.
 	disabled: Colour,
 	//* The line around a panel.
 	border: Colour,
@@ -135,7 +129,6 @@ default_theme_use :: proc(g: ^GUI, dark: bool) {
 			w.style_cache.valid = false
 		}
 	}
-	//* The widgets that are already there take the theme.
 	default_theme_apply(g)
 }
 
@@ -370,8 +363,10 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		box  = default_theme_padded(p.surface, p.border, 1, 6, 8, 8),
 		text = Text_Style{colour = p.text},
 	})
+	//* The overlays draw their own box, so the theme gives them no
+	//* background of their own: the box of the widget would be drawn
+	//* over the whole of the area the widget has.
 	Theme_Set_Type(theme, .ContextMenu, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 4, 4),
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .AcceptDialog, Style{
@@ -387,7 +382,6 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .Tooltip, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 4, 6, 4),
 		text = Text_Style{colour = p.text},
 	})
 
@@ -397,7 +391,6 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .CommandPalette, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 6, 6),
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .Rating, Style{

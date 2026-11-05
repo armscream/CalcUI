@@ -1,10 +1,12 @@
+//* The building of the draw list: the tree is walked and every widget
+//* is drawn into the list of the window it belongs to.
+//* A floating panel is a window of its own and gets a list of its own.
 package GUI
 
 import "core:math"
 
 //* Fills the draw list of the main window, and the list of every
-//* floating panel. Each one is a window of its own, so each one gets
-//* a list of its own.
+//* floating panel.
 build_draw_list :: proc(g: ^GUI) {
 	g.target = &g.draw
 	draw_list_clear(g.target, g.viewport)
@@ -90,8 +92,7 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 	w.subtree_dirty -= Dirty_Flags{.Visual}
 
 	//* The content of the widget. A widget that has a draw hook draws
-	//* itself; the ones that were there from the beginning are in the
-	//* switch below.
+	//* itself; the built-in kinds are in the switch below.
 	if kind.draw != nil {
 		kind.draw(g, id, w, content)
 	} else {
@@ -129,19 +130,19 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 	if clipped { draw_pop_clip(g.target) }
 }
 
-//* The children of a widget, drawn one after the other.
+//* The children of a widget, drawn one after the other. The number a
+//* child has in the order of the drawing decides when it is drawn: a
+//* child with a higher number is drawn later, so it lies on top of the
+//* others.
 draw_children :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	if w == nil { return }
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
+	children: [dynamic]Widget_ID
+	defer delete(children)
+	z_sorted_children(g, w, &children)
+	for child in children {
 		c := Widget_Get(g, child)
-		if c == nil { break }
-		//* The next one is remembered before the child is drawn: a
-		//* hook that destroys a widget takes the links of that widget
-		//* with it, and the walk goes on.
-		next := c.next_sibling
+		if c == nil { continue }
 		draw_widget(g, child)
-		child = next
 	}
 }
 
@@ -217,7 +218,6 @@ draw_resize_grip :: proc(g: ^GUI, id: Widget_ID, edges: Resize_Edges) {
 	}
 }
 
-//* The title bar of a draggable widget.
 draw_header :: proc(g: ^GUI, w: ^Widget, style: Style) {
 	h := header_rect(w)
 	bg := Scale_Colour(style.box.bg_color, 1.6)
@@ -265,7 +265,6 @@ draw_tab_bar :: proc(g: ^GUI, w: ^Widget) {
 		child = c.next_sibling
 	}
 
-	//* A line under the strip.
 	draw_quad(
 		g.target,
 		Rect{x = bar.x, y = bar.y + bar.h - 1, w = bar.w, h = 1},
@@ -275,12 +274,12 @@ draw_tab_bar :: proc(g: ^GUI, w: ^Widget) {
 	)
 }
 
-//* The widget rect minus its padding.
+//* The widget rect without the padding of its style.
 content_rect :: proc(g: ^GUI, w: ^Widget) -> Rect {
 	return content_rect_with(w.rect, resolved_style(g, w).box.content_margin)
 }
 
-//* The widget rect minus its padding.
+//* A rect without the padding it is given.
 content_rect_with :: proc(rect: Rect, pad: [4]f32) -> Rect {
 	return Rect{
 		x = rect.x + pad[0],
@@ -340,7 +339,6 @@ draw_drag_overlay :: proc(g: ^GUI) {
 	if !g.drag.active { return }
 	plan := &g.drag.plan
 
-	//* The places the panel can go.
 	if t := Widget_Get(g, g.drag.target); t != nil {
 		draw_dock_zone(g, dock_zone_container(g, g.drag.target), g.drag.zone)
 	}
@@ -397,7 +395,7 @@ draw_drag_overlay :: proc(g: ^GUI) {
 
 //* The places a panel can be dropped in a container: the four edges
 //* split it, the middle merges the panel into it at a tab. They are
-//* marker in grey, because they only say that a drop is possible
+//* marked in grey, because they only say that a drop is possible
 //* here; the place under the pointer is marked in blue, and it is
 //* the preview that marks it.
 draw_dock_zone :: proc(g: ^GUI, rect: Rect, zone: Dock_Zone) {

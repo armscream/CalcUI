@@ -1,15 +1,10 @@
+//* A panel that is torn out of the dock tree and becomes a window of its own.
+//* It keeps its children, is drawn into a list of its own and lives in screen
+//* coordinates, so it can be dragged anywhere. The platform gives it a native
+//* window and keeps it in step with the position held here.
 package GUI
 
-//* Floating panels.
-//
-//* A panel can be torn out of the dock tree and become a window of its
-//* own. A floating panel keeps its children, is drawn into a list of
-//* its own and lives in screen coordinates, so it can be dragged
-//* anywhere: onto another monitor, or off the edge of the screen.
-//
-//* The platform gives every floating panel a native window and keeps
-//* it in step with the position held here.
-
+//* The index of no floating panel.
 FLOAT_NONE :: -1
 
 //* Tears a panel out of the tree and gives it a window of its own.
@@ -20,7 +15,6 @@ Make_Float_Panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> i
 	if size.x <= 0 || size.y <= 0 { return FLOAT_NONE }
 
 	//* The panel leaves the tree, but keeps its children and its look.
-	//* A tab host that loses a tab keeps showing a tab that is there.
 	Widget_Detach(g, widget)
 
 	f := Float_Panel{
@@ -30,8 +24,7 @@ Make_Float_Panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> i
 		title = w.name,
 	}
 	append(&g.floats, f)
-	//* The panel is a window of its own now, so it is laid out in its
-	//* own space.
+	//* The panel is a window of its own now, so it is laid out in its own space.
 	invalidate(g, widget, DIRTY_ALL)
 	return len(g.floats) - 1
 }
@@ -55,21 +48,6 @@ float_of :: proc(g: ^GUI, id: Widget_ID) -> int {
 		if g.floats[i].widget == id { return i }
 	}
 	return FLOAT_NONE
-}
-
-//* The floating panel under a point on the screen, and the widget in
-//* it. The last one is on top of the others.
-hit_test_float :: proc(g: ^GUI, global: Vec2) -> (index: int, id: Widget_ID) {
-	for i := len(g.floats) - 1; i >= 0; i -= 1 {
-		f := g.floats[i]
-		local := Vec2{global.x - f.pos.x, global.y - f.pos.y}
-		if !rect_contains(Rect{x = 0, y = 0, w = f.size.x, h = f.size.y}, local.x, local.y) {
-			continue
-		}
-		id = hit_test(g, f.widget, local)
-		if id != INVALID_WIDGET_ID { return i, id }
-	}
-	return FLOAT_NONE, INVALID_WIDGET_ID
 }
 
 //* The place of a point on the screen in the main window.

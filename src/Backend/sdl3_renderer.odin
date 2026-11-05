@@ -1,8 +1,13 @@
+//* The SDL3 renderer backend: the same draw list as the GPU backend,
+//* drawn without shaders.
+//* Every renderer has a texture of its own, because a texture belongs
+//* to the renderer it was made with.
 package Backend
 
 import GUI "../GUI"
 import sdl "vendor:sdl3"
 import "core:c"
+import "core:mem"
 
 Renderer_State :: struct {
 	window:   ^sdl.Window,
@@ -14,15 +19,12 @@ Renderer_State :: struct {
 	//* textures with another one, so every renderer gets its own copy.
 	//* The main renderer comes first, the floating panels follow.
 	textures: [dynamic][dynamic]^sdl.Texture,
-	//* The pixels of every texture, so a renderer that is made later
-	//* can be given the textures it missed.
 	pixels:   [dynamic][]u8,
 	sizes:    [dynamic][2]i32,
 	verts:    [dynamic]sdl.Vertex,
 	indices:  [dynamic]c.int, // RenderGeometry wants [^]c.int, not u32
 }
 
-//* The window and the renderer of a floating panel.
 Target :: struct {
 	window:   ^sdl.Window,
 	renderer: ^sdl.Renderer,
@@ -36,7 +38,6 @@ renderer_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 	sdl.SetRenderVSync(st.renderer, 1)
 	//* Straight alpha blending, matching the GPU backend's shader.
 	sdl.SetRenderDrawBlendMode(st.renderer, sdl.BLENDMODE_BLEND)
-	//* The texture table of the main renderer.
 	append(&st.textures, nil)
 	//* The atlas is the one texture of the UI. It is made by the first
 	//* upload, which the GUI does when it flushes the atlas.
@@ -67,6 +68,9 @@ renderer_destroy :: proc(ctx: rawptr) {
 	clear(&st.targets)
 	delete(st.targets)
 
+	delete(st.verts)
+	delete(st.indices)
+
 	if st.renderer != nil {
 		sdl.DestroyRenderer(st.renderer)
 		st.renderer = nil
@@ -77,9 +81,18 @@ renderer_resize :: proc(ctx: rawptr, w, h: i32) -> bool {
 	return true
 }
 
-//* Creates or updates a texture and uploads its pixels. Every renderer
-//* gets a copy, because a texture belongs to the renderer it was made
-//* with.
+renderer_count :: proc(st: ^Renderer_State) -> int {
+	return len(st.targets) + 1
+}
+
+renderer_at :: proc(st: ^Renderer_State, index: int) -> ^sdl.Renderer {
+	if index == 0 { return st.renderer }
+	if index - 1 >= len(st.targets) { return nil }
+	return st.targets[index - 1].renderer
+}
+
+//* Uploads the pixels of a texture. Every renderer gets a copy, because
+//* a texture belongs to the renderer it was made with.
 renderer_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w, h: i32) -> bool {
 	st := cast(^Renderer_State)ctx
 
@@ -96,59 +109,69 @@ renderer_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w
 	st.pixels[idx] = data
 	st.sizes[idx] = [2]i32{w, h}
 
-	if st.renderer != nil {
-		if !upload_to_renderer(st, 0, idx, pixels, w, h) { return false }
-	}
-	for i in 0 ..< len(st.targets) {
-		if st.targets[i].renderer == nil { continue }
-		if !upload_to_renderer(st, i + 1, idx, pixels, w, h) { return false }
+	for i in 0 ..< renderer_count(st) {
+		if !upload_to_renderer(st, i, idx, pixels, w, h) { return false }
 	}
 	return true
 }
 
-//* Uploads a part of a texture. The atlas is far too big to be sent
-//* again every time one glyph changes, so only the part that changed
-//* goes up.
-renderer_upload_texture_region :: proc(
+//* Uploads the parts of a texture that changed. The atlas is far too
+//* big to be sent again every time one glyph changes, so only the
+//* parts that changed go up.
+renderer_upload_texture_regions :: proc(
 	ctx: rawptr,
 	id: GUI.Texture_ID,
-	pixels: []u8,
-	w, h, x, y: i32,
+	regions: []GUI.Texture_Upload,
 ) -> bool {
 	st := cast(^Renderer_State)ctx
 	idx := int(id)
 	if idx >= len(st.pixels) { return false }
 
-	//* The copy the renderer is made of has to keep up, or a renderer
-	//* that is made later would get the old picture.
 	size := st.sizes[idx]
-	if size[0] > 0 && size[1] > 0 {
-		full := st.pixels[idx]
-		for row in 0 ..< int(h) {
-			ty := int(y) + row
-			if ty < 0 || ty >= int(size[1]) { continue }
-			for col in 0 ..< int(w) {
-				tx := int(x) + col
-				if tx < 0 || tx >= int(size[0]) { continue }
-				src := (row * int(w) + col) * 4
-				dst := (ty * int(size[0]) + tx) * 4
-				copy(full[dst:dst + 4], pixels[src:src + 4])
-			}
-		}
-	}
+	for &region in regions {
+		if region.w <= 0 || region.h <= 0 { continue }
 
-	rect := sdl.Rect{x = i32(x), y = i32(y), w = i32(w), h = i32(h)}
-	if st.renderer != nil {
-		if !update_in_renderer(st, 0, idx, pixels, w, rect) { return false }
-	}
-	for i in 0 ..< len(st.targets) {
-		if st.targets[i].renderer == nil { continue }
-		if !update_in_renderer(st, i + 1, idx, pixels, w, rect) { return false }
-	}
+		//* The copy the renderer is made of has to keep up, or a
+		//* renderer that is made later would get the old picture.
+		if size[0] > 0 && size[1] > 0 {
+			mirror_region(st.pixels[idx], size, region)
+		}
+
+		rect := sdl.Rect{x = region.x, y = region.y, w = region.w, h = region.h}
+		for i in 0 ..< renderer_count(st) {
+			if !update_in_renderer(st, i, idx, region.pixels, region.w, rect) { return false }
+		}	}
 	return true
 }
 
-//* Puts a part of a texture into one renderer.
+//* Puts a part of an upload into the copy the backend keeps.
+mirror_region :: proc(full: []u8, size: [2]i32, region: GUI.Texture_Upload) {
+	stride := int(size[0]) * 4
+	row := int(region.w) * 4
+	for r in 0 ..< int(region.h) {
+		ty := int(region.y) + r
+		if ty < 0 || ty >= int(size[1]) { continue }
+		from := int(region.x) * 4
+		if from < 0 || from + row > stride { continue }
+		copy(full[ty * stride + from:][:row], region.pixels[r * row:][:row])
+	}
+}
+
+renderer_destroy_texture :: proc(ctx: rawptr, id: GUI.Texture_ID) {
+	st := cast(^Renderer_State)ctx
+	idx := int(id)
+	for &list in st.textures {
+		if idx < len(list) {
+			if list[idx] != nil { sdl.DestroyTexture(list[idx]) }
+			list[idx] = nil
+		}
+	}
+	if idx < len(st.pixels) {
+		delete(st.pixels[idx])
+		st.pixels[idx] = nil
+	}
+}
+
 update_in_renderer :: proc(
 	st: ^Renderer_State,
 	renderer_index: int,
@@ -162,11 +185,9 @@ update_in_renderer :: proc(
 	if idx >= len(list^) { return false }
 	tex := list^[idx]
 	if tex == nil { return false }
-	region := rect
-	return sdl.UpdateTexture(tex, &region, raw_data(pixels), i32(w) * 4)
+	r := rect
+	return sdl.UpdateTexture(tex, &r, raw_data(pixels), i32(w) * 4)
 }
-
-//* Uploads one texture into one renderer.
 upload_to_renderer :: proc(
 	st: ^Renderer_State,
 	renderer_index: int,
@@ -183,8 +204,7 @@ upload_to_renderer :: proc(
 	}
 	tex := list^[idx]
 	if tex == nil {
-		renderer: ^sdl.Renderer = st.renderer
-		if renderer_index > 0 { renderer = st.targets[renderer_index - 1].renderer }
+		renderer := renderer_at(st, renderer_index)
 		if renderer == nil { return false }
 		tex = sdl.CreateTexture(renderer, .RGBA32, .STREAMING, w, h)
 		if tex == nil {return false}
@@ -232,13 +252,8 @@ renderer_submit_target :: proc(ctx: rawptr, dl: ^GUI.Draw_List, window: rawptr) 
 	sdl.RenderPresent(st.targets[index].renderer)
 }
 
-//* Draws a list into one renderer.
 render_into :: proc(st: ^Renderer_State, renderer_index: int, dl: ^GUI.Draw_List) {
-	renderer: ^sdl.Renderer = st.renderer
-	if renderer_index > 0 {
-		if renderer_index - 1 >= len(st.targets) { return }
-		renderer = st.targets[renderer_index - 1].renderer
-	}
+	renderer := renderer_at(st, renderer_index)
 	if renderer == nil { return }
 
 	sdl.SetRenderDrawColor(renderer, 0, 0, 0, 255)
@@ -261,6 +276,7 @@ render_into :: proc(st: ^Renderer_State, renderer_index: int, dl: ^GUI.Draw_List
 		append(&st.indices, c.int(idx))
 	}
 
+	if renderer_index >= len(st.textures) { return }
 	list := st.textures[renderer_index]
 	for cmd in dl.commands {
 		tex: ^sdl.Texture = nil

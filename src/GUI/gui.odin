@@ -1,4 +1,6 @@
-//* Core UI functionality, blind to any window management, or to the backends and platform implementation.
+//* The life of a GUI: it is made, it is fed one frame at a time, and it
+//* is given back. It knows nothing of the window or of the backend, and
+//* the backend is made first.
 package GUI
 
 import "core:time"
@@ -8,10 +10,8 @@ import "core:os"
 import runa "./dependencies/Runa"
 import virt "core:mem/virtual"
 
-// Outline.
-// This UI is retained-mode GUI.
-// The UI data is similar to Godot engine's UI, saves to a file, and can be visually authored to that file.
-// This makes it easy to author the UI and parse it. Widgets are all structs, and styles can be defined as a struct.
+// The UI is retained mode: the widgets are kept, and the tree is a file
+// that can be made by hand and parsed back.
 
 // UI scene file example:
 /*
@@ -28,23 +28,20 @@ offsets = {0, 0, 0, 0}
 style = {text={colour=[255,255,255,255], size=32}}
 text = "My Game"
 */
-//
-// The style of a widget has two parts: the box around it (its
-// background, its border and its padding) and the text inside it (the
-// typeface, the size, the colour of the ink and how the text is laid
-// out). A theme holds the style of every kind of widget, so a look
+// The style of a widget has two parts: the box around it and the text
+// inside it. A theme holds the style of every kind of widget, so a look
 // changes in one place - see theme.odin.
 
-//* Creates the GUI context and the root widget. The backend must already
-//* be created: texture 0 is the backend's 1x1 white texel.
+//* Creates the GUI and the root widget. The backend must already be
+//* made: the GUI owns the one texture of the atlas.
 Init_GUI :: proc(width, height: i32, backend: Backend) -> ^GUI {
 	return Init_GUI_With_Atlas(width, height, backend, ATLAS_DEFAULT_SIZE)
 }
 
-//* Creates the GUI with an atlas of a size of its own. The atlas is
-//* where the glyphs and the pictures live, and it takes sixteen bytes
-//* a pixel: the default of 2048 by 2048 is sixteen megabytes. A
-//* program that only shows text of one kind can ask for less.
+//* Creates the GUI with an atlas of a size of its own. The atlas holds
+//* the glyphs and the pictures and takes sixteen bytes a pixel, so the
+//* default of 2048 by 2048 is sixteen megabytes. A program that shows
+//* a little text can ask for less.
 Init_GUI_With_Atlas :: proc(width, height: i32, backend: Backend, atlas_size: int) -> ^GUI {
 	log.info("Initializing GUI...")
 
@@ -59,9 +56,8 @@ Init_GUI_With_Atlas :: proc(width, height: i32, backend: Backend, atlas_size: in
 
 	g.backend = backend
 	g.viewport = Rect{x = 0, y = 0, w = f32(width), h = f32(height)}
-	//* The table of the classes of the widgets. Every widget belongs to
-	//* a class, and a program that brings a widget of its own puts its
-	//* class here.
+	//* Every widget belongs to a class. A program that brings a widget
+	//* of its own puts its class here.
 	g.class_by_type = make(map[Widget_Type]Widget_Class_ID)
 	g.class_by_name = make(map[string]Widget_Class_ID)
 	//* The one texture of the whole UI. Every quad of every widget
@@ -70,8 +66,8 @@ Init_GUI_With_Atlas :: proc(width, height: i32, backend: Backend, atlas_size: in
 	g.atlas_texture = ATLAS_TEXTURE_ID
 	g.target = &g.draw
 	g.font_instances = make(map[Font_Instance_Key]Font_ID)
-	//* The look every widget starts from: the GUI's own, for the apps
-	//* that do not bring a theme.
+	//* The look every widget starts from, for the programs that bring
+	//* no theme of their own.
 	g.default_style = Style{
 		text = Text_Style{
 			colour = RGBA(0.92, 0.94, 0.98, 1),
@@ -84,6 +80,8 @@ Init_GUI_With_Atlas :: proc(width, height: i32, backend: Backend, atlas_size: in
 	return g
 }
 
+//* Gives the GUI back: the fonts, the theme and the atlas go with it,
+//* and the texture of the atlas goes back to the backend.
 Shutdown_GUI :: proc(g: ^GUI) {
 	if g == nil { return }
 	log.info("Shutting down GUI...")
@@ -103,7 +101,6 @@ Shutdown_GUI :: proc(g: ^GUI) {
 	font_destroy(g)
 	theme_destroy(g.theme)
 	atlas_destroy(g.atlas)
-	//* The texture of the atlas is given back to the backend.
 	if g.backend.destroy_texture != nil {
 		g.backend.destroy_texture(g.backend.ctx, g.atlas_texture)
 	}
@@ -112,6 +109,7 @@ Shutdown_GUI :: proc(g: ^GUI) {
 		draw_list_destroy(&f.draw)
 	}
 	delete(g.floats)
+	delete(g.popups)
 	delete(g.widgets)
 	delete(g.widget_generations)
 	delete(g.free_widgets)
@@ -134,8 +132,6 @@ Shutdown_GUI :: proc(g: ^GUI) {
 //* any new glyphs. The caller submits the list to the backend.
 Frame :: proc(g: ^GUI) {
 	virt.arena_free_all(&g.frame_arena)
-	//* How long the last frame took, so that a widget that counts down
-	//* knows how much to count.
 	g.dt = frame_time(g)
 	layout_pass(g)
 	//* The grip under the pointer is looked up after the layout, so
@@ -148,8 +144,8 @@ Frame :: proc(g: ^GUI) {
 	report_atlas_failures(g)
 }
 
-//* Says that the atlas is full, once. A glyph that could not be put
-//* into the atlas is not drawn, so this is worth a word.
+//* Says once that the atlas is full: a glyph that did not fit into it
+//* is not drawn.
 report_atlas_failures :: proc(g: ^GUI) {
 	if g.atlas == nil {return}
 	if g.atlas.exhausted == g.atlas_failures {return}
@@ -177,8 +173,8 @@ frame_time :: proc(g: ^GUI) -> f32 {
 	return dt
 }
 
-//* Sets up the text stack: the shaping cache. Safe to call once per
-//* GUI; the cache is what keeps repeated labels cheap.
+//* Sets up the shaping cache, which is what keeps repeated labels
+//* cheap. Safe to call as often as the program likes.
 init_text :: proc(g: ^GUI) {	if g.cache_ready { return }
 	g.shape_cache = runa.cache_make()
 	g.cache_ready = true
@@ -190,17 +186,13 @@ shape_cache :: proc(g: ^GUI) -> ^runa.Cache {
 	return g.cache_ready ? &g.shape_cache : nil
 }
 
-//* Resize the UI viewport (called on a window resize event).
+//* Resizes the viewport, on a window resize event.
 gui_resize :: proc(g: ^GUI, width, height: i32) {
 	g.viewport = Rect{x = 0, y = 0, w = f32(width), h = f32(height)}
-	//* The window is a different size now, so every widget is placed
-	//* again.
 	invalidate_all(g, Dirty_Flags{.Arrange, .Hit})
 }
 
-// Loads the ui from file
-//
-// The file is a scene file: a tree of nodes, the kind of widget of every
+// Loads a scene file: a tree of nodes, the kind of widget of every
 // node, the anchors and the offsets, the styles and the signals. The
 // widget of the first node is the root of the scene. An invalid widget
 // is returned when the file cannot be read.

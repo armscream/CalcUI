@@ -1,13 +1,11 @@
-//* == The classes of the widgets ==
 //* A class of widget says what a kind of widget does: how it is drawn,
 //* how it lays its children out, what it does with the mouse and the
-//* keyboard, what it looks like and what it says when it changes.
-//*
-//* Every widget belongs to a class. The widgets that CalcUI ships with
-//* have a class each; a program that brings a widget of its own
-//* registers a class of its own and makes its widgets with
-//* Make_Custom_Widget.
-//*
+//* keyboard, and what it says when it changes. Every widget belongs to a
+//* class; a program brings a widget of its own by registering a class.
+
+package GUI
+
+//* == The classes of the widgets ==
 //* The class is the one place a program has to change to add a widget:
 //* the core asks the class of the widget what to do, so nothing outside
 //* the class has to know that the widget exists.
@@ -31,66 +29,54 @@
 //* | `constructor` | How a scene file makes one. |
 //* | `signals` | The names of the signals the class fires. |
 
-package GUI
-
 import "core:fmt"
 import "core:log"
 
-//* The handle of a class of widget. It names a slot in the table of the
-//* classes of the GUI.
+//* The handle of a class of widget. It names a slot in the table of classes.
 Widget_Class_ID :: distinct u32
 
 //* The handle of a class that does not exist. It is also the zero value
 //* of a handle, so a handle that was never set names nothing.
 INVALID_WIDGET_CLASS_ID :: Widget_Class_ID(0)
 
-//* A class of widget: the identity of a kind of widget, with the hooks
-//* that say what it does.
+//* The identity of a kind of widget, with the hooks that say what it does.
 Widget_Class :: struct {
-	//* The name of the class: "Button", "MyGauge". A theme names a
-	//* class by this name, and so does a scene file.
+	//* The name of the class: "Button", "MyGauge". A theme and a scene
+	//* file look it up by this name.
 	name: string,
 	//* The type of the widgets of the class. A class of its own is
 	//* based on .Panel, so that it behaves like a plain control.
 	type: Widget_Type,
-	//* The hooks of the class.
 	kind: Widget_Kind,
 	//* The constructor of the class, for a scene file. A class without
 	//* one cannot be used in a scene file.
 	constructor: Scene_Constructor,
-	//* The names of the signals the class fires.
 	signals: []string,
+	//* The role of the widgets of the class: what they are to whatever
+	//* reads the screen for a person who cannot see it.
+	access_role: Access_Role,
 }
 
-//* What a class is made of.
 Widget_Class_Desc :: struct {
 	//* The name of the class. It is what a theme and a scene file use.
 	//* A class without a name cannot be used in either.
 	name: string,
-	//* The type of the widgets of the class. The zero value is .Panel,
-	//* which is what a class of its own wants: a plain control that
-	//* places its children by their anchors.
+	//* The type of the widgets of the class. The zero value is .Panel, a
+	//* plain control that places its children by their anchors.
 	type: Widget_Type,
-	//* The hooks of the class.
 	kind: Widget_Kind,
-	//* The constructor of the class, for a scene file.
 	constructor: Scene_Constructor,
-	//* The names of the signals the class fires.
 	signals: []string,
+	access_role: Access_Role,
 }
 
 //* Registers a class of widget and gives back its handle.
 //
-//* It is called once, when the program starts. Every widget of the
-//* class is made with Make_Custom_Widget, and the core asks the class
-//* of the widget what to do: the draw hook draws it, the measure hook
-//* says how big it is, and the rest of the hooks answer the mouse, the
-//* keyboard and the life of the widget.
+//* It is called once, when the program starts. Every widget of the class
+//* is made with Make_Custom_Widget, and the core asks the class what to do.
 //
-//* A class with a name that is already taken is the class that is
-//* already there: the hooks that the new class does not have are taken
-//* from the old one, so a program can change one thing about a widget
-//* that is built in without writing the rest of it again.
+//* A class with a name that is already taken is the class that is already
+//* there: the hooks the new class does not have are taken from the old one.
 Widget_Register_Class :: proc(g: ^GUI, desc: Widget_Class_Desc) -> Widget_Class_ID {
 	if g == nil { return INVALID_WIDGET_CLASS_ID }
 
@@ -101,8 +87,8 @@ Widget_Register_Class :: proc(g: ^GUI, desc: Widget_Class_Desc) -> Widget_Class_
 			kind_override(&c.kind, desc.kind)
 			if desc.constructor != nil { c.constructor = desc.constructor }
 			if desc.signals != nil { c.signals = desc.signals }
-			//* The class has a look of its own now, so the widgets of
-			//* it have to be looked at again.
+			if desc.access_role != .None { c.access_role = desc.access_role }
+			//* The class has a look of its own now, so its widgets are looked at again.
 			if c.kind.style != before { class_style_changed(g) }
 			return id
 		}
@@ -117,11 +103,11 @@ Widget_Register_Class :: proc(g: ^GUI, desc: Widget_Class_Desc) -> Widget_Class_
 			kind = desc.kind,
 			constructor = desc.constructor,
 			signals = desc.signals,
+			access_role = desc.access_role,
 		},
 	)
 	if desc.name != "" { g.class_by_name[desc.name] = id }
-	//* The class has a look of its own: the widgets of it have to be
-	//* looked at again.
+	//* The class has a look of its own: its widgets are looked at again.
 	if desc.kind.style != (Style{}) { class_style_changed(g) }
 	return id
 }
@@ -182,14 +168,12 @@ class_register_type :: proc(g: ^GUI, widget_type: Widget_Type, kind: Widget_Kind
 	append(&g.classes, Widget_Class{name = name, type = widget_type, kind = kind})
 	g.class_by_type[widget_type] = id
 	if name != "" { g.class_by_name[name] = id }
-	//* The class has a look of its own: the widgets of that kind have
-	//* to be looked at again.
+	//* The class has a look of its own: the widgets of that kind are looked at again.
 	if kind.style != (Style{}) { class_style_changed(g) }
 }
 
-//* Says that the look of the GUI changed: a class has a look of its own
-//* now, and the widgets of that class have to be measured and drawn
-//* again.
+//* Says that the look of the GUI changed: the widgets of the class have to
+//* be measured and drawn again.
 class_style_changed :: proc(g: ^GUI) {
 	if g == nil { return }
 	g.style_epoch += 1
@@ -205,9 +189,8 @@ type_name_of :: proc(widget_type: Widget_Type) -> string {
 	return name
 }
 
-//* Puts the hooks that are not there yet into a kind. A program that
-//* registers a class with the name of a widget that is built in only
-//* has to say the one thing it wants to change.
+//* Puts the hooks that are not there yet into a kind. A program that registers
+//* a class with the name of a built-in widget only says what it changes.
 kind_merge :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if base == nil { return }
 	if base.draw == nil { base.draw = over.draw }
@@ -224,11 +207,12 @@ kind_merge :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if !base.owns_children { base.owns_children = over.owns_children }
 	if base.style.set == (bit_set[Style_Field]{}) { base.style = over.style }
 	if base.theme_name == "" { base.theme_name = over.theme_name }
+	if base.access_role == .None { base.access_role = over.access_role }
+	if base.access == nil { base.access = over.access }
 }
 
-//* Puts the hooks of a class over the hooks that are there. A hook that
-//* the new class does not have is left alone, so a class that takes the
-//* name of a widget that is built in changes only what it says.
+//* Puts the hooks of a class over the hooks that are there. A hook the new
+//* class does not have is left alone.
 kind_override :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if base == nil { return }
 	if over.draw != nil { base.draw = over.draw }
@@ -245,14 +229,14 @@ kind_override :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if over.owns_children { base.owns_children = true }
 	if over.style != (Style{}) { base.style = over.style }
 	if over.theme_name != "" { base.theme_name = over.theme_name }
+	if over.access_role != .None { base.access_role = over.access_role }
+	if over.access != nil { base.access = over.access }
 }
 
-//* The hooks of a widget: the ones of its class when it has a class of
-//* its own, or the ones of its type.
-//
-//* This is the one place the core asks what a widget is. Everything
-//* that used to switch on the type of a widget goes through here, so a
-//* widget of a program's own works like one of the built-in ones.
+//* The hooks of a widget: the ones of its class when it has a class of its
+//* own, or the ones of its type. Everything that used to switch on the type
+//* of a widget goes through here, so a widget of a program's own works like
+//* one of the built-in ones.
 widget_kind :: proc(g: ^GUI, w: ^Widget) -> Widget_Kind {
 	if g == nil || w == nil { return {} }
 	if w.class != INVALID_WIDGET_CLASS_ID {
@@ -263,15 +247,11 @@ widget_kind :: proc(g: ^GUI, w: ^Widget) -> Widget_Kind {
 
 //* == Making a widget of a class of its own ==
 
-//* Makes a widget of a class of its own.
+//* Makes a widget of a class of its own. The options are the ones every
+//* widget has.
 //
-//* The class says what the widget does: the hooks of the class draw it,
-//* measure it and answer the mouse and the keyboard. The options are
-//* the ones every widget has.
-//
-//* The data of the program is put in the widget with
-//* Widget_Set_User_Data, and the class is told about the widget by its
-//* construct hook.
+//* The data of the program is put in the widget with Widget_Set_User_Data,
+//* and the class is told about the widget by its construct hook.
 Make_Custom_Widget :: proc(
 	g: ^GUI,
 	parent: Widget_ID,
@@ -319,16 +299,13 @@ Widget_Class_Signals :: proc(g: ^GUI, class: Widget_Class_ID) -> []string {
 }
 
 //* == The data of a program ==
-//* A widget of a class of its own keeps whatever the program needs in
-//* it. The data is a pointer: the program knows what it is, and the
-//* core never looks inside it.
+//* A widget of a class of its own keeps whatever the program needs in it. The
+//* data is a pointer: the program knows what it is, and the core never looks
+//* inside it.
 
-//* The data of a widget that a program brought of its own.
 Custom_Data :: struct {
-	//* The data of the program.
 	user: rawptr,
-	//* What gives the data back. It is called when the widget is
-	//* destroyed.
+	//* What gives the data back, when the widget is destroyed.
 	destroy: proc(user: rawptr),
 }
 
@@ -367,15 +344,13 @@ Widget_Set_User_Data :: proc(
 }
 
 //* == The signals of a class ==
-//* Every widget has the same set of built-in signals, so that a program
-//* can connect to any of them without knowing what kind of widget it
-//* is. A widget of a class of its own can have signals of its own as
-//* well: the class names them, the widget fires them by name and a
-//* program connects to them by name.
+//* Every widget has the same set of built-in signals, so a program can connect
+//* to any of them without knowing what kind of widget it is. A widget of a
+//* class of its own can have signals of its own: the class names them, the
+//* widget fires them by name and a program connects to them by name.
 
 //* A connection to a signal of a widget.
 Signal_Conn :: struct {
-	//* The name of the signal.
 	name: string,
 	//* What to do when the signal fires. The value is what the widget
 	//* put in the signal; the program knows what it means.
@@ -388,10 +363,9 @@ Signal_Conn_Entry :: struct {
 	conn: Signal_Conn,
 }
 
-//* Connects to a signal of a widget. The signal is named: the class
-//* says which signals it fires, and the program connects to them by
-//* name. Connecting to a signal that is already connected replaces the
-//* old connection.
+//* Connects to a signal of a widget. The signal is named: the class says
+//* which signals it fires, and the program connects to them by name.
+//* Connecting to a signal that is already connected replaces the old one.
 Widget_Connect :: proc(
 	g: ^GUI,
 	id: Widget_ID,
@@ -424,15 +398,19 @@ Widget_Disconnect :: proc(g: ^GUI, id: Widget_ID, name: string) {
 //* nothing but the look-up.
 Signal_Emit :: proc(g: ^GUI, id: Widget_ID, name: string, value: any = nil) {
 	if g == nil { return }
-	//* The table is walked by its index: a program that is called back
-	//* may break the connection, and the table may move under us.
-	i := 0
-	for i < len(g.signal_conns) {
-		entry := g.signal_conns[i]
-		i += 1
+	//* The connections are taken out of the table before any of them is called:
+	//* a callback that connects to the same signal, or that breaks a connection,
+	//* does not change the ones that are called now.
+	matches: [dynamic]Signal_Conn
+	defer delete(matches)
+	for entry in g.signal_conns {
 		if entry.id != id { continue }
 		if entry.conn.name != name { continue }
-		entry.conn.callback(g, id, value)
+		append(&matches, entry.conn)
+	}
+	for conn in matches {
+		if conn.callback == nil { continue }
+		conn.callback(g, id, value)
 	}
 }
 
