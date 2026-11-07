@@ -1,22 +1,21 @@
-//* == The setters of the widgets ==
-//* A widget is a struct and its fields are open, so a program can write
-//* to a widget itself. These setters are the way that keeps the toolkit
-//* honest: every one of them says what it made stale, so the tree is
-//* measured and laid out again where it has to be, and nowhere else.
-//
-//* A program that writes to a widget itself, without these, can call
-//* `GUI_Invalidate_All` to have the whole tree done again.
+//* The setters of the widgets: each one says what it made stale, so the
+//* tree is measured and laid out again where it has to be, and nowhere
+//* else.
 
 package GUI
+
+//* == The setters of the widgets ==
+//* A widget is a struct and its fields are open, so a program can write
+//* to a widget itself. A program that does that, without these setters,
+//* can call `GUI_Invalidate_All` to have the whole tree done again.
 
 import "core:strings"
 import virt "core:mem/virtual"
 
 //* == The text ==
 
-//* Sets the text of a widget: a label, a button, a text field, a check
-//* box, a link button, a menu button, a rich text label, a text edit,
-//* a search field, a chat field, a command palette, a toast or a
+//* Sets the text of a widget: the labels, the buttons, the text fields,
+//* the search and chat fields, the command palette, the toast and the
 //* tooltip. The size of the widget can change with the text, so the
 //* widget is measured again.
 Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
@@ -106,11 +105,6 @@ Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	invalidate(g, id, Dirty_Flags{.Measure, .Visual})
 }
 
-//* == The look ==
-
-//* Sets the style of a widget. The style holds the box around the
-//* widget and the text inside it, so the size of the widget can change
-//* with it.
 Widget_Set_Style :: proc(g: ^GUI, id: Widget_ID, style: Style) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -142,7 +136,6 @@ text_style_size_of :: proc(ts: Text_Style) -> Text_Style {
 	}
 }
 
-//* Sets the name of the variation of the theme the widget takes.
 Widget_Set_Variation :: proc(g: ^GUI, id: Widget_ID, variation: string) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -161,8 +154,6 @@ Widget_Set_Use_Theme :: proc(g: ^GUI, id: Widget_ID, use_theme: bool) {
 	w.style_cache.valid = false
 	invalidate(g, id, Dirty_Flags{.Measure, .Visual})
 }
-
-//* == The size ==
 
 //* Sets the smallest size the widget asks for. The text of the widget
 //* can ask for more, so the size that is measured can be bigger.
@@ -204,7 +195,6 @@ Widget_Set_Weight :: proc(g: ^GUI, id: Widget_ID, weight: f32) {
 	invalidate(g, id, Dirty_Flags{.Arrange})
 }
 
-//* Sets the gap between the children of a box.
 Widget_Set_Separation :: proc(g: ^GUI, id: Widget_ID, separation: f32) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -241,8 +231,6 @@ Widget_Set_Offsets :: proc(g: ^GUI, id: Widget_ID, offsets: Offset) {
 	w.offsets = offsets
 	invalidate(g, id, Dirty_Flags{.Arrange, .Hit})
 }
-
-//* == The state ==
 
 //* Shows a widget or takes it away. A widget that is not shown is
 //* neither drawn nor hit.
@@ -294,7 +282,6 @@ Widget_Set_Name :: proc(g: ^GUI, id: Widget_ID, name: string) {
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
-//* Says what the widget does with the mouse.
 Widget_Set_Mouse_Filter :: proc(g: ^GUI, id: Widget_ID, filter: Mouse_Filter) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -312,7 +299,6 @@ Widget_Set_Tooltip :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
-//* Sets the kind of focus the widget can be given.
 Widget_Set_Focus_Mode :: proc(g: ^GUI, id: Widget_ID, mode: Focus_Mode) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -323,9 +309,8 @@ Widget_Set_Focus_Mode :: proc(g: ^GUI, id: Widget_ID, mode: Focus_Mode) {
 	invalidate(g, id, Dirty_Flags{.Hit})
 }
 
-//* Sets the place of the widget in the order of the tab key. The
-//* widget with the lowest number comes first, and the order of the
-//* tree breaks the tie.
+//* Sets the place of the widget in the order of the tab key. The widget
+//* with the lowest number comes first, and the tree breaks the tie.
 Widget_Set_Tab_Index :: proc(g: ^GUI, id: Widget_ID, index: int) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -333,7 +318,6 @@ Widget_Set_Tab_Index :: proc(g: ^GUI, id: Widget_ID, index: int) {
 	w.tab_index = index
 }
 
-//* == The tree ==
 
 //* Moves a widget under a new parent. The widget keeps its identity,
 //* and the tree is measured and laid out again where it has to be.
@@ -341,9 +325,6 @@ Widget_Reparent :: proc(g: ^GUI, parent, child: Widget_ID) {
 	Widget_Attach(g, parent, child)
 }
 
-//* == The data of the containers ==
-
-//* Sets the direction a split divides its space along.
 Widget_Set_Split_Direction :: proc(g: ^GUI, id: Widget_ID, direction: Split_Direction) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -374,8 +355,7 @@ Widget_Set_Grid_Columns :: proc(g: ^GUI, id: Widget_ID, columns: int) {
 	}
 }
 
-//* Sets the space a margin container keeps between its child and its
-//* edges.
+//* Sets the space a margin container keeps between its child and its edges.
 Widget_Set_Margin :: proc(g: ^GUI, id: Widget_ID, margin: f32) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -405,22 +385,19 @@ Widget_Set_Aspect_Ratio :: proc(g: ^GUI, id: Widget_ID, ratio: f32) {
 	}
 }
 
-//* == The whole tree ==
-
-//* Asks for the whole tree to be measured and laid out again. A
-//* program that writes to a widget itself, without the setters, calls
-//* this so that nothing is left stale.
+//* Asks for the whole tree to be measured and laid out again. A program
+//* that writes to a widget itself, without the setters, calls this so
+//* that nothing is left stale.
 GUI_Invalidate_All :: proc(g: ^GUI) {
 	invalidate_full(g)
 }
 
 //* Asks for the widgets that take their look from the theme to be
-//* measured and drawn again. A theme that is changed after it is put
-//* on the GUI says so by itself, so this is only needed for a theme
-//* that is changed behind the back of the toolkit.
+//* measured and drawn again. A theme that is changed after it is put on
+//* the GUI says so by itself, so this is only needed for a theme that is
+//* changed behind the back of the toolkit.
 GUI_Invalidate_Theme :: proc(g: ^GUI) {
 	if g == nil { return }
-	//* The styles that were worked out before are worked out again.
 	g.style_epoch += 1
 	style_cache_drop(g)
 	invalidate_theme(g)

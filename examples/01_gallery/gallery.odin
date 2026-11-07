@@ -1,4 +1,5 @@
-//* A basic UI test scene.
+//* The scene of the gallery: a toolbar on the left, two panels on the
+//* right that can be docked into each other, and the text showcase.
 //
 //* Root
 //* ├─ Split (horizontal)
@@ -32,7 +33,6 @@ Demo_State :: struct {
 
 demo: Demo_State
 
-//* The size of the GUI's own text.
 DEMO_BODY_SIZE :: 16
 
 Init_Demo :: proc(g: ^GUI.GUI, body: GUI.Font_Family_ID) {
@@ -45,11 +45,12 @@ Init_Demo :: proc(g: ^GUI.GUI, body: GUI.Font_Family_ID) {
 		field = GUI.INVALID_WIDGET_ID,
 	}
 
-	GUI.Widget_Get(g, g.root).style.box.bg_color = GUI.RGBA(0.07, 0.08, 0.10, 1)
+	root_style := GUI.Widget_Get(g, g.root).style
+	root_style.box.bg_color = GUI.RGBA(0.07, 0.08, 0.10, 1)
+	GUI.Widget_Set_Style(g, g.root, root_style)
 
 	main := GUI.New_Widget(g, .Split, g.root, GUI.Widget_Opts{name = "main", split = .Horizontal})
 
-	//* Toolbar: a vertical box of buttons, fixed width.
 	toolbar := GUI.New_Widget(g, .VBox, main, GUI.Widget_Opts{
 		name = "toolbar",
 		min_size = GUI.Vec2{220, 0},
@@ -160,7 +161,6 @@ box = GUI.StyleBox{
 		style = GUI.Style{text = GUI.Make_Text_Style(GUI.RGBA(0.45, 0.48, 0.55, 1), 0, body)},
 	})
 
-	//* Right hand side: a vertical split of two panels.
 	side := GUI.New_Widget(g, .Split, main, GUI.Widget_Opts{name = "side", split = .Vertical})
 	demo.side = side
 
@@ -196,7 +196,6 @@ box = GUI.StyleBox{
 	})
 	demo.bar = bar
 
-	//* A text field.
 	GUI.New_Widget(g, .Label, status, GUI.Widget_Opts{
 		name = "field_caption",
 		text = "Text field",
@@ -254,9 +253,8 @@ box = GUI.StyleBox{
 		style = GUI.Style{text = GUI.Make_Text_Style(GUI.RGBA(0.45, 0.48, 0.55, 1), 0, body)},
 	})
 
-	//* The text showcase: the sizes, the colours, the alignment, the
-	//* wrapping and the decorations, all in one place. It sits under
-	//* the hint in the panel that is free.
+	//* The text showcase, under the hint in the panel that has room
+	//* for it.
 	showcase := Init_Demo_Text(g, body)
 	GUI.Widget_Attach(g, target, showcase)
 }
@@ -265,28 +263,26 @@ on_demo_add :: proc(g: ^GUI.GUI, id: GUI.Widget_ID) {
 	demo.counter += 1
 	bar := GUI.Widget_Get(g, demo.bar)
 	if bar == nil {return}
-	bar.offsets.right = 16 + f32(demo.counter) * 16
-	g.layout_dirty = true
+	//* The setter says the bar is in another place now, so the tree
+	//* is laid out again.
+	offsets := bar.offsets
+	offsets.right = 16 + f32(demo.counter) * 16
+	GUI.Widget_Set_Offsets(g, demo.bar, offsets)
 }
 
 on_demo_toggle :: proc(g: ^GUI.GUI, id: GUI.Widget_ID) {
 	demo.hidden = !demo.hidden
 	target := GUI.Widget_Get(g, demo.target)
 	if target == nil {return}
-	target.state -= GUI.Widget_State{.Visible}
-	if !demo.hidden { target.state += GUI.Widget_State{.Visible} }
-	g.layout_dirty = true
+	GUI.Widget_Set_Visible(g, demo.target, !demo.hidden)
 }
 
 on_demo_dock :: proc(g: ^GUI.GUI, id: GUI.Widget_ID) {
 	if demo.docked {
-		//* Put the status panel back in the side split.
 		GUI.Widget_Insert_At(g, demo.side, demo.status, 0)
 		demo.docked = false
-		g.layout_dirty = true
 		return
 	}
-	//* dock the status panel next to the target one.
 	GUI.Dock(g, demo.status, demo.target, .Right)
 	demo.docked = true
 }

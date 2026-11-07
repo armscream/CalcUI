@@ -33,7 +33,9 @@ text = "My Game"
 // changes in one place - see theme.odin.
 
 //* Creates the GUI and the root widget. The backend must already be
-//* made: the GUI owns the one texture of the atlas.
+//* made: the GUI owns the one texture of the atlas. The width and the
+//* height are in logical units; the scale says how many physical pixels
+//* one of them is worth.
 Init_GUI :: proc(width, height: i32, backend: Backend) -> ^GUI {
 	return Init_GUI_With_Atlas(width, height, backend, ATLAS_DEFAULT_SIZE)
 }
@@ -56,6 +58,7 @@ Init_GUI_With_Atlas :: proc(width, height: i32, backend: Backend, atlas_size: in
 
 	g.backend = backend
 	g.viewport = Rect{x = 0, y = 0, w = f32(width), h = f32(height)}
+	g.scale = 1
 	//* Every widget belongs to a class. A program that brings a widget
 	//* of its own puts its class here.
 	g.class_by_type = make(map[Widget_Type]Widget_Class_ID)
@@ -186,10 +189,40 @@ shape_cache :: proc(g: ^GUI) -> ^runa.Cache {
 	return g.cache_ready ? &g.shape_cache : nil
 }
 
-//* Resizes the viewport, on a window resize event.
+//* Resizes the viewport, on a window resize event. The width and the
+//* height are in logical units.
 gui_resize :: proc(g: ^GUI, width, height: i32) {
 	g.viewport = Rect{x = 0, y = 0, w = f32(width), h = f32(height)}
 	invalidate_all(g, Dirty_Flags{.Arrange, .Hit})
+	if g.backend.resize != nil {
+		g.backend.resize(
+			g.backend.ctx,
+			i32(g.viewport.w * g.scale),
+			i32(g.viewport.h * g.scale),
+		)
+	}
+}
+
+//* Sets the scale of the GUI: how many physical pixels one logical unit
+//* is worth. It is 1.0 on a display that does not scale of its own.
+//* The glyphs are rasterized again and the tree is measured and laid out
+//* again, because everything that is measured changes with it.
+GUI_Set_Scale :: proc(g: ^GUI, scale: f32) {
+	if g == nil {return}
+	if !(scale > 0) {scale = 1}
+	if g.scale == scale {return}
+	g.scale = scale
+	font_invalidate(g)
+	measure_cache_clear(g)
+	invalidate_all(g, Dirty_Flags{.Arrange, .Hit})
+}
+
+//* The size of the drawable area in physical pixels.
+gui_pixel_size :: proc(g: ^GUI) -> Vec2 {
+	return Vec2 {
+		x = g.viewport.w * g.scale,
+		y = g.viewport.h * g.scale,
+	}
 }
 
 // Loads a scene file: a tree of nodes, the kind of widget of every

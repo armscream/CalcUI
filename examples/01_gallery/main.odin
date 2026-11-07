@@ -1,6 +1,7 @@
 //* == The gallery ==
 //* The scene that shows what CalcUI can do: a toolbar, two panels that
 //* can be docked into each other, and a showcase of the text.
+//* The scene itself is in gallery.odin.
 
 package main
 

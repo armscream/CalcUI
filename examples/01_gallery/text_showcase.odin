@@ -1,11 +1,7 @@
-//* A showcase of the text features: the sizes a family can be shown
-//* at, the colours, the alignment, the wrapping, the decorations, the
-//* themes and the text field.
-//*
-//* The panel is made without a parent and handed back, so the caller
-//* can put it wherever it likes. Everything is in one column of rows,
-//* and the rows of a feature sit next to each other, so that the whole
-//* showcase fits in the space the caller gives it.
+//* A showcase of the text features: the sizes, the colours, the
+//* alignment, the wrapping, the decorations, the themes and the text
+//* field. The panel is made without a parent and handed back, so the
+//* caller can put it wherever it likes.
 package main
 
 import GUI "../../src/GUI"
@@ -18,7 +14,6 @@ DEMO_TEXT_SIZE :: "Ag"
 //* so the sizes can be compared against each other.
 DEMO_TEXT_SAMPLE :: "Sample text"
 
-//* The text the samples that need a narrow box show.
 DEMO_TEXT_SHORT :: "text"
 
 //* The caption: the small dim label that says what the samples next to
@@ -53,8 +48,8 @@ Demo_Text_Row :: proc(
 	})
 }
 
-//* Builds the text showcase and returns its panel. The panel has no
-//* parent: the caller puts it where it wants it.
+//* Builds the text showcase and returns its panel, which has no
+//* parent.
 Init_Demo_Text :: proc(g: ^GUI.GUI, body: GUI.Font_Family_ID) -> GUI.Widget_ID {
 	//* The offsets put the panel in the top left corner of the space
 	//* the caller gives it, and the minimum size gives it the width.
@@ -111,7 +106,6 @@ box = GUI.StyleBox{
 		style = GUI.Style{text = GUI.Make_Text_Style(GUI.RGBA(0.86, 0.89, 0.95, 1), 32, body)},
 	})
 
-	//* Colours: the same string in four colours.
 	colours := Demo_Text_Row(g, samples, "colours", 16)
 	Demo_Text_Caption(g, colours, "caption_Colour", "GUI.Colour", body)
 	GUI.New_Widget(g, .Label, colours, GUI.Widget_Opts{
@@ -344,10 +338,8 @@ box = GUI.StyleBox{
 	//* The overrun: the text is cut short where it does not fit and an
 	//* ellipsis is put in its place. It sits in a box of its own, so
 	//* that the text is far longer than the box it is in.
-	//*
-	//* The line spacing: the extra pixels between the lines.
-	//*
-	//* The outline is drawn under the text and the shadow under that.
+	//* The line spacing is the extra pixels between the lines, and the
+	//* outline is drawn under the text with the shadow under that.
 	line_row := Demo_Text_Row(g, samples, "line_and_decoration", 38)
 	Demo_Text_Caption(g, line_row, "caption_Line", "Line", body)
 	overrun_box := GUI.New_Widget(g, .VBox, line_row, GUI.Widget_Opts{
@@ -412,7 +404,6 @@ box = GUI.StyleBox{
 	//* The theme: the look of every kind of widget in one place. It
 	//* only reaches the widgets that ask for it, so the samples above
 	//* keep the colours they were given.
-	//*
 	//* The GUI takes the theme over, so this one replaces the theme it
 	//* had, if it had one.
 	theme := GUI.Theme_Make()
@@ -478,7 +469,6 @@ box = GUI.StyleBox{
 		style = stateful,
 	})
 	GUI.Widget_Get(g, disabled).state -= GUI.Widget_State{.Enabled}
-	//* A button that takes the theme.
 	GUI.New_Widget(g, .Button, widgets, GUI.Widget_Opts{
 		name = "themed",
 		text = "Themed",
@@ -486,7 +476,6 @@ box = GUI.StyleBox{
 		fixed = true,
 		use_theme = true,
 	})
-	//* A button that takes the theme's danger variation.
 	GUI.New_Widget(g, .Button, widgets, GUI.Widget_Opts{
 		name = "danger",
 		text = "Danger",
@@ -495,8 +484,6 @@ box = GUI.StyleBox{
 		use_theme = true,
 		variation = "danger",
 	})
-	//* A text field: its text style has a colour and a size of its
-	//* own, like the text of every other widget.
 	GUI.New_Widget(g, .TextInput, widgets, GUI.Widget_Opts{
 		name = "field",
 		text = "type here",

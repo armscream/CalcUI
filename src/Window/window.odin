@@ -1,4 +1,7 @@
-//* Window management package.
+//* The window of the program: the events that come from it, and the
+//* floating panels that get a window of their own.
+//* SDL gives the mouse in points and the GUI works in pixels, so
+//* everything that comes from the mouse is scaled on the way in.
 package Window
 
 import sdl "vendor:sdl3"
@@ -7,9 +10,7 @@ import "core:log"
 import "core:strings"
 import GUI "../GUI"
 
-//* The window in *points* (logical coordinates). The pixel size is
-//* reported separately: on a HiDPI display one point is several
-//* pixels, and the GUI works in pixels.
+//* The window of the program. Its size is kept in pixels, not in points.
 Window :: struct {
 	handle: ^sdl.Window,
 	//* The size of the drawable area the last time the GUI was told
@@ -21,13 +22,10 @@ Window :: struct {
 	//* The windows of the floating panels. They are in the same order
 	//* as the floating panels in the GUI.
 	popups: [dynamic]^sdl.Window,
-	//* Where the floating panels are on the screen, in pixels. The
-	//* events of a floating panel are placed with them, so the
-	//* position of the window does not have to be asked from the
-	//* platform: its units are not always the pixels the GUI works
-	//* in.
+	//* Where the floating panels are on the screen, in pixels.
 	popup_pos: [dynamic]GUI.Vec2,
-	//* The cursors the GUI asks for, and the one that is active.
+	//* The cursors the GUI asks for, indexed by GUI.Cursor, and the
+	//* one that is active.
 	cursors: [dynamic]^sdl.Cursor,
 	cursor:  GUI.Cursor,
 }
@@ -79,11 +77,6 @@ point_size :: proc(w: Window) -> (i32, i32) {
 }
 
 //* How many pixels one point covers. 1.0 on a normal display.
-//* The window can be resized and moved to another display, so this is
-//* asked of the platform every time it is needed: a number that was
-//* kept from the moment the window was made would be wrong after a
-//* resize, and the mouse would no longer point at the widget it is
-//* over.
 scale :: proc(w: Window) -> f32 {
 	pw, _ := Pixel_Size(w)
 	tw, _ := point_size(w)
@@ -91,7 +84,6 @@ scale :: proc(w: Window) -> f32 {
 	return f32(pw) / f32(tw)
 }
 
-//* Where the client area of the window is on the screen, in pixels.
 //* The client area starts below the title bar, so the border sizes
 //* have to be added to the position of the window.
 client_origin :: proc(w: Window) -> GUI.Vec2 {
@@ -115,12 +107,10 @@ Global_Rect :: proc(w: Window) -> GUI.Rect {
 //* be pulled. The cursors are made once and kept, so the pointer does
 //* not flicker.
 
-//* Makes the cursor the GUI asks for the active one.
 Set_Cursor :: proc(w: ^Window, cursor: GUI.Cursor) {
 	if w.cursor == cursor { return }
 	w.cursor = cursor
 
-	//* Make the cursors that are missing.
 	for len(w.cursors) <= int(cursor) {
 		id := GUI.Cursor(len(w.cursors))
 		append(&w.cursors, sdl.CreateSystemCursor(System_Cursor_Of(id)))
@@ -131,7 +121,6 @@ Set_Cursor :: proc(w: ^Window, cursor: GUI.Cursor) {
 	_ = sdl.SetCursor(c)
 }
 
-//* The cursor of the platform that goes with the one the GUI asks for.
 System_Cursor_Of :: proc(cursor: GUI.Cursor) -> sdl.SystemCursor {
 	switch cursor {
 	case .Default:      return .DEFAULT
@@ -162,13 +151,11 @@ System_Cursor_Of :: proc(cursor: GUI.Cursor) -> sdl.SystemCursor {
 
 Sync_Clipboard :: proc(g: ^GUI.GUI) {
 	if g.clipboard.dirty {
-		//* The program changed the text, so it goes to the system.
 		text := strings.clone_to_cstring(g.clipboard.text, context.temp_allocator)
 		_ = sdl.SetClipboardText(text)
 		g.clipboard.dirty = false
 		return
 	}
-	//* The system may have changed: the text is read again.
 	if !sdl.HasClipboardText() { return }
 	data := sdl.GetClipboardText()
 	if data == nil { return }
@@ -187,7 +174,6 @@ Sync_Clipboard :: proc(g: ^GUI.GUI) {
 //* every window is put where its panel is. The windows are kept, so
 //* the renderers that belong to them stay valid.
 Sync_Popups :: proc(w: ^Window, floats: []GUI.Float_Panel) {
-	//* Give a window to every panel that has none.
 	for len(w.popups) < len(floats) {
 		f := floats[len(w.popups)]
 		//* A window of its own, with no frame: the panel draws its
@@ -210,8 +196,8 @@ Sync_Popups :: proc(w: ^Window, floats: []GUI.Float_Panel) {
 		append(&w.popups, popup)
 	}
 
-	//* Put every window where its panel is, and hide the ones that
-	//* are not used.
+	//* The GUI works in pixels and the window in points, so the loc
+	//* of the panels are divided by the scale.
 	s := scale(w^)
 	for popup, i in w.popups {
 		if i >= len(floats) {
@@ -224,8 +210,6 @@ Sync_Popups :: proc(w: ^Window, floats: []GUI.Float_Panel) {
 		sdl.ShowWindow(popup)
 	}
 
-	//* Keep the places of the panels: the events of a panel are
-	//* placed with them.
 	clear(&w.popup_pos)
 	for f in floats {
 		append(&w.popup_pos, f.pos)
@@ -241,10 +225,7 @@ event_global :: proc(w: Window, window_id: sdl.WindowID, pos: GUI.Vec2) -> GUI.V
 	for popup, i in w.popups {
 		if sdl.GetWindowID(popup) == window_id {
 			if i < len(w.popup_pos) {
-				//* The place of the panel is known: the event is put
-				//* there. Asking the platform for the position of the
-				//* window would give it in the units of the screen,
-				//* which are not always the pixels the GUI works in.
+				//* converts sdl window coords to pixel coords
 				place := w.popup_pos[i]
 				return GUI.Vec2{place.x + pos.x, place.y + pos.y}
 			}
@@ -272,7 +253,6 @@ report_size :: proc(w: ^Window, out: ^[dynamic]GUI.Event) {
 Poll_Events :: proc(w: ^Window, out: ^[dynamic]GUI.Event) {
 	ev: sdl.Event
 
-	//* The size can have changed before the events were read.
 	report_size(w, out)
 
 	for sdl.PollEvent(&ev) {

@@ -1,8 +1,7 @@
 //* == Docking ==
-//* Two panels with title bars. Drag one onto the other and they are
-//* docked: the edges split them, the middle makes them share a tab
-//* strip, and holding Ctrl while dropping in the middle swaps the two
-//* panels around.
+//* Two panels with title bars. Drag one onto the other to dock it: the
+//* edges split them, the middle makes them share a tab strip, and Ctrl
+//* while dropping in the middle swaps the two panels around.
 
 package main
 
@@ -19,7 +18,9 @@ main :: proc() {
 		520,
 		proc(app: ^common.App) {
 			g = app.gui
-			GUI.Widget_Get(g, g.root).style.box.bg_color = GUI.RGBA(0.07, 0.08, 0.10, 1)
+			root_style := GUI.Widget_Get(g, g.root).style
+			root_style.box.bg_color = GUI.RGBA(0.07, 0.08, 0.10, 1)
+			GUI.Widget_Set_Style(g, g.root, root_style)
 
 			split := GUI.Make_Split(
 				g,
