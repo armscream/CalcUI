@@ -1,58 +1,58 @@
-package GUI
-
 //* == Drawing text ==
-//* The draw pass of a piece of text.
-//
-//* The text style says how the text looks: the typeface and the size,
-//* the colour of the ink, how the text is broken into lines, where it
-//* sits in its box and what is drawn under it. The decorations - the
-//* outline and the shadow - are drawn first, so the ink is on top of
-//* them.
-//
-//* The pipeline is:
-//*   transform -> wrap -> overrun -> vertical alignment -> horizontal
-//*   alignment -> shadow -> outline -> ink
-//
+//* The draw pass of a piece of text: the transform, the wrap, the
+//* overrun, then the alignment, and last the shadow, the outline and
+//* the ink.
+//*
+//* Everything in this file is in logical units. Runa lays the text out
+//* in physical pixels, so every metric that comes from it is divided by
+//* the scale of the font before it is used, and the width a text is
+//* broken at is given to Runa in physical pixels.
+//*
+//* A line of text knows the range of the source it was made from:
+//* `start` is the lowest cluster of the line and `end` is the start of
+//* the next line, the length of the source for the last line, so that
+//* `src[start:end]` is the text of the line in logical order, for
+//* left-to-right text and for right-to-left text alike. Runa gives the
+//* glyphs of a line in visual order, so the clusters of a
+//* right-to-left line go backwards, and every cut of the text is made
+//* by the cluster of a glyph and not by its place in the line.
+//*
 //* Everything that lives longer than a frame is in the font; every
 //* allocation this file does is in the frame arena, which is emptied at
 //* the start of every frame.
+
+package GUI
 
 import runa "./dependencies/Runa"
 import virt "core:mem/virtual"
 import "core:strings"
 import "core:unicode"
 
-//* The mark that says the text was cut short.
 TEXT_ELLIPSIS :: "…"
 
-//* The eight directions the outline is copied in. The rasterizer has no
-//* stroke mode, so an outline is a ring of copies of the glyph.
 OUTLINE_DIRS :: [8][2]f32{{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 
-//* One glyph, ready to be drawn: where it is, where it samples from
-//* and which page of the atlas it is on.
 Glyph_Quad :: struct {
 	rect: Rect,
 	uv:   [4]f32,
 	tex:  Texture_ID,
 }
 
-//* One line of the block: the glyphs, their metrics, and the text they
-//* were shaped from.
 Text_Line :: struct {
 	glyphs:   []runa.Paragraph_Glyph,
 	width:    f32,
 	height:   f32,
 	baseline: f32,
-	//* The text the clusters point into. It is the whole string when
-	//* the text is broken at word boundaries, and the piece of it when
-	//* it is broken anywhere.
 	src:      string,
-	//* Where the line starts in `src`.
 	start:    int,
+	end:      int,
 }
 
-//* Draws `text` into `rect`, in the style's font and colour.
+line_cluster :: struct {
+	cluster: int,
+	advance: f32,
+}
+
 draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Colour) {
 	if text == "" {return}
 	font_id := Font_Resolve(g, ts)
@@ -60,27 +60,20 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 	f := font_get(g, font_id)
 	if f == nil {return}
 
-	//* The transform comes first: everything after it works on the
-	//* string that is really drawn.
 	src := apply_text_transform(g, ts, text)
 
-	//* The lines of the block.
 	lines := wrap_text_lines(g, f, ts, src, rect.w)
 	if len(lines) == 0 {return}
 
-	//* The last line is cut short when the text does not fit.
 	if ts.overrun != .None {
 		cut_text_overrun(g, f, ts, &lines, rect)
 	}
 
-	//* The quads of the glyphs are worked out once, so the shadow, the
-	//* outline and the ink are all drawn from the same list.
 	quads := glyph_quads(g, f, lines[:], ts, rect)
 	if len(quads) == 0 {return}
 
 	if ts.clip {draw_push_clip(g.target, rect)}
 
-	//* The shadow, under everything else.
 	if ts.shadow_colour.a > 0 {
 		off := ts.shadow_offset
 		for q in quads {
@@ -94,7 +87,6 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 		}
 	}
 
-	//* The outline: a ring of copies of every glyph around itself.
 	if ts.outline_size > 0 && ts.outline_colour.a > 0 {
 		d := ts.outline_size
 		for q in quads {
@@ -115,7 +107,6 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 		}
 	}
 
-	//* The ink.
 	for q in quads {
 		draw_quad(g.target, q.rect, q.uv, colour, q.tex)
 	}
@@ -123,9 +114,6 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 	if ts.clip {draw_pop_clip(g.target)}
 }
 
-//* The size of the text as it would be drawn: the width of the widest
-//* line and the height of the whole block. `width` is the width the
-//* text is wrapped at (0 means it is not wrapped). Nothing is drawn.
 text_measure :: proc(g: ^GUI, ts: Text_Style, text: string, width: f32) -> Vec2 {
 	if text == "" {return {}}
 	font_id := Font_Resolve(g, ts)
@@ -133,9 +121,6 @@ text_measure :: proc(g: ^GUI, ts: Text_Style, text: string, width: f32) -> Vec2 
 	f := font_get(g, font_id)
 	if f == nil {return {}}
 
-	//* The size of a text that has not changed is remembered: shaping
-	//* it is not cheap, and the layout pass measures every text of
-	//* every widget every frame.
 	key := Measure_Key {
 		font      = font_id,
 		size      = ts.size,
@@ -144,6 +129,17 @@ text_measure :: proc(g: ^GUI, ts: Text_Style, text: string, width: f32) -> Vec2 
 		spacing   = ts.spacing,
 		wrap      = ts.wrap,
 		transform = ts.transform,
+	}
+	if ts.wrap == .Off && ts.spacing == 0 && ts.transform == .None {
+		key = Measure_Key {
+			font      = font_id,
+			size      = f.size,
+			text      = text,
+			width     = 0,
+			spacing   = 0,
+			wrap      = .Off,
+			transform = .None,
+		}
 	}
 	if size, ok := measure_cache_get(g, key); ok {return size}
 
@@ -160,9 +156,6 @@ text_measure :: proc(g: ^GUI, ts: Text_Style, text: string, width: f32) -> Vec2 
 	return size
 }
 
-//* == The layout ==
-
-//* The lines of the text, broken to fit `max_w`.
 wrap_text_lines :: proc(
 	g: ^GUI,
 	f: ^Font,
@@ -172,26 +165,39 @@ wrap_text_lines :: proc(
 ) -> [dynamic]Text_Line {
 	opts := f.opts
 	opts.max_width = 0
+	out: [dynamic]Text_Line
 	switch ts.wrap {
 	case .Word:
-		if max_w > 0 {opts.max_width = max_w}
+		if max_w > 0 {opts.max_width = max_w * f.scale}
+		out = shape_text_lines(g, f, text, text, 0, opts)
 	case .Anywhere:
-		//* Runa only breaks at word boundaries, so the pieces that fit
-		//* the width are cut by hand below.
-		return wrap_text_anywhere(g, f, text, max_w)
+		out = wrap_text_anywhere(g, f, text, max_w)
 	case .Off:
+		out = shape_text_lines(g, f, text, text, 0, opts)
 	}
-	return shape_text_lines(g, f, text, text, opts)
+	//* A text that ends with a line break has a line of its own below it:
+	//* the caret at the end of the text belongs to that line.
+	if len(text) > 0 && text[len(text) - 1] == '\n' &&
+	   (len(out) == 0 || out[len(out) - 1].start < len(text)) {
+		if cap(out) == 0 {
+			out = make([dynamic]Text_Line, 0, 1, virt.arena_allocator(&g.frame_arena))
+		}
+		last := Text_Line{start = len(text), end = len(text), src = text}
+		if len(out) > 0 {
+			last.height = out[len(out) - 1].height
+			last.baseline = out[len(out) - 1].baseline
+		}
+		append(&out, last)
+	}
+	return out
 }
 
-//* Lays a string out and gives back its lines. The clusters of the
-//* glyphs are byte offsets into `src`, which is the text the line was
-//* shaped from.
 shape_text_lines :: proc(
 	g: ^GUI,
 	f: ^Font,
 	str: string,
 	src: string,
+	base: int,
 	opts: runa.Paragraph_Opts,
 ) -> [dynamic]Text_Line {
 	allocator := virt.arena_allocator(&g.frame_arena)
@@ -200,94 +206,143 @@ shape_text_lines :: proc(
 
 	out := make([dynamic]Text_Line, 0, len(shaped), allocator)
 	for l in shaped {
-		start := 0
-		if len(l.glyphs) > 0 {start = int(l.glyphs[0].cluster)}
+		start := base
+		if len(l.glyphs) > 0 {start = base + lowest_cluster(l.glyphs)}
 		append(
 			&out,
 			Text_Line {
 				glyphs = l.glyphs,
-				width = l.width,
-				height = l.height,
-				baseline = l.baseline,
+				width = l.width / f.scale,
+				height = l.height / f.scale,
+				baseline = l.baseline / f.scale,
 				src = src,
 				start = start,
+				end = base + len(str),
 			},
 		)
 	}
+	for i in 0 ..< len(out) {
+		if i + 1 < len(out) {out[i].end = out[i + 1].start}
+	}
 	return out
 }
 
-//* Breaks the text into the pieces that fit the width. Runa breaks at
-//* word boundaries only, so the pieces are cut here: the text is
-//* shaped once, the advances say where a piece ends, and every piece
-//* is laid out on its own.
+lowest_cluster :: proc(glyphs: []runa.Paragraph_Glyph) -> int {
+	lowest := 0
+	for pg, gi in glyphs {
+		c := int(pg.cluster)
+		if gi == 0 || c < lowest {lowest = c}
+	}
+	return lowest
+}
+
+finalize_lines :: proc(lines: ^[dynamic]Text_Line, src_len: int) {
+	for i in 0 ..< len(lines) {
+		if i + 1 < len(lines) {
+			lines[i].end = lines[i + 1].start
+		} else {
+			lines[i].end = src_len
+		}
+	}
+}
+
 wrap_text_anywhere :: proc(g: ^GUI, f: ^Font, text: string, max_w: f32) -> [dynamic]Text_Line {
 	allocator := virt.arena_allocator(&g.frame_arena)
 	out := make([dynamic]Text_Line, 0, 4, allocator)
-	if max_w <= 0 {
-		opts := f.opts
-		opts.max_width = 0
-		for l in shape_text_lines(g, f, text, text, opts) {append(&out, l)}
+	opts := f.opts
+	opts.max_width = 0
+	if max_w <= 0 || text == "" {
+		for l in shape_text_lines(g, f, text, text, 0, opts) {append(&out, l)}
 		return out
 	}
 
-	//* A hard break ends a piece of its own: the text after it starts
-	//* a new line.
 	start := 0
-	for i in 0 ..= len(text) {
-		if i < len(text) && text[i] != '\n' {continue}
-		end := i
-		if end > start && text[end - 1] == '\r' {end -= 1}
-		wrap_text_piece(&out, g, f, text[start:end], max_w)
-		start = i + 1
+	i := 0
+	for i < len(text) {
+		if text[i] == '\n' {
+			end := i + 1
+			wrap_text_piece(&out, g, f, text, start, end, max_w)
+			start = end
+			i = end
+			continue
+		}
+		if text[i] == '\r' {
+			end := i + 1
+			if end < len(text) && text[end] == '\n' {end += 1}
+			wrap_text_piece(&out, g, f, text, start, end, max_w)
+			start = end
+			i = end
+			continue
+		}
+		i += 1
 	}
+	if start < len(text) {
+		wrap_text_piece(&out, g, f, text, start, len(text), max_w)
+	}
+	finalize_lines(&out, len(text))
 	return out
 }
 
-//* Cuts one piece of text into the chunks that fit the width. A word
-//* that is too wide is cut at a codepoint boundary, and a space stays
-//* with the chunk before it.
-wrap_text_piece :: proc(out: ^[dynamic]Text_Line, g: ^GUI, f: ^Font, piece: string, max_w: f32) {
-	if piece == "" {return}
+wrap_text_piece :: proc(
+	out: ^[dynamic]Text_Line,
+	g: ^GUI,
+	f: ^Font,
+	text: string,
+	from: int,
+	to: int,
+	max_w: f32,
+) {
+	if to <= from {return}
 	allocator := virt.arena_allocator(&g.frame_arena)
 
-	//* The piece is shaped once: the advances say where the chunks end.
 	opts := f.opts
 	opts.max_width = 0
+	piece := text[from:to]
 	shaped, err := runa.layout_paragraph(piece, opts, shape_cache(g), allocator)
 	if err != .None {return}
 
 	glyphs: []runa.Paragraph_Glyph
 	if len(shaped) > 0 {glyphs = shaped[0].glyphs}
 
-	start := 0
+	clusters := glyph_clusters(g, glyphs, f.scale)
+	chunk := 0
 	width: f32 = 0
-	has_glyph := false
-	for pg in glyphs {
-		cluster := int(pg.cluster)
-		//* The chunk before took the space.
-		if cluster < start {continue}
-		if has_glyph && width + pg.x_advance > max_w {
-			cut := cluster
-			//* A space belongs to the chunk before it.
-			for cut < len(piece) && piece[cut] == ' ' {cut += 1}
-			for l in shape_text_lines(g, f, piece[start:cut], piece[start:cut], opts) {
-				append(out, l)
-			}
-			start = cut
+	taken := 0
+	ci := 0
+	for ci < len(clusters) {
+		c := clusters[ci]
+		if taken > 0 && width + c.advance > max_w {
+			rel := c.cluster
+			for rel < len(piece) && piece[rel] == ' ' {rel += 1}
+			append_text_chunk(out, g, f, text, from + chunk, from + rel, opts)
+			chunk = rel
 			width = 0
-			has_glyph = false
-			if cut > cluster {continue}
+			taken = 0
+			for ci < len(clusters) && clusters[ci].cluster < rel {ci += 1}
+			continue
 		}
-		width += pg.x_advance
-		has_glyph = true
+		width += c.advance
+		taken += 1
+		ci += 1
 	}
-	if start < len(piece) {
-		for l in shape_text_lines(g, f, piece[start:], piece[start:], opts) {append(out, l)}
+	append_text_chunk(out, g, f, text, from + chunk, to, opts)
+}
+
+append_text_chunk :: proc(
+	out: ^[dynamic]Text_Line,
+	g: ^GUI,
+	f: ^Font,
+	text: string,
+	from: int,
+	to: int,
+	opts: runa.Paragraph_Opts,
+) {
+	if to <= from {return}
+	for l in shape_text_lines(g, f, text[from:to], text, from, opts) {
+		append(out, l)
 	}
 }
 
-//* The height of a block of text: the lines and the space between them.
 text_block_height :: proc(lines: []Text_Line, spacing: f32) -> f32 {
 	if len(lines) == 0 {return 0}
 	h: f32 = 0
@@ -298,10 +353,6 @@ text_block_height :: proc(lines: []Text_Line, spacing: f32) -> f32 {
 	return h
 }
 
-//* == The transform ==
-
-//* The text as it is laid out: the transform of the style is applied to
-//* it before anything else happens.
 apply_text_transform :: proc(g: ^GUI, ts: Text_Style, text: string) -> string {
 	allocator := virt.arena_allocator(&g.frame_arena)
 	switch ts.transform {
@@ -320,9 +371,6 @@ apply_text_transform :: proc(g: ^GUI, ts: Text_Style, text: string) -> string {
 	return text
 }
 
-//* The text with the first letter of every word in upper case. A word
-//* starts at the beginning of the text and after any rune that is not a
-//* letter; the rest of the word is left as it is.
 capitalize_text :: proc(g: ^GUI, text: string) -> string {
 	allocator := virt.arena_allocator(&g.frame_arena)
 	b: strings.Builder
@@ -346,11 +394,6 @@ capitalize_text :: proc(g: ^GUI, text: string) -> string {
 	return strings.to_string(b)
 }
 
-//* == The overrun ==
-
-//* Cuts the last line short when the text does not fit the box, and
-//* puts an ellipsis where it was cut. The cut text is laid out again,
-//* so the ellipsis is shaped with the text it belongs to.
 cut_text_overrun :: proc(
 	g: ^GUI,
 	f: ^Font,
@@ -362,46 +405,35 @@ cut_text_overrun :: proc(
 	last := lines[len(lines) - 1]
 	if len(last.glyphs) == 0 {return}
 
-	//* The ellipsis is part of the text, so it has to fit as well.
 	budget := box.w - Font_Measure(g, f.id, TEXT_ELLIPSIS).x
 	if last.width <= budget {return}
 
-	//* The longest piece of the line that still fits.
-	width: f32 = 0
-	keep := 0
-	for pg in last.glyphs {
-		if width + pg.x_advance > budget {break}
-		width += pg.x_advance
-		keep += 1
-	}
-	if keep == 0 {return}
+	clusters := glyph_clusters(g, last.glyphs, f.scale)
+	i := cluster_fit(clusters, budget)
+	if i >= len(clusters) {return}
 
 	src := last.src
-	cut := int(last.glyphs[keep].cluster)
+	cut := clusters[i].cluster
 	if cut > len(src) {cut = len(src)}
+	if cut <= last.start {return}
 
-	//* The words are cut at a word boundary.
 	if ts.overrun == .Words {
 		if p := last_space_before(src, last.start, cut); p > last.start {cut = p}
 	}
-	//* A space in front of the ellipsis is not wanted.
 	for cut > last.start && src[cut - 1] == ' ' {cut -= 1}
+	if cut <= last.start {return}
 
-	//* The cut text is laid out again, in the same way as the text it
-	//* replaces.
 	opts := f.opts
 	opts.max_width = 0
-	if ts.wrap == .Word && box.w > 0 {opts.max_width = box.w}
 	trimmed := join_text(g, src[last.start:cut], TEXT_ELLIPSIS)
-	cut_lines := shape_text_lines(g, f, trimmed, trimmed, opts)
+	cut_lines := shape_text_lines(g, f, trimmed, trimmed, 0, opts)
 	if len(cut_lines) == 0 {return}
 
 	resize(lines, len(lines) - 1)
+	if len(lines) > 0 {lines[len(lines) - 1].end = last.start}
 	for l in cut_lines {append(lines, l)}
 }
 
-//* The place of the last space in `src[from:to]`, so that a cut can be
-//* made at a word boundary.
 last_space_before :: proc(src: string, from, to: int) -> int {
 	end := min(to, len(src))
 	for i := end - 1; i >= from; i -= 1 {
@@ -410,7 +442,6 @@ last_space_before :: proc(src: string, from, to: int) -> int {
 	return -1
 }
 
-//* Two strings, joined in the frame arena.
 join_text :: proc(g: ^GUI, a, b: string) -> string {
 	allocator := virt.arena_allocator(&g.frame_arena)
 	builder: strings.Builder
@@ -423,9 +454,46 @@ join_text :: proc(g: ^GUI, a, b: string) -> string {
 	return strings.to_string(builder)
 }
 
-//* == The quads ==
+glyph_clusters :: proc(g: ^GUI, glyphs: []runa.Paragraph_Glyph, scale: f32) -> []line_cluster {
+	allocator := virt.arena_allocator(&g.frame_arena)
+	pairs := make([dynamic]line_cluster, 0, len(glyphs), allocator)
+	for pg in glyphs {
+		append(&pairs, line_cluster{cluster = int(pg.cluster), advance = pg.x_advance / scale})
+	}
+	sort_line_clusters(pairs[:])
 
-//* The quads of every glyph of the text, in the order they are drawn.
+	out := make([dynamic]line_cluster, 0, len(pairs), allocator)
+	for p in pairs {
+		if len(out) > 0 && out[len(out) - 1].cluster == p.cluster {
+			out[len(out) - 1].advance += p.advance
+			continue
+		}
+		append(&out, p)
+	}
+	return out[:]
+}
+
+sort_line_clusters :: proc(clusters: []line_cluster) {
+	for i in 1 ..< len(clusters) {
+		c := clusters[i]
+		j := i - 1
+		for j >= 0 && clusters[j].cluster > c.cluster {
+			clusters[j + 1] = clusters[j]
+			j -= 1
+		}
+		clusters[j + 1] = c
+	}
+}
+
+cluster_fit :: proc(clusters: []line_cluster, budget: f32) -> int {
+	width: f32 = 0
+	for c, i in clusters {
+		if i > 0 && width + c.advance > budget {return i}
+		width += c.advance
+	}
+	return len(clusters)
+}
+
 glyph_quads :: proc(
 	g: ^GUI,
 	f: ^Font,
@@ -435,7 +503,6 @@ glyph_quads :: proc(
 ) -> []Glyph_Quad {
 	quads := make([dynamic]Glyph_Quad, 0, 64, virt.arena_allocator(&g.frame_arena))
 
-	//* Where the block of text sits in the box.
 	top := rect.y
 	switch ts.valign {
 	case .Center:
@@ -457,9 +524,6 @@ glyph_quads :: proc(
 		case .Left, .Fill:
 		}
 
-		//* A justified line has its words spread out so that it fills
-		//* the box. The last line of a paragraph is not justified, and
-		//* neither is a line with a single word in it.
 		extra: f32 = 0
 		if ts.align == .Fill && li < len(lines) - 1 {
 			if spaces := line_space_count(line); spaces > 0 {
@@ -472,39 +536,33 @@ glyph_quads :: proc(
 		for gi in 0 ..< len(line.glyphs) {
 			pg := line.glyphs[gi]
 			if gi > 0 && extra != 0 && line_has_space(line, gi - 1) {
-				//* A space was swallowed between the two glyphs, so
-				//* the word after it is pushed to the right.
 				pen += extra
 			}
-			slot, ok := font_slot(g, f, pg.glyph_id)
+			slot, ok := font_slot(g, f, pg.font, pg.glyph_id)
 			if ok && slot.px_size[0] > 0 && slot.px_size[1] > 0 {
 				append(
 					&quads,
 					Glyph_Quad {
 						rect = Rect {
-							x = pen + pg.x_offset + slot.bearing[0],
-							y = baseline + pg.y_offset + slot.bearing[1],
-							w = f32(slot.px_size[0]),
-							h = f32(slot.px_size[1]),
+							x = pen + (pg.x_offset + slot.bearing[0]) / f.scale,
+							y = baseline + (pg.y_offset + slot.bearing[1]) / f.scale,
+							w = f32(slot.px_size[0]) / f.scale,
+							h = f32(slot.px_size[1]) / f.scale,
 						},
 						uv = slot.uv,
 						tex = g.atlas_texture,
 					},
 				)
 			}
-			pen += pg.x_advance
+			pen += pg.x_advance / f.scale
 		}
 		y += line.height + ts.spacing
 	}
 	return quads[:]
 }
 
-//* How many spaces a line holds. The spaces are found by looking at
-//* the bytes between the clusters of the glyphs: that is where a space
-//* of the source text was swallowed. Zero is returned when the clusters
-//* do not go forward, which is what right-to-left text looks like, and
-//* such a line cannot be justified.
 line_space_count :: proc(line: Text_Line) -> int {
+	if !line_goes_forward(line) {return 0}
 	n := 0
 	for gi in 0 ..< len(line.glyphs) - 1 {
 		if line_has_space(line, gi) {n += 1}
@@ -512,7 +570,13 @@ line_space_count :: proc(line: Text_Line) -> int {
 	return n
 }
 
-//* Whether the bytes between two glyphs hold a space.
+line_goes_forward :: proc(line: Text_Line) -> bool {
+	for gi in 1 ..< len(line.glyphs) {
+		if int(line.glyphs[gi].cluster) < int(line.glyphs[gi - 1].cluster) {return false}
+	}
+	return true
+}
+
 line_has_space :: proc(line: Text_Line, gi: int) -> bool {
 	if gi < 0 || gi + 1 >= len(line.glyphs) {return false}
 	lo := int(line.glyphs[gi].cluster)

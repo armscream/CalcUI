@@ -1,6 +1,8 @@
 //* == Shared parts of the examples ==
-//* The loop every example shares: a window, a GUI, the widgets the
-//* setup function puts in it, and an update function called once a frame.
+//* The loop every example shares: a window, a GUI, the widgets the setup
+//* function puts in it, and an update function called once a frame. The
+//* window is in logical units, like the GUI; the backend is in physical
+//* pixels, like the drawable area of the window.
 //*   common.Run("CalcUI", setup, update)
 
 package common
@@ -13,12 +15,9 @@ import Backend "../../src/Backend"
 import GUI "../../src/GUI"
 import plat "../../src/Window"
 
-//* The font is compiled into the program, so it is found wherever the
-//* program is started from. A font path on the command line replaces it.
 FONT_NAME :: "Roboto-Regular"
 FONT_DATA :: #load("../../assets/fonts/Roboto-Regular.ttf")
 
-//* The size of the body text and of the titles.
 BODY_SIZE :: 16
 TITLE_SIZE :: 28
 
@@ -26,15 +25,11 @@ App :: struct {
 	window: plat.Window,
 	gui:    ^GUI.GUI,
 	backend: GUI.Backend,
-	//* The state of the backend in use. Which of the two is used
-	//* depends on --gpu.
 	renderer_state: Backend.Renderer_State,
 	gpu_state:      Backend.GPU_State,
 	family: GUI.Font_Family_ID,
 }
 
-//* The font of the example: the one that is compiled in, or the file at
-//* `path` when one was named on the command line.
 load_family :: proc(g: ^GUI.GUI, path: string) -> GUI.Font_Family_ID {
 	if path == "" {
 		return GUI.Font_Family_Add(g, FONT_NAME, FONT_DATA)
@@ -42,9 +37,6 @@ load_family :: proc(g: ^GUI.GUI, path: string) -> GUI.Font_Family_ID {
 	return GUI.Font_Family_Load(g, path)
 }
 
-//* Runs an example until the window is closed.
-//
-//*   --gpu   uses the SDL3 GPU backend instead of the SDL3 renderer.
 Run :: proc(
 	title: string,
 	width: i32,
@@ -77,6 +69,7 @@ Run :: proc(
 	defer plat.Destroy_Window(window)
 
 	pw, ph := plat.Pixel_Size(window)
+	lw, lh := plat.Logical_Size(window)
 
 	app := &App{
 		window = window,
@@ -117,15 +110,16 @@ Run :: proc(
 	}
 	defer app.backend.destroy(app.backend.ctx)
 
-	app.gui = GUI.Init_GUI(pw, ph, app.backend)
+	app.gui = GUI.Init_GUI(lw, lh, app.backend)
 	defer GUI.Shutdown_GUI(app.gui)
+
+	GUI.GUI_Set_Scale(app.gui, plat.Scale(window))
 
 	app.family = load_family(app.gui, font_path)
 	if app.family == GUI.INVALID_FONT_FAMILY_ID {
 		log.panicf("could not load the font")
 	}
 	app.gui.default_font_size = BODY_SIZE
-	//* Pre-rasterize the common glyphs, so the first frame is whole.
 	GUI.Font_Warmup(app.gui, GUI.Font_At(app.gui, app.family, BODY_SIZE))
 	GUI.Font_Warmup(app.gui, GUI.Font_At(app.gui, app.family, TITLE_SIZE))
 
@@ -133,15 +127,14 @@ Run :: proc(
 
 	first_frame := true
 	for !app.gui.quit_requested {
+		plat.Sync_Scale(app.gui, app.window)
 		plat.Poll_Events(&app.window, &app.gui.events)
 		app.gui.window_rect = plat.Global_Rect(app.window)
 		if update != nil {update(app)}
 		GUI.Handle_Events(app.gui)
 		GUI.Frame(app.gui)
 
-		//* Every floating panel gets a window of its own.
 		plat.Sync_Popups(&app.window, app.gui.floats[:])
-		//* The pointer changes over an edge that can be pulled.
 		plat.Set_Cursor(&app.window, app.gui.cursor)
 		plat.Sync_Clipboard(app.gui)
 
