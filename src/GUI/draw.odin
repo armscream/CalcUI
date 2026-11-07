@@ -1,36 +1,22 @@
-//* The renderer-agnostic draw contract: one command type (a range of
-//* indices into a shared buffer, and the texture it samples), one
-//* atlas, one draw call for a whole window.
-//* The clip is resolved while the list is built: a cut quad is cut on
-//* the CPU and its texture coordinates are moved with it.
+//* The renderer-agnostic draw contract: one command type, one atlas,
+//* one draw call for a whole window. The clip is resolved while the
+//* list is built: a cut quad is cut on the CPU and its texture
+//* coordinates are moved with it.
 package GUI
 
 import "core:math"
 
 Shape_Kind :: enum u32 {
-	//* The texture is sampled as it is. This is what the glyphs and
-	//* the images use.
 	Plain    = 0,
-	//* The colour of the vertex is the whole of the fragment: the
-	//* texture is not sampled. A solid quad with rounded corners.
 	Solid    = 1,
-	//* The texture is sampled and the rounded corners cut it.
 	Textured = 2,
 }
 
 Draw_Vertex :: struct {
 	pos:    [2]f32,
 	uv:     [2]f32,
-	//* Straight alpha: the colour is not multiplied by the alpha
-	//* here. A backend that blends with premultiplied alpha does the
-	//* multiplying itself.
 	colour: Colour,
-	//* The shape of the fragment: the kind, the radius of the corners
-	//* and the half size of the quad the vertex belongs to.
 	shape:  [4]f32,
-	//* Where the vertex sits inside its quad, measured from the
-	//* middle of the quad. The shader uses it to work out how far a
-	//* fragment is from a rounded corner.
 	local:  [2]f32,
 }
 
@@ -47,20 +33,14 @@ Draw_List :: struct {
 	clip_stack:   [dynamic]Rect,
 	base_clip:    Rect,
 	current_clip: Rect,
-	//* The two buffers the polygons are cut in. They keep their
-	//* capacity between frames.
 	clip_a:       [dynamic][2]f32,
 	clip_b:       [dynamic][2]f32,
-	//* The points of a polygon after they were turned into physical
-	//* pixels. The buffer keeps its capacity between frames.
 	scaled:       [dynamic][2]f32,
-	//* How many physical pixels one logical unit is worth. The draw
-	//* primitives take logical units and put physical pixels in the
-	//* list, so this is where the two meet.
 	scale:        f32,
 }
 
 draw_list_clear :: proc(dl: ^Draw_List, viewport: Rect) {
+	if !(dl.scale > 0) {dl.scale = 1}
 	clear(&dl.vertices)
 	clear(&dl.indices)
 	clear(&dl.commands)
@@ -69,7 +49,6 @@ draw_list_clear :: proc(dl: ^Draw_List, viewport: Rect) {
 	dl.current_clip = dl.base_clip
 }
 
-//* A rect in physical pixels.
 rect_scale :: proc(r: Rect, scale: f32) -> Rect {
 	return Rect {
 		x = r.x * scale,
@@ -79,8 +58,6 @@ rect_scale :: proc(r: Rect, scale: f32) -> Rect {
 	}
 }
 
-//* Releases the backing arrays. The per-frame clear keeps the capacity
-//* alive between frames, so this is only called at shutdown.
 draw_list_destroy :: proc(dl: ^Draw_List) {
 	delete(dl.vertices)
 	delete(dl.indices)
@@ -91,14 +68,11 @@ draw_list_destroy :: proc(dl: ^Draw_List) {
 	delete(dl.scaled)
 }
 
-//* Clip state lives in the builder, never in the command list.
 draw_push_clip :: proc(dl: ^Draw_List, r: Rect) {
 	append(&dl.clip_stack, rect_intersect(dl.current_clip, rect_scale(r, dl.scale)))
 	dl.current_clip = dl.clip_stack[len(dl.clip_stack) - 1]
 }
 
-//* Popping the last clip goes back to the clip of the whole list, so
-//* anything drawn after the tree is not clipped away.
 draw_pop_clip :: proc(dl: ^Draw_List) {
 	if len(dl.clip_stack) == 0 {return}
 	_ = pop(&dl.clip_stack)
@@ -123,17 +97,10 @@ rect_equal :: proc(a, b: Rect) -> bool {
 	return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h
 }
 
-//* Emits one textured quad. The quad is cut to the clip rect of the
-//* builder, and its texture coordinates are moved with it, so the
-//* part of the texture the quad shows is the part it showed before.
-//* A quad that is cut away entirely is dropped: it costs no vertices
-//* and no indices.
 draw_quad :: proc(dl: ^Draw_List, r: Rect, uv: [4]f32, c: Colour, tex: Texture_ID) {
 	draw_quad_shape(dl, r, uv, c, tex, .Plain, 0)
 }
 
-//* Emits a quad that is cut to the clip rect, with a shape effect on
-//* top: a rounded rectangle, with or without a texture.
 draw_quad_shape :: proc(
 	dl: ^Draw_List,
 	r: Rect,
@@ -145,7 +112,6 @@ draw_quad_shape :: proc(
 ) {
 	if r.w <= 0 || r.h <= 0 {return}
 
-	//* The quad is in logical units; the list holds physical pixels.
 	quad := rect_scale(r, dl.scale)
 
 	cr := rect_intersect(quad, dl.current_clip)
@@ -163,9 +129,6 @@ draw_quad_shape :: proc(
 	draw_quad_vertices(dl, cr, quad, [4]f32{u0, v0, u1, v1}, c, tex, kind, radius * dl.scale)
 }
 
-//* The vertices of a quad. `r` is the part that is drawn, `full` is
-//* the quad the shape belongs to: the rounded corners keep their
-//* place when the quad is cut.
 draw_quad_vertices :: proc(
 	dl: ^Draw_List,
 	r: Rect,
@@ -181,8 +144,6 @@ draw_quad_vertices :: proc(
 	p := [4][2]f32{{r.x, r.y}, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h}, {r.x, r.y + r.h}}
 	t := [4][2]f32{{uv[0], uv[1]}, {uv[2], uv[1]}, {uv[2], uv[3]}, {uv[0], uv[3]}}
 
-	//* Where every corner sits inside the quad it belongs to, measured
-	//* from the middle of that quad.
 	cx := full.x + full.w * 0.5
 	cy := full.y + full.h * 0.5
 	l := [4][2]f32 {
@@ -215,8 +176,6 @@ draw_quad_vertices :: proc(
 	draw_command(dl, tex, u32(idx_start), 6)
 }
 
-//* Adds a command to the list, or adds to the last one when it is the
-//* same texture: the whole of a window is then one command.
 draw_command :: proc(
 	dl: ^Draw_List,
 	tex: Texture_ID,
@@ -235,19 +194,10 @@ draw_command :: proc(
 	)
 }
 
-//* Emits a polygon: a fan of triangles around its middle. The polygon
-//* is cut to the clip of the builder, so a shape that reaches out of
-//* it is cut on the CPU. It is still part of the command of the list,
-//* so it costs no draw call of its own.
-//
-//* The polygon has one colour: it samples the texel at the origin of
-//* its texture. The atlas keeps a white texel there, so a polygon
-//* drawn from the atlas is the colour it is given.
 draw_polygon :: proc(dl: ^Draw_List, points: [][2]f32, c: Colour, tex: Texture_ID) {
 	n := len(points)
 	if n < 3 {return}
 
-	//* The points are in logical units; the list holds physical pixels.
 	clear(&dl.scaled)
 	for p in points {
 		append(&dl.scaled, [2]f32{p[0] * dl.scale, p[1] * dl.scale})
@@ -313,17 +263,12 @@ clip_edges :: proc(r: Rect) -> [4][4]f32 {
 	}
 }
 
-//* How far a point is to the left of an edge. It is positive when the
-//* point is inside the rect the edge belongs to.
 clip_side :: proc(edge: [4]f32, p: [2]f32) -> f32 {
 	dx := edge[2] - edge[0]
 	dy := edge[3] - edge[1]
 	return dx * (p[1] - edge[1]) - dy * (p[0] - edge[0])
 }
 
-//* Cuts a polygon to the clip of the builder. The points that come
-//* back live in the scratch buffers of the list, so they are only good
-//* until the next polygon is cut.
 draw_clip_polygon :: proc(dl: ^Draw_List, points: [][2]f32) -> [][2]f32 {
 	clip := dl.current_clip
 	if clip.w <= 0 || clip.h <= 0 {return points[:0]}
@@ -351,7 +296,6 @@ draw_clip_polygon :: proc(dl: ^Draw_List, points: [][2]f32) -> [][2]f32 {
 	return src
 }
 
-//* True when every point of the polygon is inside the rect. 
 polygon_inside :: proc(points: [][2]f32, r: Rect) -> bool {
 	for p in points {
 		if p[0] < r.x || p[0] > r.x + r.w {return false}
@@ -360,8 +304,6 @@ polygon_inside :: proc(points: [][2]f32, r: Rect) -> bool {
 	return true
 }
 
-//* Keeps the points that are on the inside of one side of the clip and
-//* cuts the ones that are not.
 clip_polygon_edge :: proc(dst: ^[dynamic][2]f32, points: [][2]f32, edge: [4]f32) {
 	n := len(points)
 	if n == 0 {return}
@@ -372,8 +314,6 @@ clip_polygon_edge :: proc(dst: ^[dynamic][2]f32, points: [][2]f32, edge: [4]f32)
 		prev_in := prev_side >= 0
 		point_in := side >= 0
 		if prev_in != point_in {
-			//* The polygon crosses the edge: the point of the
-			//* crossing goes in.
 			t := prev_side / (prev_side - side)
 			append(
 				dst,
@@ -388,3 +328,4 @@ clip_polygon_edge :: proc(dst: ^[dynamic][2]f32, points: [][2]f32, edge: [4]f32)
 		prev_side = side
 	}
 }
+

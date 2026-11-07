@@ -1,16 +1,15 @@
+//* The textures of the GUI: pictures that are put into the atlas and
+//* drawn out of it, the same way the glyphs are.
 package GUI
 
 import "core:image/png"
 
 Texture :: struct {
 	region: Atlas_Region,
-	//* Its size in pixels.
 	size:   [2]i32,
 	uv:     [4]f32,
 }
 
-//* Puts a tex into the atlas. The pixels are RGBA, four bytes
-//* each, and there are `w` * `h` of them.
 texture_from_pixels :: proc(g: ^GUI, pixels: []u8, w, h: int) -> Texture {
 	if w <= 0 || h <= 0 {return Texture{}}
 	if len(pixels) < w * h * 4 {return Texture{}}
@@ -22,7 +21,6 @@ texture_from_pixels :: proc(g: ^GUI, pixels: []u8, w, h: int) -> Texture {
 	return Texture{region = region, size = [2]i32{i32(w), i32(h)}, uv = region.uv}
 }
 
-//* Reads a PNG and puts it into the atlas.
 texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 	image, err := png.load_from_bytes(data)
 	if err != nil {return {}, false}
@@ -33,8 +31,6 @@ texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 	channels := image.channels
 	if w <= 0 || h <= 0 {return {}, false}
 
-	//* The reader gives the rows of the picture one after the other. They are
-	//* copied into the atlas, which wants four bytes for every pixel.
 	source := image.pixels.buf[image.pixels.off:]
 	if len(source) < w * h * channels {return {}, false}
 
@@ -46,13 +42,11 @@ texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 		out := i * 4
 		switch channels {
 		case 1:
-			//* Grey: the colour is white and the alpha is the grey.
 			pixels[out + 0] = 255
 			pixels[out + 1] = 255
 			pixels[out + 2] = 255
 			pixels[out + 3] = source[at]
 		case 2:
-			//* Grey and alpha.
 			pixels[out + 0] = 255
 			pixels[out + 1] = 255
 			pixels[out + 2] = 255
@@ -109,3 +103,4 @@ draw_texture :: proc(g: ^GUI, texture: Texture, rect: Rect, colour: Colour) {
 
 	draw_quad(g.target, drawn, texture.uv, colour, g.atlas_texture)
 }
+
