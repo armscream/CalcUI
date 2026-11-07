@@ -32,7 +32,6 @@
 package GUI
 
 import "core:strings"
-import "core:unicode"
 import "core:unicode/utf8"
 import runa "./dependencies/Runa"
 
@@ -83,10 +82,6 @@ cluster_end :: proc(s: string, offset: int) -> int {
 		if !ok {return len(s)}
 		if lo == offset {return hi}
 	}
-}
-
-word_rune :: proc(r: rune) -> bool {
-	return unicode.is_letter(r) || unicode.is_digit(r) || r == '_'
 }
 
 word_prev_offset :: proc(s: string, offset: int) -> int {
@@ -234,22 +229,57 @@ text_input_line_range :: proc(g: ^GUI, f: ^Font, text: string) -> (start, end: i
 focus_click :: proc(g: ^GUI, id: Widget_ID, p: Vec2, clicks: int = 1) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
-	#partial switch d in w.data {
-	case Text_Input_Data:
-		focus_set(g, id)
-		if clicks >= 2 {
-			text_input_select_all(g, id)
-			return
-		}
-		text_input_place_caret(g, id, p)
-		return
-	}
 	if w.focus_mode == .Click || w.focus_mode == .All {
 		focus_set(g, id)
 	}
+	text_box_click(g, id, p, clicks)
 }
 
-text_input_blur :: proc(g: ^GUI, id: Widget_ID) {
+//* The offset of the text that the pointer is over.
+text_input_offset_at_local :: proc(g: ^GUI, w: ^Widget, text: string, local: Vec2) -> int {
+	f := font_get(g, Font_Of(g, w))
+	if f == nil {return 0}
+	margin := resolved_style(g, w).box.content_margin
+	lines := text_input_layout(g, f, text)
+	return text_input_offset_at(lines, f.scale, local.x - margin[0], len(text))
+}
+
+//* A click in the field: the caret goes where the pointer is, and a
+//* double click takes the word under it.
+text_input_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, p: Vec2, clicks: int) {
+	#partial switch &d in w.data {
+	case Text_Input_Data:
+		offset := text_input_offset_at_local(g, w, d.text, text_box_local(w, p))
+		text_select_click(
+			d.text,
+			&d.caret,
+			&d.sel_start,
+			&d.sel_end,
+			&d.selection,
+			offset,
+			clicks,
+		)
+		invalidate(g, id, Dirty_Flags{.Visual})
+	}
+}
+
+//* The pointer of the field: a drag takes the text between the two ends.
+text_input_pointer :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Pointer_Event) {
+	#partial switch &d in w.data {
+	case Text_Input_Data:
+		#partial switch e.kind {
+		case .Move:
+			if !d.selection.dragging {return}
+			offset := text_input_offset_at_local(g, w, d.text, e.local)
+			text_select_extend(d.text, &d.caret, &d.sel_start, &d.sel_end, &d.selection, offset)
+			invalidate(g, id, Dirty_Flags{.Visual})
+		case .Up:
+			d.selection.dragging = false
+		}
+	}
+}
+
+text_box_blur :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
 	text_input_ime_cancel(g, id)
@@ -257,6 +287,18 @@ text_input_blur :: proc(g: ^GUI, id: Widget_ID) {
 	case Text_Input_Data:
 		d.sel_start = d.caret
 		d.sel_end = d.caret
+		d.selection.dragging = false
+	case Text_Edit_Data:
+		d.sel_start = d.caret
+		d.sel_end = d.caret
+		d.selection.dragging = false
+	case Rich_Text_Editor_Data:
+		if d.state == nil {return}
+		for &cursor in d.state.cursors {
+			cursor.sel_start = cursor.caret
+			cursor.sel_end = cursor.caret
+		}
+		d.state.selection.dragging = false
 	}
 }
 
@@ -268,10 +310,13 @@ text_input_insert :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	case Text_Input_Data:
 		start := snap_offset(d.text, min(d.sel_start, d.sel_end))
 		end := snap_offset(d.text, max(d.sel_start, d.sel_end))
-		new_text := strings.concatenate({d.text[:start], text, d.text[end:]})
+		kept := utf8.rune_count_in_string(d.text[:start]) + utf8.rune_count_in_string(d.text[end:])
+		added := text_rules_insert(g, d.rules, text_for_box(g, text, false), kept)
+		if added == "" {return}
+		new_text := strings.concatenate({d.text[:start], added, d.text[end:]})
 		delete(d.text)
 		d.text = new_text
-		d.caret = snap_offset(d.text, start + len(text))
+		d.caret = snap_offset(d.text, start + len(added))
 		d.sel_start = d.caret
 		d.sel_end = d.caret
 		changed = true
@@ -289,22 +334,26 @@ text_input_backspace :: proc(g: ^GUI, id: Widget_ID) {
 	case Text_Input_Data:
 		start := snap_offset(d.text, min(d.sel_start, d.sel_end))
 		end := snap_offset(d.text, max(d.sel_start, d.sel_end))
-		if start != end {
-			new_text := strings.concatenate({d.text[:start], d.text[end:]})
-			delete(d.text)
-			d.text = new_text
-			d.caret = start
-			changed = true
-		} else if d.caret > 0 {
-			p := prev_offset(d.text, d.caret)
-			new_text := strings.concatenate({d.text[:p], d.text[d.caret:]})
-			delete(d.text)
-			d.text = new_text
-			d.caret = p
-			changed = true
+		if start == end {
+			if d.caret <= 0 {
+				d.sel_start = d.caret
+				d.sel_end = d.caret
+				return
+			}
+			start = prev_offset(d.text, d.caret)
 		}
+		new_text := strings.concatenate({d.text[:start], d.text[end:]})
+		if !text_rules_allows_removal(d.rules, utf8.rune_count_in_string(new_text)) {
+			d.sel_start = d.caret
+			d.sel_end = d.caret
+			return
+		}
+		delete(d.text)
+		d.text = new_text
+		d.caret = start
 		d.sel_start = d.caret
 		d.sel_end = d.caret
+		changed = true
 	}
 	if changed {
 		invalidate(g, id, Dirty_Flags{.Measure, .Visual})
@@ -318,6 +367,9 @@ text_input_clear :: proc(g: ^GUI, id: Widget_ID) {
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		if d.text == "" {return}
+		if !text_rules_allows_removal(d.rules, 0) {
+			return
+		}
 		delete(d.text)
 		d.text = strings.clone("")
 		d.caret = 0
@@ -339,21 +391,26 @@ text_input_delete :: proc(g: ^GUI, id: Widget_ID) {
 	case Text_Input_Data:
 		start := snap_offset(d.text, min(d.sel_start, d.sel_end))
 		end := snap_offset(d.text, max(d.sel_start, d.sel_end))
-		if start != end {
-			new_text := strings.concatenate({d.text[:start], d.text[end:]})
-			delete(d.text)
-			d.text = new_text
-			d.caret = start
-			changed = true
-		} else if d.caret < len(d.text) {
-			n := next_offset(d.text, d.caret)
-			new_text := strings.concatenate({d.text[:d.caret], d.text[n:]})
-			delete(d.text)
-			d.text = new_text
-			changed = true
+		if start == end {
+			if d.caret >= len(d.text) {
+				d.sel_start = d.caret
+				d.sel_end = d.caret
+				return
+			}
+			end = next_offset(d.text, d.caret)
 		}
+		new_text := strings.concatenate({d.text[:start], d.text[end:]})
+		if !text_rules_allows_removal(d.rules, utf8.rune_count_in_string(new_text)) {
+			d.sel_start = d.caret
+			d.sel_end = d.caret
+			return
+		}
+		delete(d.text)
+		d.text = new_text
+		d.caret = start
 		d.sel_start = d.caret
 		d.sel_end = d.caret
+		changed = true
 	}
 	if changed {
 		invalidate(g, id, Dirty_Flags{.Measure, .Visual})
@@ -385,16 +442,7 @@ text_input_move_to :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) {
 	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
-		place := snap_offset(d.text, clamp(offset, 0, len(d.text)))
-		if extend {
-			if d.sel_start == d.sel_end {d.sel_start = d.caret}
-			d.caret = place
-			d.sel_end = d.caret
-		} else {
-			d.caret = place
-			d.sel_start = d.caret
-			d.sel_end = d.caret
-		}
+		text_select_move(d.text, &d.caret, &d.sel_start, &d.sel_end, offset, extend)
 	}
 }
 
@@ -403,13 +451,7 @@ text_input_set_caret :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) 
 	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
-		d.caret = snap_offset(d.text, clamp(offset, 0, len(d.text)))
-		if !extend {
-			d.sel_start = d.caret
-			d.sel_end = d.caret
-		} else {
-			d.sel_end = d.caret
-		}
+		text_select_move(d.text, &d.caret, &d.sel_start, &d.sel_end, offset, extend)
 	}
 }
 
@@ -429,9 +471,7 @@ text_input_select_all :: proc(g: ^GUI, id: Widget_ID) {
 	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
-		d.sel_start = 0
-		d.sel_end = len(d.text)
-		d.caret = len(d.text)
+		text_select_all(d.text, &d.caret, &d.sel_start, &d.sel_end)
 	}
 }
 
@@ -498,22 +538,6 @@ text_input_selection_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect
 	return {}
 }
 
-text_input_place_caret :: proc(g: ^GUI, id: Widget_ID, p: Vec2) {
-	w := Widget_Get(g, id)
-	if w == nil {return}
-	#partial switch &d in w.data {
-	case Text_Input_Data:
-		content := content_rect(g, w)
-		f := font_get(g, Font_Of(g, w))
-		if f == nil {return}
-		lines := text_input_layout(g, f, d.text)
-		offset := text_input_offset_at(lines, f.scale, p.x - content.x, len(d.text))
-		d.caret = snap_offset(d.text, offset)
-		d.sel_start = d.caret
-		d.sel_end = d.caret
-	}
-}
-
 IME_Composition :: struct {
 	gui:    ^GUI,
 	start:  int,
@@ -561,7 +585,6 @@ text_input_ime_editing :: proc(g: ^GUI, text: string, start, length: int) {
 	if w == nil {return}
 	#partial switch &d in w.data {
 	case Text_Input_Data:
-		text_input_kind_register(g)
 		begin := clamp(start, 0, len(d.text))
 		end := clamp(start + length, begin, len(d.text))
 		old, has_old := ime_composition_get(g, id)
@@ -575,13 +598,14 @@ text_input_ime_editing :: proc(g: ^GUI, text: string, start, length: int) {
 			before = strings.clone(d.text[begin:end])
 			if has_old {delete(old.before)}
 		}
-		new_text := strings.concatenate({d.text[:begin], text, d.text[end:]})
+		typed := text_rules_filter(g, d.rules, text_for_box(g, text, false))
+		new_text := strings.concatenate({d.text[:begin], typed, d.text[end:]})
 		delete(d.text)
 		d.text = new_text
-		d.caret = snap_offset(d.text, begin + len(text))
+		d.caret = snap_offset(d.text, begin + len(typed))
 		d.sel_start = d.caret
 		d.sel_end = d.caret
-		ime_composition_set(g, id, begin, len(text), before)
+		ime_composition_set(g, id, begin, len(typed), before)
 		invalidate(g, id, Dirty_Flags{.Measure, .Visual})
 	}
 }
@@ -595,10 +619,12 @@ text_input_ime_commit :: proc(g: ^GUI, id: Widget_ID, text: string) -> bool {
 	case Text_Input_Data:
 		begin := clamp(c.start, 0, len(d.text))
 		end := clamp(begin + c.length, begin, len(d.text))
-		new_text := strings.concatenate({d.text[:begin], text, d.text[end:]})
+		kept := utf8.rune_count_in_string(d.text[:begin]) + utf8.rune_count_in_string(d.text[end:])
+		added := text_rules_insert(g, d.rules, text_for_box(g, text, false), kept)
+		new_text := strings.concatenate({d.text[:begin], added, d.text[end:]})
 		delete(d.text)
 		d.text = new_text
-		d.caret = snap_offset(d.text, begin + len(text))
+		d.caret = snap_offset(d.text, begin + len(added))
 		d.sel_start = d.caret
 		d.sel_end = d.caret
 		invalidate(g, id, Dirty_Flags{.Measure, .Visual})
@@ -652,7 +678,7 @@ text_input_draw_ime :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 }
 
 text_input_kind :: proc() -> Widget_Kind {
-	return Widget_Kind{draw = text_input_draw}
+	return Widget_Kind{draw = text_input_draw, pointer = text_input_pointer}
 }
 
 text_input_kind_register :: proc(g: ^GUI) {
@@ -738,5 +764,7 @@ fire_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 		if !text_input_ime_commit(g, id, text) {
 			text_input_insert(g, id, text)
 		}
+	case Text_Edit_Data:
+		text_edit_insert(g, id, text)
 	}
 }

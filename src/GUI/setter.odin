@@ -53,11 +53,15 @@ Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 		changed = d.text != text
 		d.text = text
 	case Text_Edit_Data:
-		changed = d.text != text
-		d.text = text
-		d.caret = len(text)
-		d.sel_start = d.caret
-		d.sel_end = d.caret
+		//* The buffer of a text edit belongs to the widget.
+		if d.text != text {
+			delete(d.text)
+			d.text = strings.clone(text)
+			d.caret = len(text)
+			d.sel_start = d.caret
+			d.sel_end = d.caret
+			changed = true
+		}
 	case Search_Field_Data:
 		if d.text != text {
 			//* The text of a search field belongs to the widget.
@@ -98,11 +102,30 @@ Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 			//* The cursor goes to the end of the new text.
 			clear(&d.state.cursors)
 			append(&d.state.cursors, Rich_Cursor{caret = len(text), sel_start = len(text), sel_end = len(text)})
+			d.state.selection.anchor = len(text)
+			d.state.selection.mode = .Character
+			d.state.selection.dragging = false
 			changed = true
 		}
 	}
 	if !changed { return }
 	invalidate(g, id, Dirty_Flags{.Measure, .Visual})
+}
+
+//* Sets the rules of a text box: how long the text may be, and which
+//* characters may go into it. The rules are kept when the text is typed
+//* and when it is pasted.
+Widget_Set_Text_Rules :: proc(g: ^GUI, id: Widget_ID, rules: Text_Rules) {
+	w := Widget_Get(g, id)
+	if w == nil {return}
+	#partial switch &d in w.data {
+	case Text_Input_Data:
+		d.rules = rules
+	case Text_Edit_Data:
+		d.rules = rules
+	case Rich_Text_Editor_Data:
+		if d.state != nil {d.state.rules = rules}
+	}
 }
 
 Widget_Set_Style :: proc(g: ^GUI, id: Widget_ID, style: Style) {

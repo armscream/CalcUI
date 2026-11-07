@@ -128,7 +128,7 @@ focus_set :: proc(g: ^GUI, id: Widget_ID) {
 	g.focused = id
 	if old != INVALID_WIDGET_ID {
 		signal_focus_exited(g, old)
-		text_input_blur(g, old)
+		text_box_blur(g, old)
 	}
 	signal_focus_entered(g, id)
 	access_focus_changed(g, id)
@@ -139,7 +139,7 @@ focus_clear :: proc(g: ^GUI) {
 	old := g.focused
 	g.focused = INVALID_WIDGET_ID
 	signal_focus_exited(g, old)
-	text_input_blur(g, old)
+	text_box_blur(g, old)
 	access_focus_changed(g, INVALID_WIDGET_ID)
 }
 

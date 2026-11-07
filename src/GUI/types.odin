@@ -553,6 +553,8 @@ Text_Input_Data :: struct {
 	caret:     int,
 	sel_start: int,
 	sel_end:   int,
+	selection: Text_Selection,
+	rules:     Text_Rules,
 }
 
 Widget :: struct {
@@ -634,6 +636,7 @@ Widget_Opts :: struct {
 	hidden:          bool,
 	split:           Split_Direction,
 	text:            string,
+	text_rules:      Text_Rules,
 	on_click:        proc(g: ^GUI, id: Widget_ID),
 
 	mouse_filter:    Mouse_Filter,

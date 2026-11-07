@@ -72,6 +72,8 @@ measure_widget :: proc(g: ^GUI, w: ^Widget) {
 		text = d.text
 	case Text_Input_Data:
 		text = d.text
+	case Text_Edit_Data:
+		text = d.text
 	case Check_Box_Data:
 		text = d.text
 	case Link_Button_Data:
