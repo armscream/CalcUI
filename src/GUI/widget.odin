@@ -141,7 +141,15 @@ new_widget :: proc(
 	case .Tabs:
 		w.data = Tabs_Data{active = 0}
 	case .TextInput:
-		w.data = Text_Input_Data{text = strings.clone(opts.text)}
+		text_input_kind_register(g)
+		text := strings.clone(opts.text)
+		w.data = Text_Input_Data {
+			text      = text,
+			caret     = len(text),
+			sel_start = len(text),
+			sel_end   = len(text),
+			rules     = opts.text_rules,
+		}
 		w.focus_mode = .All
 	case:
 		w.data = None_Data{}
@@ -515,6 +523,8 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	#partial switch &d in w.data {
 	case Text_Input_Data:
 		delete(d.text)
+	case Text_Edit_Data:
+		delete(d.text)
 	case Popup_Menu_Data:
 		delete(d.items)
 	case Search_Field_Data:
@@ -541,15 +551,21 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 		//* the list itself is given back.
 		delete(d.lines)
 	case Virtual_List_Data:
-		if d.list != nil { delete(d.list.selected) }
+		if d.list != nil {
+			delete(d.list.selected)
+			delete(d.list.offsets)
+		}
 	case Data_Table_Data:
 		if d.table != nil {
-			for &row in d.table.rows {
+			for &row in d.table.rows.items {
 				for &value in row.values { delete(value) }
 				delete(row.values)
 			}
-			delete(d.table.rows)
+			delete(d.table.rows.items)
 			delete(d.table.columns)
+			delete(d.table.order)
+			delete(d.table.layout_x)
+			delete(d.table.layout_w)
 		}
 	case Chart_Data:
 		if d.chart != nil {

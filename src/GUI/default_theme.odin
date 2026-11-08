@@ -415,10 +415,13 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		box  = default_theme_padded(p.field, p.border, 1, 4, 2, 2),
 		text = Text_Style{colour = p.text},
 	})
+	theme_set_color(theme, .VirtualList, "selected_color", Colour{p.accent.r, p.accent.g, p.accent.b, 0.35})
 	Theme_Set_Type(theme, .DataTable, Style{
 		box  = default_theme_padded(p.field, p.border, 1, 4, 2, 2),
 		text = Text_Style{colour = p.text},
 	})
+	theme_set_color(theme, .DataTable, "selected_color", Colour{p.accent.r, p.accent.g, p.accent.b, 0.35})
+	theme_set_color(theme, .DataTable, "header_color", p.surface)
 	Theme_Set_Type(theme, .DatePicker, Style{
 		box = default_theme_padded(p.field, p.border, 1, 4, 8, 5),
 		text = Text_Style{
