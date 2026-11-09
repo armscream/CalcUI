@@ -342,12 +342,15 @@ text_input_backspace :: proc(g: ^GUI, id: Widget_ID) {
 			}
 			start = prev_offset(d.text, d.caret)
 		}
-		new_text := strings.concatenate({d.text[:start], d.text[end:]})
-		if !text_rules_allows_removal(d.rules, utf8.rune_count_in_string(new_text)) {
+		//* The text is only made when the rules let the removal
+		//* through, so nothing is left behind when they do not.
+		kept := utf8.rune_count_in_string(d.text[:start]) + utf8.rune_count_in_string(d.text[end:])
+		if !text_rules_allows_removal(d.rules, kept) {
 			d.sel_start = d.caret
 			d.sel_end = d.caret
 			return
 		}
+		new_text := strings.concatenate({d.text[:start], d.text[end:]})
 		delete(d.text)
 		d.text = new_text
 		d.caret = start
@@ -399,12 +402,15 @@ text_input_delete :: proc(g: ^GUI, id: Widget_ID) {
 			}
 			end = next_offset(d.text, d.caret)
 		}
-		new_text := strings.concatenate({d.text[:start], d.text[end:]})
-		if !text_rules_allows_removal(d.rules, utf8.rune_count_in_string(new_text)) {
+		//* The text is only made when the rules let the removal
+		//* through, so nothing is left behind when they do not.
+		kept := utf8.rune_count_in_string(d.text[:start]) + utf8.rune_count_in_string(d.text[end:])
+		if !text_rules_allows_removal(d.rules, kept) {
 			d.sel_start = d.caret
 			d.sel_end = d.caret
 			return
 		}
+		new_text := strings.concatenate({d.text[:start], d.text[end:]})
 		delete(d.text)
 		d.text = new_text
 		d.caret = start

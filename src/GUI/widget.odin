@@ -1,6 +1,43 @@
 //* Making a widget, moving it in the tree and taking it away again.
 //* A widget keeps its identity when it moves, so a handle stays valid and
 //* the tree can be rearranged without losing anything.
+//*
+//* == What a widget owns ==
+//* A text that the widget owns is made with `strings.clone(text)` (the
+//* default allocator) and is given back with `delete`. A text that lives
+//* as long as the GUI is made in the arena of the GUI
+//* (`virt.arena_allocator(&g.arena)`) and is never given back; the arena
+//* is given back when the GUI is shut down.
+//* `widget_release_data` never gives back arena memory.
+//*
+//* == The data of the widgets ==
+//* Variant               | what it owns                          | what is given back
+//* Text_Input_Data       | the text of the field                 | the text
+//* Text_Edit_Data        | the text of the field                 | the text
+//* Rich_Text_Editor_Data | the text, the cursors                 | the text, the cursors
+//* Popup_Menu_Data       | the list of the items                 | the list
+//* Search_Field_Data     | the text of the field                 | the text
+//* Item_List_Data        | the list of the items                 | the list
+//* Tree_Data             | the list of the items                 | the list
+//* Option_Button_Data    | the list of the items                 | the list
+//* Menu_Button_Data      | the list of the items                 | the list
+//* Combo_Box_Data        | the list of the items                 | the list
+//* Context_Menu_Data     | the list of the items                 | the list
+//* Command_Palette_Data  | the text of the filter, the commands  | the text, the commands
+//* Segmented_Data        | the list of the items                 | the list
+//* Chat_Input_Data       | the text of the field, the lines      | the text, the list of the lines
+//* Virtual_List_Data     | the picks, the offsets                | the picks, the offsets
+//* Data_Table_Data       | the rows, the values, the columns, the order, the layout | all of them
+//* Chart_Data            | the series, the values of the series, the labels | all of them
+//* Node_Graph_Data       | the nodes, the ports, the wires       | all of them
+//* Custom_Data           | what the program made                 | what the program says
+//*
+//* The texts inside the lists of the items are the texts of the program,
+//* and the texts of the lines of a chat are in the arena of the GUI: they
+//* are never given back. The labels, the buttons, the toasts, the
+//* tooltips, the emoji and the audio player own nothing at all: their
+//* texts are the texts of the program. The canvas, the file viewer and
+//* the vector drawing hold their things in the arena of the GUI.
 package GUI
 
 import "core:log"
@@ -110,9 +147,16 @@ new_widget :: proc(
 	w.tab_index = opts.tab_index
 	w.size_flags_h = opts.size_flags_h
 	w.size_flags_v = opts.size_flags_v
-	if w.size_flags_h == (Size_Flags{}) { w.size_flags_h = Size_Flags{.Fill} }
-	if w.size_flags_v == (Size_Flags{}) { w.size_flags_v = Size_Flags{.Fill} }
+	//* A widget that says nothing fills the room of its parent and takes
+	//* a share of the room that is left over: that is what a widget did
+	//* before the flags were used.
+	if w.size_flags_h == (Size_Flags{}) { w.size_flags_h = Size_Flags{.Fill, .Expand} }
+	if w.size_flags_v == (Size_Flags{}) { w.size_flags_v = Size_Flags{.Fill, .Expand} }
+	//* The ratio of a widget that says nothing is 1, so its share of the
+	//* room that is left over is its weight. A ratio of 0 is set with
+	//* `Widget_Set_Stretch_Ratio`.
 	w.stretch_ratio = opts.stretch_ratio
+	if w.stretch_ratio == 0 { w.stretch_ratio = 1 }
 	w.clip_contents = opts.clip_contents != .Off
 	w.tooltip_text = opts.tooltip
 	w.custom_min_size = opts.custom_min_size
@@ -128,7 +172,7 @@ new_widget :: proc(
 	}
 	w.access.description = opts.access_description
 	w.scale = Vec2{1, 1}
-	w.layout_direction = .Inherit
+	w.layout_direction = opts.layout_direction
 
 	#partial switch type {
 	case .Button:
@@ -516,8 +560,10 @@ widget_unreference :: proc(w: ^Widget, id: Widget_ID) {
 	}
 }
 
-//* Gives back what a widget owns. The texts of a widget are the texts of the
-//* program, and they are not freed; what the widget made for itself is.
+//* Gives back what a widget owns. The texts of the program are not
+//* freed; what the widget made for itself is. The memory of the arena of
+//* the GUI is not freed here: the arena is given back when the GUI is
+//* shut down.
 widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	if w == nil { return }
 	#partial switch &d in w.data {
@@ -547,8 +593,10 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	case Segmented_Data:
 		delete(d.items)
 	case Chat_Input_Data:
-		//* The lines of a chat are in the arena of the GUI, so only
-		//* the list itself is given back.
+		//* The text of the field belongs to the widget; the texts of
+		//* the lines are in the arena of the GUI, so only the text and
+		//* the list of the lines are given back.
+		delete(d.text)
 		delete(d.lines)
 	case Virtual_List_Data:
 		if d.list != nil {

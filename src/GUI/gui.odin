@@ -174,5 +174,5 @@ Load_UI :: proc(path: string, g: ^GUI) -> Widget_ID {
 		return INVALID_WIDGET_ID
 	}
 	text := string(data)
-	return scene_load(g, text)
+	return Scene_Load(g, text)
 }

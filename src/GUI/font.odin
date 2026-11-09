@@ -109,6 +109,21 @@ font_family_get :: proc(g: ^GUI, id: Font_Family_ID) -> ^Font_Family {
 	return g.font_families[idx]
 }
 
+//* The family of the GUI whose name is the one asked for, or nothing
+//* when there is no family of that name. The name of a family is the
+//* name it was given when it was added, and a family that was loaded
+//* from a file has the path of the file as its name.
+//
+//* The family belongs to the GUI, and it is given back when the GUI is
+//* shut down.
+Font_Family_By_Name :: proc(g: ^GUI, name: string) -> Font_Family_ID {
+	if g == nil { return INVALID_FONT_FAMILY_ID }
+	for fam in g.font_families {
+		if fam.name == name { return fam.id }
+	}
+	return INVALID_FONT_FAMILY_ID
+}
+
 Font_Family_Set_Fallback :: proc(g: ^GUI, family: Font_Family_ID, fallback: Font_Family_ID) -> bool {
 	fam := font_family_get(g, family)
 	if fam == nil { return false }

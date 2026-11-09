@@ -248,8 +248,16 @@ resize_by_offset :: proc(g: ^GUI, w: ^Widget, dl_in, dt_in, dr_in, db_in: f32) {
 
 
 resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d_neg, d_pos: f32) {
+	//* A box that puts its children in the other order has the child that
+	//* comes after it in the tree before it, so the neighbour on the left
+	//* is the one that comes after.
+	neg_id, pos_id := w.prev_sibling, w.next_sibling
+	if horizontal && layout_direction_of(g, p.id) == .RTL {
+		neg_id, pos_id = pos_id, neg_id
+	}
+
 	if d_neg != 0 {
-		prev := Widget_Get(g, w.prev_sibling)
+		prev := Widget_Get(g, neg_id)
 		change := d_neg
 		if change > 0 {
 			change = min(change, size_of(w, horizontal) - min_size_of(w, horizontal))
@@ -270,7 +278,7 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 	}
 
 	if d_pos != 0 {
-		next := Widget_Get(g, w.next_sibling)
+		next := Widget_Get(g, pos_id)
 		change := d_pos
 		if change > 0 {
 			if next != nil {

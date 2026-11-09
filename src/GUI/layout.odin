@@ -2,7 +2,115 @@
 //* The tree is walked every frame, but the work is only done where
 //* something changed; a change says what it made stale (see
 //* invalidation.odin).
+//*
+//* == The room of a child ==
+//* A container that gives its children a share of its room works it out
+//* like this. Every child is measured, so it knows the smallest size it
+//* asks for. The room that is left over after the smallest sizes and
+//* the separations are taken out is shared among the children that
+//* expand, and the share of a child is its weight times its stretch
+//* ratio.
+//*
+//* The flags of a child say what it does with that room. A child that
+//* expands takes its smallest size plus its share of the room that is
+//* left over. A child that does not expand takes only its smallest size,
+//* and the room that is left over goes to the children that expand. A
+//* child that shrinks takes only its smallest size and is centred in the
+//* room it would have had.
+//*
+//* The flags of the other axis say how the child sits across the
+//* container: it fills the width of a vertical box, or it is centred in
+//* it. There is no room to share across that axis.
 package GUI
+
+//* == The flags of the size ==
+
+//* The flags of a widget along one axis. `horizontal` is true when the
+//* axis is the horizontal one.
+size_flags_of :: proc(c: ^Widget, horizontal: bool) -> Size_Flags {
+	return horizontal ? c.size_flags_h : c.size_flags_v
+}
+
+//* The share of the room of the parent a widget asks for: the weight of
+//* the widget times the ratio of the widget.
+share_of :: proc(c: ^Widget) -> f32 {
+	return c.weight * c.stretch_ratio
+}
+
+//* The room a child is given along the axis its parent stacks the
+//* children along: its smallest size plus its share of the room that is
+//* left over. A child that does not expand gets no share, so its room
+//* is its smallest size and the room that is left over goes to the
+//* children that expand.
+axis_room :: proc(c: ^Widget, horizontal: bool, available, total_share: f32) -> f32 {
+	min_size := horizontal ? c.min_size.x : c.min_size.y
+	if !(.Expand in size_flags_of(c, horizontal)) { return min_size }
+	return min_size + available * (share_of(c) / total_share)
+}
+
+//* The size a child takes along the axis its parent stacks the children
+//* along, and how far the child sits from the start of its room.
+//*
+//* A child that fills takes the whole room. A child that shrinks takes
+//* only its smallest size and is centred in the room it would have had.
+//* A child that neither fills nor shrinks takes only its smallest size
+//* and leaves the rest of its room empty.
+axis_size :: proc(c: ^Widget, horizontal: bool, room: f32) -> (size, offset: f32) {
+	flags := size_flags_of(c, horizontal)
+	min_size := horizontal ? c.min_size.x : c.min_size.y
+	if .Shrink_Center in flags {
+		return min_size, (room - min_size) * 0.5
+	}
+	if .Fill in flags {
+		return room, 0
+	}
+	return min_size, 0
+}
+
+//* The size of a child across the axis its parent stacks the children
+//* along, and where the child sits. There is no room to share across
+//* that axis: the child fills it, or it is centred in it.
+cross_size :: proc(c: ^Widget, horizontal: bool, room: f32) -> (size, offset: f32) {
+	flags := size_flags_of(c, horizontal)
+	min_size := horizontal ? c.min_size.x : c.min_size.y
+	if .Shrink_Center in flags {
+		return min_size, (room - min_size) * 0.5
+	}
+	if .Fill in flags {
+		return room, 0
+	}
+	return min_size, 0
+}
+
+//* == The direction ==
+//* The direction of a widget is the direction it says when it says one,
+//* otherwise the direction of its parent, otherwise the direction of the
+//* root of the GUI, otherwise from the left to the right.
+
+//* The direction of the language of the program. The toolkit has no
+//* locale yet, so the language is read from the left to the right.
+locale_direction :: proc(g: ^GUI) -> Layout_Direction {
+	return .LTR
+}
+
+//* The direction a widget grows in.
+layout_direction_of :: proc(g: ^GUI, id: Widget_ID) -> Layout_Direction {
+	w := Widget_Get(g, id)
+	if w == nil { return .LTR }
+	switch w.layout_direction {
+	case .LTR:
+		return .LTR
+	case .RTL:
+		return .RTL
+	case .Locale:
+		return locale_direction(g)
+	case .Inherit:
+		parent := Widget_Get(g, w.parent)
+		if parent != nil { return layout_direction_of(g, parent.id) }
+		return .LTR
+	}
+	return .LTR
+}
 
 //* Text widgets grow to fit their text. This runs before the layout pass
 //* so the parent already sees the right minimum size.
@@ -320,6 +428,19 @@ hide_branch :: proc(g: ^GUI, w: ^Widget) {
 //* its minimum size on that axis plus a share of the leftover space,
 //* weighted. A child that was pulled to a size keeps that size, and
 //* takes it out of the space the others share.
+//*
+//* The flags of a child say how much of that room it takes: a child that
+//* expands takes its minimum size plus its share of the leftover space,
+//* and a child that does not expand takes only its minimum size and
+//* leaves the rest of its room empty. A child that shrinks takes only
+//* its minimum size and is centred in the room it would have had.
+//*
+//* The flags of the other axis say how the child sits across the box: it
+//* fills the width of a vertical box, or it is centred in it.
+//*
+//* A box that stacks its children along the horizontal axis puts them in
+//* the other order when the direction is from the right to the left. The
+//* room the children get does not change: only the order they are put in.
 layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	vertical := w.type == .VBox
 	horizontal := !vertical
@@ -328,7 +449,7 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	children := snapshot_children(g, w)
 	defer delete(children)
 
-	total_weight := f32(0)
+	total_share := f32(0)
 	total_min := f32(0)
 	count := 0
 	for child in children {
@@ -338,33 +459,84 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			total_min += manual_size_of(c, horizontal)
 		} else {
 			total_min += (vertical ? c.min_size.y : c.min_size.x)
-			total_weight += c.weight
+			if .Expand in size_flags_of(c, horizontal) {
+				total_share += share_of(c)
+			}
 		}
 		count += 1
 	}
-	if total_weight <= 0 {total_weight = 1}
+	if total_share <= 0 {total_share = 1}
 	if count == 0 {return}
 
 	available := (vertical ? rect.h : rect.w) - total_min - sep * f32(count - 1)
 	if available < 0 {available = 0}
 
+	//* A box that stacks its children from the left to the right puts
+	//* them in the other order when the direction is from the right to
+	//* the left. A vertical box is not affected by the direction.
+	rtl := horizontal && layout_direction_of(g, w.id) == .RTL
+
 	offset := vertical ? rect.y : rect.x
+	if rtl {offset += rect.w}
 	for child in children {
 		c := Widget_Get(g, child)
 		if c == nil {continue}
+		room := f32(0)
 		size := f32(0)
+		in_room := f32(0)
 		if keeps_size(c, horizontal) {
-			size = manual_size_of(c, horizontal)
+			room = manual_size_of(c, horizontal)
+			size = room
 		} else {
-			min_size := vertical ? c.min_size.y : c.min_size.x
-			size = min_size + available * (c.weight / total_weight)
+			room = axis_room(c, horizontal, available, total_share)
+			size, in_room = axis_size(c, horizontal, room)
 		}
+		//* Across the box there is no room to share: the child fills
+		//* the box, or it is centred in it.
+		across, across_offset := cross_size(c, !horizontal, vertical ? rect.w : rect.h)
 		if vertical {
-			layout_node(g, child, Rect{x = rect.x, y = offset, w = rect.w, h = size}, w.clip)
-			offset += size + sep
+			layout_node(
+				g,
+				child,
+				Rect {
+					x = rect.x + across_offset,
+					y = offset + in_room,
+					w = across,
+					h = size,
+				},
+				w.clip,
+			)
+		} else if rtl {
+			layout_node(
+				g,
+				child,
+				Rect {
+					x = offset - room + in_room,
+					y = rect.y + across_offset,
+					w = size,
+					h = across,
+				},
+				w.clip,
+			)
 		} else {
-			layout_node(g, child, Rect{x = offset, y = rect.y, w = size, h = rect.h}, w.clip)
-			offset += size + sep
+			layout_node(
+				g,
+				child,
+				Rect {
+					x = offset + in_room,
+					y = rect.y + across_offset,
+					w = size,
+					h = across,
+				},
+				w.clip,
+			)
+		}
+		//* The room of the child is taken out of the room of the box,
+		//* even when the child does not fill it.
+		if rtl {
+			offset -= room + sep
+		} else {
+			offset += room + sep
 		}
 	}
 }
@@ -373,6 +545,13 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 //* A child with weight 0 keeps its minimum size and takes no share.
 //* A child that was pulled to a size keeps that size, and takes it out
 //* of the space the others share.
+//*
+//* The flags of a child say how much of that room it takes, and the
+//* flags of the other axis say how it sits across the split.
+//*
+//* A split keeps the order of the tree, whatever the direction is: a
+//* split is the container of the docking system, and the docking system
+//* works from the left to the right.
 layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	dir := Split_Direction.Horizontal
 	#partial switch d in w.data {
@@ -384,7 +563,7 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	children := snapshot_children(g, w)
 	defer delete(children)
 
-	total_weight := f32(0)
+	total_share := f32(0)
 	total_min := f32(0)
 	for child in children {
 		c := Widget_Get(g, child)
@@ -393,10 +572,12 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			total_min += manual_size_of(c, horizontal)
 		} else {
 			total_min += horizontal ? c.min_size.x : c.min_size.y
-			total_weight += c.weight
+			if .Expand in size_flags_of(c, horizontal) {
+				total_share += share_of(c)
+			}
 		}
 	}
-	if total_weight <= 0 {total_weight = 1}
+	if total_share <= 0 {total_share = 1}
 
 	available := (horizontal ? rect.w : rect.h) - total_min
 	if available < 0 {available = 0}
@@ -405,20 +586,45 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	for child in children {
 		c := Widget_Get(g, child)
 		if c == nil {continue}
+		room := f32(0)
 		size := f32(0)
+		in_room := f32(0)
 		if keeps_size(c, horizontal) {
-			size = manual_size_of(c, horizontal)
+			room = manual_size_of(c, horizontal)
+			size = room
 		} else {
-			size =
-				(horizontal ? c.min_size.x : c.min_size.y) + available * (c.weight / total_weight)
+			room = axis_room(c, horizontal, available, total_share)
+			size, in_room = axis_size(c, horizontal, room)
 		}
+		across, across_offset := cross_size(c, !horizontal, horizontal ? rect.h : rect.w)
 		if horizontal {
-			layout_node(g, child, Rect{x = offset, y = rect.y, w = size, h = rect.h}, w.clip)
-			offset += size
+			layout_node(
+				g,
+				child,
+				Rect {
+					x = offset + in_room,
+					y = rect.y + across_offset,
+					w = size,
+					h = across,
+				},
+				w.clip,
+			)
 		} else {
-			layout_node(g, child, Rect{x = rect.x, y = offset, w = rect.w, h = size}, w.clip)
-			offset += size
+			layout_node(
+				g,
+				child,
+				Rect {
+					x = rect.x + across_offset,
+					y = offset + in_room,
+					w = across,
+					h = size,
+				},
+				w.clip,
+			)
 		}
+		//* The room of the child is taken out of the room of the split,
+		//* even when the child does not fill it.
+		offset += room
 	}
 }
 
@@ -436,6 +642,10 @@ layout_tabs :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 
 //* A Grid puts its children in rows and columns. The number of columns
 //* is in the data of the widget; a count of 0 means one column.
+//*
+//* The room that is left over is shared among the columns that have no
+//* width of their own, and not among the children: the flags of a child
+//* say nothing here, because the column decides how wide a child is.
 layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	columns := 1
 	#partial switch d in w.data {
@@ -585,6 +795,10 @@ layout_scroll :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	}
 }
 
+//* A Flow container puts its children one after the other and starts a
+//* new row when there is no room left. Every child keeps the size it
+//* asks for, so no room is shared and the flags of a child say nothing
+//* here.
 layout_flow :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	sep := w.separation
 	x := rect.x

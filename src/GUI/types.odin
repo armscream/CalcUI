@@ -1,5 +1,28 @@
 //* The types of the GUI: the widgets, their options, their styles
 //* and the state the GUI keeps between frames.
+//
+//* == The fields of a widget ==
+//* The fields of a widget are in two groups.
+//
+//* The first group belongs to the framework: the identity of the widget, the
+//* links of the tree, the data of the widget, the size it has been measured
+//* at, the place it has and the bookkeeping of the tree. A program that
+//* writes to them breaks the tree.
+//* The parent of a widget is changed with `Widget_Set_Parent`, the data of a
+//* widget with the setter of the kind of the widget, the size that is kept
+//* with `Widget_Set_Manual_Size`.
+//*   id, type, class, parent, freeing, first_child, last_child, prev_sibling,
+//*   next_sibling, data, min_size, rect, clip, manual_size, manual_w,
+//*   manual_h, dirty, subtree_dirty, style_cache
+//
+//* The second group is the look and the place of the widget. A program may
+//* write to it, but then it has to ask for the tree to be measured again
+//* with `GUI_Invalidate_All`. The setters of setter.odin do that for the
+//* program, one field at a time.
+//
+//* A few fields of the second group are not used by the toolkit at all:
+//* `rotation`, `scale`, `pivot_offset` and `content`. A program may read
+//* them and write them, and use them in its own way.
 package GUI
 
 import "core:math"
@@ -173,17 +196,35 @@ Clip_Contents :: enum {
 	Off,
 }
 
+//* The flags of a widget say how it takes the room of its parent along
+//* one axis. There is one set of flags for the horizontal axis and one
+//* for the vertical one.
 Size_Flag :: enum u8 {
+	//* The widget takes the room it is given: its minimum size plus its
+	//* share of the room that is left over. It is the default.
 	Fill          = 1,
+	//* The widget takes a share of the room that is left over. Without
+	//* this flag the widget takes only its minimum size, and the room
+	//* that is left over goes to the widgets that expand.
 	Expand        = 2,
+	//* The widget takes only its minimum size and is centred in the
+	//* room it would have had.
 	Shrink_Center = 4,
 }
 Size_Flags :: bit_set[Size_Flag]
 
+//* The direction a widget grows in.
 Layout_Direction :: enum {
+	//* The widget takes the direction of its parent, and the direction
+	//* of the root of the GUI when the parent does not say one.
 	Inherit,
+	//* The direction of the language of the program. The toolkit has no
+	//* locale yet, so the language is read from the left to the right.
 	Locale,
+	//* From the left to the right.
 	LTR,
+	//* From the right to the left: a box that stacks its children along
+	//* the horizontal axis puts them in the other order.
 	RTL,
 }
 
@@ -558,98 +599,219 @@ Text_Input_Data :: struct {
 }
 
 Widget :: struct {
+	//* The identity of the widget. The framework gives it and keeps it.
 	id:               Widget_ID,
+	//* The kind of the widget and the class it belongs to. The framework
+	//* gives them when the widget is made.
 	type:             Widget_Type,
 	class:            Widget_Class_ID,
+	//* The name of the widget. The program gives it.
 	name:             string,
+	//* The parent of the widget. The framework moves the widget with
+	//* `Widget_Set_Parent`.
 	parent:           Widget_ID,
 
+	//* True while the widget is on its way out. The framework sets it.
 	freeing:          bool,
 
+	//* The children of the widget, in the order of the tree. The
+	//* framework links them with `Widget_Attach` and `Widget_Detach`.
 	first_child:      Widget_ID,
 	last_child:       Widget_ID,
 	prev_sibling:     Widget_ID,
 	next_sibling:     Widget_ID,
+	//* Where the widget sits in its parent. The program gives it.
 	anchors:          Anchor,
 	offsets:          Offset,
+	//* The way the widget grows when it is given more room than it
+	//* asks for.
 	grow_h:           Grow,
 	grow_v:           Grow,
+	//* The smallest size the widget asks for. The framework measures
+	//* the widget and puts the size it found in `min_size`.
 	min_size:         Vec2,
+	//* The smallest size the program asks for.
 	base_min_size:    Vec2,
+	//* The share of the space of the parent the widget takes.
 	weight:           f32,
+	//* The space between the children of the widget.
 	separation:       f32,
+	//* Whether the widget can be dragged by its title bar.
 	draggable:        bool,
 
+	//* The size the program gave the widget, and the axes it is fixed
+	//* on. The framework sets them with `Widget_Set_Manual_Size`, and
+	//* when the user pulls the widget into another size.
 	manual_size:      Vec2,
 	manual_w:         bool,
 	manual_h:         bool,
 
+	//* The place of the widget on the screen. The framework puts it
+	//* there when the tree is laid out.
 	rect:             Rect,
+	//* The place of the content of the widget, inside its own margin.
+	//* The toolkit does not use it: the content is worked out from the
+	//* rect and the style of the widget when it is needed.
 	content:          Rect,
+	//* The part of the screen the widget is drawn in. The framework
+	//* keeps it.
 	clip:             Rect,
+	//* The look of the widget. The program gives it.
 	style:            Style,
+	//* Whether the widget takes the look of the theme.
 	use_theme:        bool,
+	//* The name of the variation of the theme the widget takes.
 	variation:        string,
+	//* The state of the widget: the program gives .Visible and .Enabled,
+	//* the framework gives .Hovered, .Pressed and .Focused.
 	state:            Widget_State,
+	//* The data of the widget. The framework gives it the data of the
+	//* kind of the widget, and the setter of the kind changes it.
 	data:             Widget_Data,
 
+	//* What the widget does with the mouse.
 	mouse_filter:     Mouse_Filter,
+	//* Whether the widget can have the focus.
 	focus_mode:       Focus_Mode,
+	//* The widgets the arrow keys go to: left, up, right and down.
+	//* The program gives them with `Widget_Set_Focus_Neighbour`.
 	focus_neighbour:  [4]Widget_ID,
+	//* The widget the tab key goes to, and the one it comes from.
 	focus_next:       Widget_ID,
 	focus_previous:   Widget_ID,
+	//* The place of the widget in the order of the tab key.
 	tab_index:        int,
+	//* How the widget takes the room of its parent along the horizontal
+	//* axis, and along the vertical one. The layout of the parent gives
+	//* the room: a widget that expands takes a share of the room that is
+	//* left over, and a widget that does not expand takes only its
+	//* minimum size. A widget that fills takes the room it is given, and
+	//* a widget that shrinks takes only its minimum size and is centred
+	//* in the room it would have had.
 	size_flags_h:     Size_Flags,
 	size_flags_v:     Size_Flags,
+	//* The share of the space of the parent the widget takes when there
+	//* is room left over: the weight of the widget times this ratio. A
+	//* ratio of 0 gives a share of nothing, so the widget takes only
+	//* its minimum size.
 	stretch_ratio:    f32,
+	//* Whether the widget cuts its children to its own rect.
 	clip_contents:    bool,
+	//* The text that is shown when the pointer rests on the widget.
 	tooltip_text:     string,
+	//* The size the program insists on.
 	custom_min_size:  Vec2,
 	custom_max_size:  Vec2,
+	//* The place of the widget in the order of the drawing.
 	z_index:          int,
+	//* The turn of the widget around its pivot. The toolkit does not
+	//* use it: the draw list is made of rectangles that stand straight,
+	//* so a turn would need a transform through the draw list, the hit
+	//* test and the clip stack.
 	rotation:         f32,
+	//* The size of the widget compared to the size it is given. The
+	//* toolkit does not use it: a scale would need the same transform
+	//* as a turn.
 	scale:            Vec2,
+	//* The point the widget turns and grows around. The toolkit does not
+	//* use it: it is the point of the transform that a turn and a scale
+	//* would need.
 	pivot_offset:     Vec2,
+	//* The direction the widget grows in: from the left to the right or
+	//* from the right to the left. A container that stacks its children
+	//* along the horizontal axis puts them in the other order when the
+	//* direction is from the right to the left. The direction does not
+	//* change the room the children get, only the order they are put in.
 	layout_direction: Layout_Direction,
+	//* The signals of the widget and the connections to them.
 	signals:          Signals,
+	//* What the widget is to whatever reads the screen.
 	access:           Access_Info,
 
+	//* What is out of date about the widget, and about the branch
+	//* under it. The framework keeps it.
 	dirty:            Dirty_Flags,
 	subtree_dirty:    Dirty_Flags,
 
+	//* The look the widget had the last time it was drawn. The
+	//* framework keeps it.
 	style_cache:      Style_Cache,
 }
 
+//* The options a widget is made with. Every field belongs to the program.
 Widget_Opts :: struct {
+	//* The name of the widget.
 	name:            string,
+	//* Where the widget sits in its parent, and how far from it.
 	preset:          Anchor_Preset,
 	anchors:         Anchor,
 	offsets:         Offset,
+	//* The smallest size the widget asks for.
 	min_size:        Vec2,
+	//* The share of the space of the parent the widget takes.
 	weight:          f32,
+	//* Whether the widget keeps the size it asks for.
 	fixed:           bool,
+	//* The space between the children of the widget.
 	separation:      f32,
+	//* Whether the widget can be dragged by its title bar.
 	draggable:       bool,
+	//* The look of the widget.
 	style:           Style,
+	//* Whether the widget takes the look of the theme.
 	use_theme:       bool,
+	//* The name of the variation of the theme the widget takes.
 	variation:       string,
+	//* Whether the widget starts out not shown.
 	hidden:          bool,
+	//* The axis a split divides its children along.
 	split:           Split_Direction,
+	//* The text the widget shows. A text box keeps a copy of it: the
+	//* string the program gives is not the string the widget holds.
 	text:            string,
+	//* The rules of a text box: how long the text may be, and which
+	//* characters may go into it.
 	text_rules:      Text_Rules,
+	//* What happens when the widget is pressed.
 	on_click:        proc(g: ^GUI, id: Widget_ID),
 
+	//* What the widget does with the mouse.
 	mouse_filter:    Mouse_Filter,
+	//* Whether the widget can have the focus.
 	focus_mode:      Focus_Mode,
+	//* The place of the widget in the order of the tab key.
 	tab_index:       int,
+	//* How the widget takes the room of its parent along the horizontal
+	//* axis, and along the vertical one. A widget that expands takes a
+	//* share of the room that is left over, and a widget that does not
+	//* expand takes only its minimum size. A widget that fills takes the
+	//* room it is given, and a widget that shrinks takes only its
+	//* minimum size and is centred in the room it would have had. The
+	//* default of a widget is `.Fill` and `.Expand` on both axes, and a
+	//* set of flags with nothing in it means the program says nothing
+	//* about that axis.
 	size_flags_h:    Size_Flags,
 	size_flags_v:    Size_Flags,
+	//* The share of the space of the parent the widget takes when there
+	//* is room left over: the weight of the widget times this ratio. A
+	//* ratio of 0 in the options is the same as saying nothing: the
+	//* ratio of 1 is used. A ratio of 0 is set with
+	//* `Widget_Set_Stretch_Ratio`.
 	stretch_ratio:   f32,
+	//* The direction the widget grows in: from the left to the right or
+	//* from the right to the left. The default is to take the direction
+	//* of the parent.
+	layout_direction: Layout_Direction,
+	//* Whether the widget cuts its children to its own rect.
 	clip_contents:   Clip_Contents,
+	//* The text that is shown when the pointer rests on the widget.
 	tooltip:         string,
+	//* The size the program insists on.
 	custom_min_size: Vec2,
 	custom_max_size: Vec2,
+	//* The place of the widget in the order of the drawing.
 	z_index:         int,
+	//* What the widget is to whatever reads the screen.
 	access_role:        Access_Role,
 	access_name:        string,
 	access_description: string,

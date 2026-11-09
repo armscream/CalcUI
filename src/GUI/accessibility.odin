@@ -283,9 +283,18 @@ Widget_Access_Info :: proc(g: ^GUI, id: Widget_ID) -> Access_Info {
 }
 
 //* Sets the role of a widget: what it is to whatever reads the screen.
+//* A role of .None takes the role of the program away, and the widget
+//* falls back on the role of its kind.
 Widget_Set_Access_Role :: proc(g: ^GUI, id: Widget_ID, role: Access_Role) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
+	if role == .None {
+		if !w.access.role_set { return }
+		w.access.role = .None
+		w.access.role_set = false
+		access_changed(g, id)
+		return
+	}
 	if w.access.role_set && w.access.role == role { return }
 	w.access.role = role
 	w.access.role_set = true
