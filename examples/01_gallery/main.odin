@@ -16,6 +16,7 @@ main :: proc() {
     when ODIN_DEBUG {
         track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&track, context.allocator)
+        track.bad_free_callback = mem.tracking_allocator_bad_free_callback_add_to_array
         defer mem.tracking_allocator_destroy(&track)
         context.allocator = mem.tracking_allocator(&track)
 
@@ -28,8 +29,8 @@ main :: proc() {
             }
             if len(track.bad_free_array) > 0 {
                 fmt.eprintf("=== %v bad frees: ===\n", len(track.bad_free_array))
-                for _, entry in track.bad_free_array {
-                    fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+                for entry in track.bad_free_array {
+                    fmt.eprintf("- %v\n", entry)
                 }
             }
         }
@@ -37,7 +38,7 @@ main :: proc() {
 
     App.Run("CalcUI - Gallery", 1000, 700, setup, nil)
     log.info("the gallery is done")
-}   
+}    
 
 //* The gallery widget setup proc.
 setup :: proc(app: ^App.App) {
