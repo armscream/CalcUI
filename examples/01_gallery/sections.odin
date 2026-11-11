@@ -117,7 +117,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Link_Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "link_button", preset = .Top_Left, offsets = Slot(2, 1)},
+			Base_Opts = GUI.Base_Opts{name = "link_button", preset = .Top_Left, offsets = Slot(2, 1), tooltip = "https://github.com/armscream/CalcUI"},
 			text = "A link",
 			link = "https://github.com/armscream/CalcUI",
 		},

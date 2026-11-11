@@ -5,6 +5,8 @@
 [![Language](https://img.shields.io/badge/language-Odin-orange)](https://odin-lang.org/)
 [![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-pink?logo=github-sponsors)](https://github.com/sponsors/armscream)
 
+## VERY WORK IN PROGRESS
+
 CalcUI is a retained-mode GUI toolkit written in [Odin](https://odin-lang.org/), built around SDL3 and the [Runa](src/GUI/dependencies/Runa) text engine.
 
 It uses a persistent widget tree with independent widget identities and state. Layout, rendering and input are handled by the toolkit, with support for custom widgets, dockable panels, multiple windows and scene-based interfaces.
