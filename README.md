@@ -1,8 +1,8 @@
-CalcUI
+# CalcUI
 
-""Tests" (https://github.com/armscream/CalcUI/actions/workflows/test.yml/badge.svg)" (https://github.com/armscream/CalcUI/actions/workflows/test.yml)
-""License" (https://img.shields.io/github/license/armscream/CalcUI)" (LICENSE)
-""Language" (https://img.shields.io/badge/language-Odin-blue)" (https://odin-lang.org/)
+[![Tests](https://github.com/armscream/CalcUI/actions/workflows/test.yml/badge.svg)](https://github.com/armscream/CalcUI/actions/workflows/test.yml)
+[![License](https://img.shields.io/github/license/armscream/CalcUI)](LICENSE)
+[![Language](https://img.shields.io/badge/language-Odin-blue)](https://odin-lang.org/)
 
 A renderer-agnostic, retained-mode GUI framework written in Odin.
 
