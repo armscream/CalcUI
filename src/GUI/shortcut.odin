@@ -79,14 +79,18 @@ shortcut_fire :: proc(g: ^GUI, key: Key, mods: Mods) -> bool {
 }
 
 //* Whether the widget takes the text that is typed: a field of text, a
-//* search field, a chat field, a field of numbers or the palette.
+//* search field, a chat field, a field of numbers or the palette. A
+//* colour picker takes the text of its code while that code is being
+//* typed.
 widget_takes_text :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	w := Widget_Get(g, id)
 	if w == nil { return false }
 	#partial switch d in w.data {
-	case Text_Input_Data, Text_Edit_Data, Rich_Text_Editor_Data, Search_Field_Data,
+	case Text_Box_Data, Rich_Text_Editor_Data, Search_Field_Data,
 		Chat_Input_Data, Number_Input_Data, Command_Palette_Data:
 		return true
+	case Color_Picker_Data:
+		return d.editing
 	}
 	return false
 }

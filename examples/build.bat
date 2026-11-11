@@ -1,11 +1,5 @@
 @echo off
 rem Builds every example.
-rem
-rem   examples\build.bat
-rem
-rem The examples are built into the bin directory of the repository, so
-rem that they can be started from one place. On Linux and macOS the
-rem same thing is done by build.sh.
 
 setlocal
 setlocal enabledelayedexpansion
@@ -22,9 +16,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem The examples are the directories of this directory that have a
-rem main.odin in them. The wildcard of a for loop only finds files, so
-rem the loop has to be one of directories.
 for /d %%D in ("%DIR%*") do (
     if exist "%%D\main.odin" (
         set NAME=%%~nxD

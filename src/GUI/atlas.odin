@@ -236,6 +236,15 @@ atlas_region :: proc(a: ^UI_Atlas, x, y, w, h: int) -> Atlas_Region {
 	}
 }
 
+atlas_region_uv_inside :: proc(a: ^UI_Atlas, region: Atlas_Region, x, y, w, h: int) -> [4]f32 {
+	return [4]f32{
+		f32(region.x + x) / f32(a.width),
+		f32(region.y + y) / f32(a.height),
+		f32(region.x + x + w) / f32(a.width),
+		f32(region.y + y + h) / f32(a.height),
+	}
+}
+
 //* True when the region still names the space it was given. A region
 //* that was given back, or whose slot was used again, does not.
 atlas_region_valid :: proc(a: ^UI_Atlas, region: Atlas_Region) -> bool {

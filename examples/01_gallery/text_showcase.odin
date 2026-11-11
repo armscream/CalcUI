@@ -107,7 +107,7 @@ box = GUI.StyleBox{
 	})
 
 	colours := Demo_Text_Row(g, samples, "colours", 16)
-	Demo_Text_Caption(g, colours, "caption_Colour", "GUI.Colour", body)
+	Demo_Text_Caption(g, colours, "caption_Colour", "Colour", body)
 	GUI.New_Widget(g, .Label, colours, GUI.Widget_Opts{
 		name = "colour_red",
 		text = DEMO_TEXT_SAMPLE,
@@ -435,7 +435,7 @@ box = GUI.StyleBox{
 	GUI.GUI_Set_Theme(g, theme)
 
 	widgets := Demo_Text_Row(g, samples, "widgets", 22)
-	Demo_Text_Caption(g, widgets, "caption_Widget", "GUI.Widget", body)
+	Demo_Text_Caption(g, widgets, "caption_Widget", "Widget", body)
 	//* The ink of a button says what state it is in: under the pointer,
 	//* while it is held down, and while it is disabled.
 	stateful := GUI.Style{
@@ -484,7 +484,7 @@ box = GUI.StyleBox{
 		use_theme = true,
 		variation = "danger",
 	})
-	GUI.New_Widget(g, .TextInput, widgets, GUI.Widget_Opts{
+	GUI.New_Widget(g, .TextBox, widgets, GUI.Widget_Opts{
 		name = "field",
 		text = "type here",
 		min_size = GUI.Vec2{150, 22},

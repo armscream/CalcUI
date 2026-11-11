@@ -5,15 +5,36 @@
 package GUI
 
 //* == The default theme ==
-//*   theme := GUI.default_theme_dark()
+//*   theme := GUI.Default_Theme_Dark()
 //*   GUI.GUI_Set_Theme(g, theme)
 //
 //* or, in one line:
 //
-//*   GUI.default_theme_use(g, true)
+//*   GUI.Default_Theme_Use(g, true)
 //
 //* A widget takes the theme when it is made with `use_theme = true`, or
-//* when `default_theme_use` is called after the tree is built.
+//* when `Default_Theme_Use` is called after the tree is built.
+
+//* The theme of the toolkit, in the dark.
+Default_Theme_Dark :: proc() -> ^Theme {
+	return default_theme_dark()
+}
+
+//* The theme of the toolkit, in the light.
+Default_Theme_Light :: proc() -> ^Theme {
+	return default_theme_light()
+}
+
+//* Puts the default theme on the GUI. The widgets that are already in the
+//* tree take the theme, and so do the ones that come later.
+Default_Theme_Use :: proc(g: ^GUI, dark: bool) {
+	default_theme_use(g, dark)
+}
+
+//* The colours of the default theme: the dark ones or the light ones.
+Default_Theme_Palette :: proc(dark: bool) -> Theme_Palette {
+	return default_theme_palette(dark)
+}
 
 //* The colours of a theme. A program that wants a colour that goes with
 //* the theme asks for the palette.
@@ -191,6 +212,7 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 			pressed_colour  = p.text,
 			disabled_colour = p.text_dim,
 			focus_colour    = p.accent,
+			align           = .Center,
 			valign          = .Center,
 		},
 	})
@@ -215,9 +237,10 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 	Theme_Set_Type(theme, .CheckBox, Style{
 		text = Text_Style{colour = p.text, valign = .Center},
 	})
-	Theme_Set_Type(theme, .CheckButton, Style{
-		text = Text_Style{colour = p.text, valign = .Center},
-	})
+	theme_set_stylebox(theme, .CheckBox, "box", default_theme_box(p.field, p.border, 1, 4))
+	theme_set_stylebox(theme, .CheckBox, "box_hover", default_theme_box(p.field, p.accent, 1, 4))
+	theme_set_stylebox(theme, .CheckBox, "box_on", default_theme_box(p.accent, p.accent, 1, 4))
+	theme_set_stylebox(theme, .CheckBox, "box_on_hover", default_theme_box(p.accent, p.text, 1, 4))
 	Theme_Set_Type(theme, .LinkButton, Style{
 		text = Text_Style{
 			colour          = p.accent,
@@ -247,26 +270,22 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 	Theme_Set_Type(theme, .RichTextLabel, Style{
 		text = Text_Style{colour = p.text, wrap = .Word},
 	})
-	Theme_Set_Type(theme, .TextInput, Style{
+	//* A text box is a field of one line or a box of more than one
+	//* line: the text of it is broken at the boundaries of the words.
+	Theme_Set_Type(theme, .TextBox, Style{
 		box = default_theme_padded(p.field, p.border, 1, 4, 8, 5),
 		text = Text_Style{
 			colour          = p.text,
 			disabled_colour = p.text_dim,
 			focus_colour    = p.accent,
+			wrap            = .Word,
 		},
 	})
-	Theme_Set_State(theme, .TextInput, .Focused, Style{
+	Theme_Set_State(theme, .TextBox, .Focused, Style{
 		box = StyleBox{border_color = {p.accent, p.accent, p.accent, p.accent}},
 	})
-	Theme_Set_Type(theme, .TextEdit, Style{
-		box = default_theme_padded(p.field, p.border, 1, 4, 8, 5),
-		text = Text_Style{
-			colour          = p.text,
-			disabled_colour = p.text_dim,
-			focus_colour    = p.accent,
-			wrap            = .Anywhere,
-		},
-	})
+	theme_set_color(theme, .TextBox, "scrollbar_track", p.pressed)
+	theme_set_color(theme, .TextBox, "scrollbar_thumb", p.text_dim)
 	Theme_Set_Type(theme, .ItemList, Style{
 		box  = default_theme_padded(p.field, p.border, 1, 4, 4, 4),
 		text = Text_Style{colour = p.text},
@@ -314,8 +333,24 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 	Theme_Set_Type(theme, .GridContainer, Style{text = Text_Style{colour = p.text}})
 	Theme_Set_Type(theme, .MarginContainer, Style{text = Text_Style{colour = p.text}})
 	Theme_Set_Type(theme, .CenterContainer, Style{text = Text_Style{colour = p.text}})
-	Theme_Set_Type(theme, .ScrollContainer, Style{text = Text_Style{colour = p.text}})
-	Theme_Set_Type(theme, .ScrollArea, Style{text = Text_Style{colour = p.text}})
+	Theme_Set_Type(theme, .ScrollContainer, Style{
+		box = StyleBox{bg_color = RGBA(0, 0, 0, 0)},
+		text = Text_Style{colour = p.text},
+	})
+	Theme_Set_Type(theme, .ScrollArea, Style{
+		box = StyleBox{bg_color = RGBA(0, 0, 0, 0)},
+		text = Text_Style{colour = p.text},
+	})
+	Theme_Set_Type(theme, .ScrollBar, Style{
+		box = StyleBox{bg_color = RGBA(0, 0, 0, 0)},
+		text = Text_Style{colour = p.text},
+	})
+	theme_set_stylebox(theme, .ScrollBar, "track", default_theme_box(p.field, p.border, 0, 4))
+	theme_set_stylebox(theme, .ScrollBar, "grabber", default_theme_box(p.text_dim, p.border, 0, 4))
+	theme_set_stylebox(theme, .ScrollBar, "grabber_hover", default_theme_box(p.text, p.border, 0, 4))
+	theme_set_stylebox(theme, .ScrollBar, "grabber_pressed", default_theme_box(p.accent, p.border, 0, 4))
+	theme_set_constant(theme, .ScrollBar, "width", 10)
+	theme_set_constant(theme, .ScrollBar, "grabber_min", 24)
 	Theme_Set_Type(theme, .FlowContainer, Style{text = Text_Style{colour = p.text}})
 	Theme_Set_Type(theme, .AspectRatioContainer, Style{text = Text_Style{colour = p.text}})
 	Theme_Set_Type(theme, .Split, Style{text = Text_Style{colour = p.text}})
@@ -382,6 +417,7 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .Tooltip, Style{
+		box  = default_theme_padded(p.surface, p.border, 1, 6, 8, 5),
 		text = Text_Style{colour = p.text},
 	})
 

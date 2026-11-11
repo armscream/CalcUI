@@ -23,6 +23,7 @@ Signals :: struct {
 	on_focus_exited: proc(g: ^GUI, id: Widget_ID),
 	on_dragged: proc(g: ^GUI, id: Widget_ID, delta: Vec2),
 	on_resized: proc(g: ^GUI, id: Widget_ID, size: Vec2),
+	on_link_activated: proc(g: ^GUI, id: Widget_ID, link: string) -> bool,
 }
 
 signal_pressed :: proc(g: ^GUI, id: Widget_ID) {
@@ -89,4 +90,11 @@ signal_resized :: proc(g: ^GUI, id: Widget_ID, size: Vec2) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
 	if w.signals.on_resized != nil { w.signals.on_resized(g, id, size) }
+}
+
+signal_link_activated :: proc(g: ^GUI, id: Widget_ID, link: string) -> bool {
+	w := Widget_Get(g, id)
+	if w == nil { return false }
+	if w.signals.on_link_activated != nil { return w.signals.on_link_activated(g, id, link) }
+	return false
 }

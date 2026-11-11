@@ -11,6 +11,7 @@
 set -e
 
 DIR=$(cd "$(dirname "$0")" && pwd)
+SHADERS="$DIR/Shaders"
 
 if ! command -v glslc >/dev/null 2>&1; then
     echo "glslc was not found. It comes with the Vulkan SDK." >&2
@@ -18,9 +19,9 @@ if ! command -v glslc >/dev/null 2>&1; then
 fi
 
 echo "Building ui.spv.vert"
-glslc -fshader-stage=vertex "$DIR/ui.vert" -o "$DIR/ui.spv.vert"
+glslc -fshader-stage=vertex "$SHADERS/ui.vert" -o "$SHADERS/ui.spv.vert"
 
 echo "Building ui.spv.frag"
-glslc -fshader-stage=fragment "$DIR/ui.frag" -o "$DIR/ui.spv.frag"
+glslc -fshader-stage=fragment "$SHADERS/ui.frag" -o "$SHADERS/ui.spv.frag"
 
 echo "Done."

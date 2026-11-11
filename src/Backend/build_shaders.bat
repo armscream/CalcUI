@@ -13,6 +13,7 @@ rem On Linux and macOS the same thing is done by build_shaders.sh.
 setlocal
 
 set DIR=%~dp0
+set SHADERS=%DIR%Shaders\
 set GLSLC=glslc
 
 where %GLSLC% >nul 2>nul
@@ -23,11 +24,11 @@ if errorlevel 1 (
 )
 
 echo Building ui.spv.vert
-%GLSLC% -fshader-stage=vertex "%DIR%ui.vert" -o "%DIR%ui.spv.vert"
+%GLSLC% -fshader-stage=vertex "%SHADERS%ui.vert" -o "%SHADERS%ui.spv.vert"
 if errorlevel 1 exit /b 1
 
 echo Building ui.spv.frag
-%GLSLC% -fshader-stage=fragment "%DIR%ui.frag" -o "%DIR%ui.spv.frag"
+%GLSLC% -fshader-stage=fragment "%SHADERS%ui.frag" -o "%SHADERS%ui.spv.frag"
 if errorlevel 1 exit /b 1
 
 echo Done.

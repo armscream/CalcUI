@@ -531,30 +531,25 @@ glyph_quads :: proc(
 			}
 		}
 
-		baseline := y + line.baseline
-		pen := x
+		baseline := (y + line.baseline) * f.scale
+		pen := x * f.scale
 		for gi in 0 ..< len(line.glyphs) {
 			pg := line.glyphs[gi]
 			if gi > 0 && extra != 0 && line_has_space(line, gi - 1) {
-				pen += extra
+				pen += extra * f.scale
 			}
-			slot, ok := font_slot(g, f, pg.font, pg.glyph_id)
-			if ok && slot.px_size[0] > 0 && slot.px_size[1] > 0 {
+			quad, uv, ok := font_glyph_place(g, f, pg, pen, baseline)
+			if ok {
 				append(
 					&quads,
 					Glyph_Quad {
-						rect = Rect {
-							x = pen + (pg.x_offset + slot.bearing[0]) / f.scale,
-							y = baseline + (pg.y_offset + slot.bearing[1]) / f.scale,
-							w = f32(slot.px_size[0]) / f.scale,
-							h = f32(slot.px_size[1]) / f.scale,
-						},
-						uv = slot.uv,
+						rect = quad,
+						uv = uv,
 						tex = g.atlas_texture,
 					},
 				)
 			}
-			pen += pg.x_advance / f.scale
+			pen += pg.x_advance
 		}
 		y += line.height + ts.spacing
 	}

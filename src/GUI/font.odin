@@ -5,11 +5,14 @@
 package GUI
 
 import "core:log"
+import "core:math"
 import "core:os"
 import virt "core:mem/virtual"
 import runa "./dependencies/Runa"
 
 ATLAS_SIZE :: 512
+
+GLYPH_GUTTER :: 1
 
 MAX_FONT_STACK :: 16
 
@@ -40,6 +43,8 @@ Font :: struct {
 	size: f32,
 	px_size: f32,
 	scale: f32,
+	line_height: f32,
+	ascent: f32,
 	opts: runa.Paragraph_Opts,
 	stack: []^runa.Font,
 }
@@ -57,9 +62,10 @@ Font_Instance_Key :: struct {
 }
 
 Glyph_Key :: struct {
-	font: ^runa.Font,
-	gid:  runa.Glyph_ID,
-	px_q: u32,
+	font:  ^runa.Font,
+	gid:   runa.Glyph_ID,
+	px_q:  u32,
+	subpx: u8,
 }
 
 Font_Load :: proc(g: ^GUI, path: string, size: f32) -> Font_ID {
@@ -227,6 +233,34 @@ font_stack_build :: proc(g: ^GUI, f: ^Font) {
 	}
 	f.stack = stack[:filled]
 	f.opts.fonts = runa.Font_Stack(f.stack)
+	f.line_height = font_line_height(f)
+	f.ascent = font_ascent(f)
+}
+
+//* The height of a line of text of the font, in logical units: the
+//* height of the tallest font of the stack, the way Runa lays it out.
+font_line_height :: proc(f: ^Font) -> f32 {
+	height: f32 = 0
+	for rf in f.stack {
+		if rf == nil || rf.units_per_em == 0 {continue}
+		s := f.size / f32(rf.units_per_em)
+		line := (rf.ascent - rf.descent + rf.line_gap) * s
+		if line > height {height = line}
+	}
+	if height <= 0 {height = f.size}
+	return height
+}
+
+//* The height of the tallest letter of the font above its base line, in
+//* logical units.
+font_ascent :: proc(f: ^Font) -> f32 {
+	height: f32 = 0
+	for rf in f.stack {
+		if rf == nil || rf.units_per_em == 0 {continue}
+		s := f.size / f32(rf.units_per_em)
+		if rf.ascent * s > height {height = rf.ascent * s}
+	}
+	return height
 }
 
 font_file :: proc(g: ^GUI, name: string, bytes: []u8) -> ^Font_File {
@@ -355,6 +389,48 @@ Font_Measure :: proc(g: ^GUI, id: Font_ID, text: string) -> Vec2 {
 	return size
 }
 
+Glyph_Snap :: struct {
+	pos:     f32,
+	quarter: u8,
+}
+
+glyph_snap :: proc(v: f32) -> Glyph_Snap {
+	pos := math.floor(v)
+	quarter := int((v - pos) * 4 + 0.5)
+	if quarter >= 4 {
+		quarter = 0
+		pos += 1
+	}
+	return Glyph_Snap{pos = pos, quarter = u8(quarter)}
+}
+
+font_glyph_place :: proc(
+	g: ^GUI,
+	f: ^Font,
+	pg: runa.Paragraph_Glyph,
+	pen_x: f32,
+	baseline_y: f32,
+) -> (rect: Rect, uv: [4]f32, ok: bool) {
+	x := glyph_snap(pen_x + pg.x_offset)
+	slot, slot_ok := font_slot(g, f, pg.font, pg.glyph_id, x.quarter)
+	if !slot_ok { return }
+	if slot.px_size[0] == 0 || slot.px_size[1] == 0 { return }
+
+	y := glyph_snap(baseline_y + pg.y_offset)
+	top := y.pos + slot.bearing[1]
+	if y.quarter >= 2 { top += 1 }
+
+	rect = Rect {
+		x = (x.pos + slot.bearing[0]) / f.scale,
+		y = top / f.scale,
+		w = f32(slot.px_size[0]) / f.scale,
+		h = f32(slot.px_size[1]) / f.scale,
+	}
+	uv = slot.uv
+	ok = true
+	return
+}
+
 Font_Draw :: proc(g: ^GUI, id: Font_ID, text: string, rect: Rect, colour: Colour, align: Text_Align, wrap := false) {
 	f := font_get(g, id)
 	if f == nil || text == "" { return }
@@ -376,35 +452,24 @@ Font_Draw :: proc(g: ^GUI, id: Font_ID, text: string, rect: Rect, colour: Colour
 		case .Fill:
 		}
 
-		baseline := y + line.baseline / f.scale
-		pen := x
+		baseline := y * f.scale + line.baseline
+		pen := x * f.scale
 		for pg in line.glyphs {
-			slot, ok := font_slot(g, f, pg.font, pg.glyph_id)
-			if ok && slot.px_size[0] > 0 && slot.px_size[1] > 0 {
-				draw_quad(
-					g.target,
-					Rect{
-						x = pen + (pg.x_offset + slot.bearing[0]) / f.scale,
-						y = baseline + (pg.y_offset + slot.bearing[1]) / f.scale,
-						w = f32(slot.px_size[0]) / f.scale,
-						h = f32(slot.px_size[1]) / f.scale,
-					},
-					slot.uv,
-					colour,
-					g.atlas_texture,
-				)
+			quad, uv, ok := font_glyph_place(g, f, pg, pen, baseline)
+			if ok {
+				draw_quad(g.target, quad, uv, colour, g.atlas_texture)
 			}
-			pen += pg.x_advance / f.scale
+			pen += pg.x_advance
 		}
 		y += line.height / f.scale
 	}
 }
 
-font_slot :: proc(g: ^GUI, f: ^Font, src: ^runa.Font, gid: runa.Glyph_ID) -> (Glyph_Entry, bool) {
-	key := Glyph_Key{font = src, gid = gid, px_q = u32(f.px_size * 16)}
+font_slot :: proc(g: ^GUI, f: ^Font, src: ^runa.Font, gid: runa.Glyph_ID, bucket: u8 = 0) -> (Glyph_Entry, bool) {
+	key := Glyph_Key{font = src, gid = gid, px_q = u32(f.px_size * 16), subpx = bucket & 3}
 	if entry, hit := g.glyphs[key]; hit { return entry, true }
 
-	slot, err := runa.raster_glyph(src, gid, f.px_size, 0, &f.file.atlas)
+	slot, err := runa.raster_glyph(src, gid, f.px_size, bucket & 3, &f.file.atlas)
 	if err != .None { return {}, false }
 
 	entry := Glyph_Entry{
@@ -437,28 +502,30 @@ font_place_glyph :: proc(g: ^GUI, f: ^Font, entry: ^Glyph_Entry, slot: runa.Atla
 	if x + w > int(page.width) { return false }
 	if y + h > int(page.height) { return false }
 
-	region := atlas_alloc(g.atlas, w, h, true)
+	region := atlas_alloc(g.atlas, w + GLYPH_GUTTER * 2, h + GLYPH_GUTTER * 2, true)
 	if region.id < 0 { return false }
 
 	if slot.is_color {
-		rows := make([]u8, w * h * 4, context.allocator)
+		rows := make([]u8, (w + GLYPH_GUTTER * 2) * (h + GLYPH_GUTTER * 2) * 4, context.allocator)
 		defer delete(rows)
 		for row in 0 ..< h {
 			src := page.pixels[(y + row) * int(page.width) * 4 + x * 4:]
-			copy(rows[row * w * 4:][:w * 4], src[:w * 4])
+			dst := rows[(row + GLYPH_GUTTER) * (w + GLYPH_GUTTER * 2) * 4 + GLYPH_GUTTER * 4:]
+			copy(dst[:w * 4], src[:w * 4])
 		}
 		atlas_write(g.atlas, region, rows)
 	} else {
-		rows := make([]u8, w * h, context.allocator)
+		rows := make([]u8, (w + GLYPH_GUTTER * 2) * (h + GLYPH_GUTTER * 2), context.allocator)
 		defer delete(rows)
 		for row in 0 ..< h {
 			src := page.pixels[(y + row) * int(page.width) + x:]
-			copy(rows[row * w:][:w], src[:w])
+			dst := rows[(row + GLYPH_GUTTER) * (w + GLYPH_GUTTER * 2) + GLYPH_GUTTER:]
+			copy(dst[:w], src[:w])
 		}
 		atlas_write_coverage(g.atlas, region, rows)
 	}
 
-	entry.uv = region.uv
+	entry.uv = atlas_region_uv_inside(g.atlas, region, GLYPH_GUTTER, GLYPH_GUTTER, w, h)
 	entry.region = region
 	return true
 }
@@ -473,8 +540,11 @@ Font_Warmup :: proc(g: ^GUI, id: Font_ID) {
 
 	lines := font_layout(g, f, text, f.opts)
 	for line in lines {
+		pen: f32 = 0
 		for pg in line.glyphs {
-			_, _ = font_slot(g, f, pg.font, pg.glyph_id)
+			snap := glyph_snap(pen + pg.x_offset)
+			_, _ = font_slot(g, f, pg.font, pg.glyph_id, snap.quarter)
+			pen += pg.x_advance
 		}
 	}
 	atlas_flush(g.atlas, g.backend, g.atlas_texture)

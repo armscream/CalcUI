@@ -411,11 +411,8 @@ text_box_click :: proc(g: ^GUI, id: Widget_ID, p: Vec2, clicks: int) -> bool {
 	w := Widget_Get(g, id)
 	if w == nil {return false}
 	#partial switch &d in w.data {
-	case Text_Input_Data:
-		text_input_click(g, id, w, p, clicks)
-		return true
-	case Text_Edit_Data:
-		text_edit_click(g, id, w, p, clicks)
+	case Text_Box_Data:
+		text_box_click_at(g, id, w, p, clicks)
 		return true
 	case Rich_Text_Editor_Data:
 		rich_text_editor_click(g, id, w, p, clicks)
