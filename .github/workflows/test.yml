@@ -1,78 +1,52 @@
-name: test
+name: Tests
 
 on:
   push:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    env:
-      SDL_VIDEODRIVER: dummy
+
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
     steps:
-      - name: Check out the repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install the build tools (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config llvm-dev clang
-          if ! pkg-config --exists sdl3; then
-            echo "SDL3 is not in the packages of this distribution, so it is built."
-            git clone --depth=1 https://github.com/libsdl-org/SDL.git /tmp/SDL
-            cmake -S /tmp/SDL -B /tmp/SDL/build -DCMAKE_BUILD_TYPE=Release -G Ninja
-            cmake --build /tmp/SDL/build --parallel
-            sudo cmake --install /tmp/SDL/build
-          fi
-
-      - name: Install the build tools (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake ninja sdl3 llvm
-          LLVM_CONFIG="$(brew --prefix llvm)/bin/llvm-config"
-          echo "LLVM_CONFIG=$LLVM_CONFIG" >> "$GITHUB_ENV"
-          echo "CXX=$(brew --prefix llvm)/bin/clang++" >> "$GITHUB_ENV"
-          "$LLVM_CONFIG" --version
-
-      - name: Install Odin
-        run: |
-          set -eu
-          ODIN_DIR="$HOME/odin"
-          if curl -fsSL https://odin-lang.org/install.sh -o /tmp/odin-install.sh && [ -s /tmp/odin-install.sh ]; then
-            echo "Odin is installed with the official installer."
-            sh /tmp/odin-install.sh
-          else
-            echo "The official installer is not there, so Odin is built from the source."
-            GIT_LFS_SKIP_SMUDGE=1 git clone --depth=1 https://github.com/odin-lang/Odin "$ODIN_DIR"
-            cd "$ODIN_DIR"
-            ./build_odin.sh release-native
-          fi
-          mkdir -p "$ODIN_DIR/bin"
-          if [ ! -x "$ODIN_DIR/bin/odin" ] && [ -x "$ODIN_DIR/odin" ]; then
-            cp "$ODIN_DIR/odin" "$ODIN_DIR/bin/odin"
-          fi
-          "$ODIN_DIR/bin/odin" version
-          echo "$ODIN_DIR/bin" >> "$GITHUB_PATH"
-
-      - name: Prepare the working copy
-        run: sh scripts/setup.sh
-
-      - name: Run the checks
-        run: sh scripts/ci.sh
-
-      - name: Upload the picture
-        uses: actions/upload-artifact@v4
+      - name: Setup Odin
+        uses: laytan/setup-odin@v2
         with:
-          name: shot-${{ matrix.os }}
-          path: bin/shot.png
-          if-no-files-found: error
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Prepare
+        shell: bash
+        run: ./scripts/setup.sh
+
+      - name: Run CI checks
+        shell: bash
+        run: ./scripts/ci.sh

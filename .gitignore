@@ -10,30 +10,19 @@
 *.dll
 *.exp
 *.manifest
-
-#* shader build output
-src/Backend/Shaders/ui.spv.frag
-src/Backend/Shaders/ui.spv.vert
+bin/
 
 #* Odin run output
 *.odin_run
 
-#* Broken/incomplete examples
-examples/00_hello
-examples/04_overlays
-examples/05_theming
-examples/06_data
-examples/07_widgets
-examples/08_heavy
-examples/09_scene
+#* Generated API documentation
+docs/api/
 
 #* Editor and OS noise
 .vscode/
 .idea/
-.DS_Store
-Thumbs.db
-docs/
-
-#* Tools
 tools/
-*.png
+.DS_Store
+.kilo/
+Thumbs.db
+__pycache__/
