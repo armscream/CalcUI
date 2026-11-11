@@ -5,13 +5,13 @@
 [![Language](https://img.shields.io/badge/language-Odin-orange)](https://odin-lang.org/)
 [![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-pink?logo=github-sponsors)](https://github.com/sponsors/armscream)
 
-## VERY WORK IN PROGRESS
+## VERY WORK IN PROGRESS - Expect changes!
 
-CalcUI is a retained-mode GUI toolkit written in [Odin](https://odin-lang.org/), built around SDL3 and the [Runa](src/GUI/dependencies/Runa) text engine.
+CalcUI is a retained-mode GUI toolkit written in [Odin](https://odin-lang.org/), built around a persistent widget tree, declarative UI and an extensible rendering architecture.
 
-It uses a persistent widget tree with independent widget identities and state. Layout, rendering and input are handled by the toolkit, with support for custom widgets, dockable panels, multiple windows and scene-based interfaces.
+The GUI core is renderer-agnostic. The included examples use SDL3, but CalcUI can be integrated with other rendering systems by implementing the necessary backend and window/input integration.
 
-Rendering is batched through a shared texture atlas for rectangles, text and images, with clipping handled during draw-list construction.
+Widgets maintain their own identities and state, with layout, input handling and rendering managed by the toolkit. Interfaces can be built programmatically or described in scene files and loaded at runtime, similar to Godot's scene-based UI workflow.
 
 ## Screenshots
 
@@ -25,16 +25,33 @@ Rendering is batched through a shared texture atlas for rectangles, text and ima
 
 ## Features
 
-- **Retained-mode widget tree** – Persistent widget identities, state and hierarchical layout.
+- **Retained-mode architecture** – Persistent widget tree with independent widget identities and state.
+- **Declarative UI** – Define interfaces through serialized scene files instead of constructing every widget in code.
+- **Scene serialization** – Save and load complete UI trees from files, including widget configuration and hierarchy.
+- **Renderer-agnostic core** – Integrate with different rendering backends through the backend interface.
 - **Batched rendering** – Shared texture atlas for text, images and primitives.
-- **Text rendering** – Font families, glyph fallback, measurement and DPI-aware rasterization.
-- **Docking** – Movable panels, split layouts and detachable windows.
-- **Widgets** – Buttons, text boxes, sliders, lists, trees, tables, charts, node graphs and more.
+- **Docking system** – Dockspaces, movable panels, floating and detachable panels, split layouts and drag-and-drop.
+- **Text rendering** – Font families, glyph fallback and DPI-aware rasterization.
 - **Custom widgets** – Register custom drawing, measurement, input and lifecycle callbacks.
 - **Theming** – Widget styles, default themes and style variations.
-- **Scene files** – Load widget trees from serialized scene descriptions.
-- **Multiple backends** – SDL3 renderer and SDL3 GPU backends.
-- **Headless testing** – Test widget and GUI logic without creating a window.
+- **Multiple windows** – Window management, overlays, popups and detached panels.
+- **Headless testing** – Test GUI logic without opening a window.
+
+## Widgets
+
+CalcUI includes a broad collection of built-in widgets and interface components.
+
+| Category | Widgets |
+|---|---|
+| Basic | Buttons, check boxes, toggle switches, ranges, ratings, number inputs |
+| Containers | Margin, VBox, HBox, scroll boxes, accordions |
+| Text & Input | Text boxes, rich text editor, search fields, chat input |
+| Selection | Combo boxes, color picker, date picker, time picker, emoji picker |
+| Menus & Overlays | Command palette, context menus, tooltips, popups, toast notifications |
+| Data | Data tables, virtual lists, charts |
+| Visualization | Canvas, node graphs, vector drawing |
+| File & Content | File viewer |
+| Layout | Dockspaces, floating and detachable panels |
 
 ## Quick Start
 
@@ -58,7 +75,34 @@ GUI.Make_Button(g, g.root, GUI.Button_Opts{
 })
 ```
 
-`calcui\src\App.odin` is pre-setup and wired to SDL3 for an easy start.  
+## Declarative UI & Scenes
+
+Interfaces can be constructed programmatically or defined in scene files.
+
+Scene files describe the widget hierarchy and its configuration, allowing UI layouts to be saved, loaded and reused without manually recreating every widget in code.
+
+This makes it possible to keep interface structure separate from application logic, build reusable UI layouts and load complete interfaces at runtime.
+
+See [docs/scene-format.md](docs/scene-format.md) for the scene format and loading API.
+
+## Rendering & Backends
+
+CalcUI separates its GUI core from the underlying rendering and window systems.
+
+The core handles:
+
+- Widget management and layout.
+- Input routing and interaction.
+- Draw-list construction.
+- Text measurement and glyph management.
+- Clipping and texture atlas management.
+
+The included backends use SDL3:
+
+- **SDL3 Renderer** – Standard SDL rendering backend.
+- **SDL3 GPU** – GPU backend supporting Vulkan, D3D12 and Metal.
+
+SDL3 is used by the examples and included integrations, but it is not a requirement of the GUI architecture. Other rendering systems can be integrated by implementing the required backend operations and wiring up window events, input, textures and presentation.
 
 ## Display Scaling
 
@@ -84,14 +128,14 @@ GUI.Font_Family_Set_Fallback(g, family, symbol_family)
 
 `GUI.Font_Has_Glyph` checks whether a family or its fallbacks contain a particular codepoint.
 
-## Example widget : Text Boxes
+## Text Boxes
 
 CalcUI uses a single `TextBox` widget for both single-line and multiline input.
 
 Supported features include:
 
 - Caret positioning and text selection.
-- Mouse selection, double-click selection and select all.
+- Mouse selection and double-click selection.
 - Cut, copy and paste.
 - Undo and redo.
 - Character filtering and length limits.
@@ -120,7 +164,7 @@ GUI.Make_Text_Box(g, g.root, GUI.Text_Box_Opts{
 })
 ```
 
-See [docs/widgets.md](docs/widgets.md) for widget details.
+See [docs/widgets.md](docs/widgets.md) for widget behaviour and available options.
 
 ## Custom Widgets
 
@@ -169,6 +213,12 @@ The `examples` directory contains standalone applications demonstrating CalcUI's
 
 CalcUI requires the [Odin compiler](https://odin-lang.org/).
 
+Prepare the repository:
+
+```sh
+./scripts/setup.sh
+```
+
 Build the examples:
 
 ```sh
@@ -194,14 +244,21 @@ odin run examples/01_gallery -- --gpu
 
 ## Tests
 
-Tests use a headless backend, so GUI logic can be tested without opening a window.
+Tests use a headless backend, allowing GUI logic to be tested without opening a window.
+
+Run the complete CI checks locally:
 
 ```sh
-odin test src/GUI
-odin check src/GUI -no-entry-point
+./scripts/ci.sh
 ```
 
-Tests also run through GitHub Actions on pushes and pull requests.
+This checks the GUI, window and backend packages, runs GUI tests, builds the examples and generates a test screenshot.
+
+GitHub Actions runs the same checks on:
+
+- Windows
+- Linux
+- macOS
 
 ## Project Structure
 
@@ -213,6 +270,7 @@ Tests also run through GitHub Actions on pushes and pull requests.
 | `examples` | Example applications. |
 | `assets` | Fonts, images and other example assets. |
 | `tools` | Development tools, shaders and frame capture utilities. |
+| `docs` | Usage, widget, extension and scene documentation. |
 
 ## Documentation
 
