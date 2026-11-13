@@ -17,14 +17,14 @@ Interfaces can be built programmatically or described in scene files, allowing c
 
 ## Screenshots
 
-<p align="center">
-  <img src="assets/calcdock.png" alt="CalcUI docking system" width="100%">
-</p><p align="center">
-  <img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="100%">
-</p><p align="center">
-  <img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="100%">
-</p><p align="center">
-  <img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="100%">
+<p align="left">
+  <img src="assets/calcdock.png" alt="CalcUI docking system" width="50%">
+</p><p align="right">
+  <img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="50%">
+</p><p align="left">
+  <img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="50%">
+</p><p align="right">
+  <img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="50%">
 </p>Features
 
 - Retained-mode architecture – Persistent widget tree with independent widget identities and state.
