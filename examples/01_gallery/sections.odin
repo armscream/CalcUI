@@ -27,6 +27,9 @@ popup_panel: GUI.Widget_ID
 accept_dialog: GUI.Widget_ID
 confirmation_dialog: GUI.Widget_ID
 file_dialog: GUI.Widget_ID
+date_picker: GUI.Widget_ID
+time_picker: GUI.Widget_ID
+emoji_picker: GUI.Widget_ID
 
 //* A menu of a menu bar: the name of the menu and the items it holds.
 Menu :: struct {
@@ -56,14 +59,14 @@ demo_style :: proc() -> GUI.Style {
 //* == buttons ==
 
 Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(210)
-	panel := Section(parent, "Buttons", height)
+	rows := Make_Rows(36, 36, 36, 40)
+	panel := Section(parent, "Buttons", rows)
 
 	GUI.Make_Button(
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "button", preset = .Top_Left, offsets = Slot(0, 0)},
+			Base_Opts = GUI.Base_Opts{name = "button", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 30)},
 			text = "Press me",
 			on_pressed = on_press,
 			text_align = .Left,
@@ -77,7 +80,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "press_count",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 150, top = 48, right = 300, bottom = 74},
+				offsets = Place(rows, 2, 0, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
 			text = "pressed 0 times",
@@ -88,7 +91,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Check_Box_Opts{
-			Base_Opts = GUI.Base_Opts{name = "check_box", preset = .Top_Left, offsets = Slot(1, 0)},
+			Base_Opts = GUI.Base_Opts{name = "check_box", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 30)},
 			text = "A check box",
 			on = true,
 		},
@@ -98,7 +101,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Option_Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "option_button", preset = .Top_Left, offsets = Slot(0, 1)},
+			Base_Opts = GUI.Base_Opts{name = "option_button", preset = .Top_Left, offsets = Place(rows, 0, 1, COLUMN_WIDTH, 30)},
 			items = {"Low", "Medium", "High"},
 		},
 	)
@@ -107,7 +110,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Menu_Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "menu_button", preset = .Top_Left, offsets = Slot(1, 1)},
+			Base_Opts = GUI.Base_Opts{name = "menu_button", preset = .Top_Left, offsets = Place(rows, 1, 1, COLUMN_WIDTH, 30)},
 			text = "A menu",
 			items = {"Cut", "Copy", "Paste"},
 		},
@@ -117,7 +120,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Link_Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "link_button", preset = .Top_Left, offsets = Slot(2, 1), tooltip = "https://github.com/armscream/CalcUI"},
+			Base_Opts = GUI.Base_Opts{name = "link_button", preset = .Top_Left, offsets = Place(rows, 2, 1, COLUMN_WIDTH, 30), tooltip = "https://github.com/armscream/CalcUI"},
 			text = "A link",
 			link = "https://github.com/armscream/CalcUI",
 		},
@@ -127,7 +130,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Segmented_Opts{
-			Base_Opts = GUI.Base_Opts{name = "segmented", preset = .Top_Left, offsets = Slot(0, 2)},
+			Base_Opts = GUI.Base_Opts{name = "segmented", preset = .Top_Left, offsets = Place(rows, 0, 2, COLUMN_WIDTH, 30)},
 			items = {"Day", "Week", "Month"},
 		},
 	)
@@ -136,7 +139,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Toggle_Switch_Opts{
-			Base_Opts = GUI.Base_Opts{name = "toggle_switch", preset = .Top_Left, offsets = Slot(1, 2)},
+			Base_Opts = GUI.Base_Opts{name = "toggle_switch", preset = .Top_Left, offsets = Place(rows, 1, 2, COLUMN_WIDTH, 30)},
 			text = "Notifications",
 			on = true,
 		},
@@ -146,7 +149,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Rating_Opts{
-			Base_Opts = GUI.Base_Opts{name = "rating", preset = .Top_Left, offsets = Slot(2, 2)},
+			Base_Opts = GUI.Base_Opts{name = "rating", preset = .Top_Left, offsets = Place(rows, 2, 2, COLUMN_WIDTH, 30)},
 			value = 3,
 			max = 5,
 		},
@@ -159,7 +162,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "menu_bar",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 16, top = 158, right = 472, bottom = 190},
+				offsets = Place(rows, 0, 3, 716, 32),
 				style = GUI.Style{
 					box = GUI.StyleBox{
 						bg_color = SECTION_BG,
@@ -188,7 +191,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 		)
 	}
 
-	return height
+	return Rows_Height(rows)
 }
 
 on_press :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
@@ -199,14 +202,14 @@ on_press :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 //* == inputs ==
 
 Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(370)
-	panel := Section(parent, "Inputs", height)
+	rows := Make_Rows(36, 100, 110)
+	panel := Section(parent, "Inputs", rows)
 
 	GUI.Make_Text_Box(
 		g,
 		panel,
 		GUI.Text_Box_Opts{
-			Base_Opts = GUI.Base_Opts{name = "text_box", preset = .Top_Left, offsets = Slot(0, 0), tooltip = "a tooltip"},
+			Base_Opts = GUI.Base_Opts{name = "text_box", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 30), tooltip = "a tooltip"},
 			text = "a field",
 			rules = GUI.Text_Rules{max_length = 24},
 		},
@@ -216,7 +219,7 @@ Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Search_Field_Opts{
-			Base_Opts = GUI.Base_Opts{name = "search_field", preset = .Top_Left, offsets = Slot(1, 0)},
+			Base_Opts = GUI.Base_Opts{name = "search_field", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 30)},
 			placeholder = "Search",
 		},
 	)
@@ -225,7 +228,7 @@ Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Number_Input_Opts{
-			Base_Opts = GUI.Base_Opts{name = "number_input", preset = .Top_Left, offsets = Slot(2, 0)},
+			Base_Opts = GUI.Base_Opts{name = "number_input", preset = .Top_Left, offsets = Place(rows, 2, 0, COLUMN_WIDTH, 30)},
 			value = 12,
 			min = 0,
 			max = 100,
@@ -236,7 +239,7 @@ Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Text_Box_Opts{
-			Base_Opts = GUI.Base_Opts{name = "text_box_multiline", preset = .Top_Left, offsets = Place(0, 1, 228, 90)},
+			Base_Opts = GUI.Base_Opts{name = "text_box_multiline", preset = .Top_Left, offsets = Place(rows, 0, 1, COLUMN_WIDTH, 90)},
 			text = "A box of more than one line.\nThe enter key makes a new line.",
 			flags = GUI.Text_Box_Flags{.Multiline},
 		},
@@ -246,7 +249,7 @@ Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Rich_Text_Opts{
-			Base_Opts = GUI.Base_Opts{name = "rich_text_label", preset = .Top_Left, offsets = Place(1, 1, 228, 90)},
+			Base_Opts = GUI.Base_Opts{name = "rich_text_label", preset = .Top_Left, offsets = Place(rows, 1, 1, COLUMN_WIDTH, 90)},
 			text = "A label that holds a piece of text of any length. The text that does not fit is scrolled.",
 		},
 	)
@@ -255,7 +258,7 @@ Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Rich_Text_Editor_Opts{
-			Base_Opts = GUI.Base_Opts{name = "rich_text_editor", preset = .Top_Left, offsets = Place(2, 1, 228, 90)},
+			Base_Opts = GUI.Base_Opts{name = "rich_text_editor", preset = .Top_Left, offsets = Place(rows, 2, 1, COLUMN_WIDTH, 90)},
 			text = "An editor with more than one cursor.\nIt keeps the text of the file.",
 			wrap = true,
 		},
@@ -265,7 +268,7 @@ Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Combo_Box_Opts{
-			Base_Opts = GUI.Base_Opts{name = "combo_box", preset = .Top_Left, offsets = Place(0, 2, 228, 100)},
+			Base_Opts = GUI.Base_Opts{name = "combo_box", preset = .Top_Left, offsets = Place(rows, 0, 2, COLUMN_WIDTH, 100)},
 			items = {"Red", "Green", "Blue", "Black"},
 		},
 	)
@@ -274,27 +277,27 @@ Section_Inputs :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Chat_Input_Opts{
-			Base_Opts = GUI.Base_Opts{name = "chat_input", preset = .Top_Left, offsets = Place(1, 2, 228, 100)},
+			Base_Opts = GUI.Base_Opts{name = "chat_input", preset = .Top_Left, offsets = Place(rows, 1, 2, COLUMN_WIDTH, 100)},
 		},
 	)
 	GUI.chat_input_add_line(g, chat, "Ada", "The gallery is open.")
 	GUI.chat_input_add_line(g, chat, "Ada", "Every widget has something in it.")
 	GUI.chat_input_add_line(g, chat, "CalcUI", "Press the button of the first section.", true)
 
-	return height
+	return Rows_Height(rows)
 }
 
 //* == ranges ==
 
 Section_Ranges :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(150)
-	panel := Section(parent, "Ranges", height)
+	rows := Make_Rows(100, 36)
+	panel := Section(parent, "Ranges", rows)
 
 	GUI.Make_H_Slider(
 		g,
 		panel,
 		GUI.Slider_Opts{
-			Base_Opts = GUI.Base_Opts{name = "h_slider", preset = .Top_Left, offsets = Slot(0, 0)},
+			Base_Opts = GUI.Base_Opts{name = "h_slider", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 30)},
 			value = 40,
 			min = 0,
 			max = 100,
@@ -305,7 +308,7 @@ Section_Ranges :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Slider_Opts{
-			Base_Opts = GUI.Base_Opts{name = "v_slider", preset = .Top_Left, offsets = Place(1, 0, 60, 90)},
+			Base_Opts = GUI.Base_Opts{name = "v_slider", preset = .Top_Left, offsets = Place(rows, 1, 0, 60, 90)},
 			value = 65,
 			min = 0,
 			max = 100,
@@ -316,7 +319,7 @@ Section_Ranges :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Spin_Box_Opts{
-			Base_Opts = GUI.Base_Opts{name = "spin_box", preset = .Top_Left, offsets = Slot(2, 0)},
+			Base_Opts = GUI.Base_Opts{name = "spin_box", preset = .Top_Left, offsets = Place(rows, 2, 0, COLUMN_WIDTH, 30)},
 			value = 7,
 			min = 0,
 			max = 99,
@@ -328,7 +331,7 @@ Section_Ranges :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Progress_Bar_Opts{
-			Base_Opts = GUI.Base_Opts{name = "progress_bar", preset = .Top_Left, offsets = Slot(0, 1)},
+			Base_Opts = GUI.Base_Opts{name = "progress_bar", preset = .Top_Left, offsets = Place(rows, 0, 1, COLUMN_WIDTH, 30)},
 			value = 64,
 			max = 100,
 		},
@@ -341,27 +344,69 @@ Section_Ranges :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "range_hint",
 				preset = .Top_Left,
-				offsets = Slot(1, 1),
+				offsets = Place(rows, 1, 1, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
 			text = "The bar is at 64 of 100.",
 		},
 	)
 
-	return height
+	return Rows_Height(rows)
 }
 
 //* == choices ==
 
 Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(320)
-	panel := Section(parent, "Choices", height)
+	rows := Make_Rows(48, 262)
+	panel := Section(parent, "Choices", rows)
+
+	//* The strip of tabs sits above the grid.
+	tab_bar := GUI.Make_Tab_Bar(
+		g,
+		panel,
+		GUI.Tab_Bar_Opts{
+			Base_Opts = GUI.Base_Opts{name = "tab_bar", preset = .Top_Left, offsets = Place(rows, 0, 0, 716, 40)},
+		},
+	)
+	for name, i in ([]string{"One", "Two", "Three"}) {
+		GUI.Make_Label(
+			g,
+			tab_bar,
+			GUI.Label_Opts{
+				Base_Opts = GUI.Base_Opts{
+					name = name,
+					preset = .Top_Left,
+					offsets = GUI.Offset{left = 8 + f32(i) * 70, top = 6, right = 78 + f32(i) * 70, bottom = 32},
+				},
+				text = name,
+			},
+		)
+	}
+
+	//* The grid: the children are put in rows and columns by the layout
+	//* engine, so they can never land on each other.
+	grid := GUI.Make_Grid_Container(
+		g,
+		panel,
+		GUI.Grid_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "choices_grid",
+				preset = .Top_Left,
+				offsets = Place(rows, 0, 1, 716, 262),
+				tooltip = "a grid of three columns",
+			},
+			columns = 3,
+			margin = {8, 8, 8, 8},
+			show_lines = true,
+			line_colour = GUI.RGBA(0.26, 0.29, 0.35, 1),
+		},
+	)
 
 	list := GUI.Make_Item_List(
 		g,
-		panel,
+		grid,
 		GUI.Item_List_Opts{
-			Base_Opts = GUI.Base_Opts{name = "item_list", preset = .Top_Left, offsets = Place(0, 0, 228, 140)},
+			Base_Opts = GUI.Base_Opts{name = "item_list", min_size = GUI.Vec2{COLUMN_WIDTH, 140}},
 			items = {
 				"The first item",
 				"The second item",
@@ -377,9 +422,9 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 
 	tree := GUI.Make_Tree(
 		g,
-		panel,
+		grid,
 		GUI.Tree_Opts{
-			Base_Opts = GUI.Base_Opts{name = "tree", preset = .Top_Left, offsets = Place(1, 0, 228, 140)},
+			Base_Opts = GUI.Base_Opts{name = "tree", min_size = GUI.Vec2{COLUMN_WIDTH, 140}},
 		},
 	)
 	root := GUI.tree_add_item(g, tree, "The project", -1)
@@ -389,33 +434,11 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 	GUI.tree_add_item(g, tree, "The tests", root)
 	GUI.tree_add_item(g, tree, "The readme", -1)
 
-	tab_bar := GUI.Make_Tab_Bar(
-		g,
-		panel,
-		GUI.Tab_Bar_Opts{
-			Base_Opts = GUI.Base_Opts{name = "tab_bar", preset = .Top_Left, offsets = Place(2, 0, 228, 40)},
-		},
-	)
-	for name in ([]string{"One", "Two", "Three"}) {
-		GUI.Make_Label(
-			g,
-			tab_bar,
-			GUI.Label_Opts{
-				Base_Opts = GUI.Base_Opts{
-					name = name,
-					preset = .Top_Left,
-					offsets = GUI.Offset{left = 8, top = 6, right = 70, bottom = 32},
-				},
-				text = name,
-			},
-		)
-	}
-
 	tabs := GUI.Make_Tabs(
 		g,
-		panel,
+		grid,
 		GUI.Tabs_Opts{
-			Base_Opts = GUI.Base_Opts{name = "tabs", preset = .Top_Left, offsets = Place(2, 1, 228, 90)},
+			Base_Opts = GUI.Base_Opts{name = "tabs", min_size = GUI.Vec2{COLUMN_WIDTH, 90}},
 		},
 	)
 	GUI.Make_Label(
@@ -445,9 +468,9 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 
 	tab_container := GUI.Make_Tab_Container(
 		g,
-		panel,
+		grid,
 		GUI.Tab_Container_Opts{
-			Base_Opts = GUI.Base_Opts{name = "tab_container", preset = .Top_Left, offsets = Place(0, 1, 228, 100)},
+			Base_Opts = GUI.Base_Opts{name = "tab_container", min_size = GUI.Vec2{COLUMN_WIDTH, 100}},
 		},
 	)
 	GUI.Make_Label(
@@ -477,9 +500,9 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 
 	accordion := GUI.Make_Accordion(
 		g,
-		panel,
+		grid,
 		GUI.Accordion_Opts{
-			Base_Opts = GUI.Base_Opts{name = "accordion", preset = .Top_Left, offsets = Place(1, 1, 228, 100)},
+			Base_Opts = GUI.Base_Opts{name = "accordion", min_size = GUI.Vec2{COLUMN_WIDTH, 100}},
 		},
 	)
 	GUI.Make_Label(
@@ -509,40 +532,42 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 		},
 	)
 
-	return height
+	return Rows_Height(rows)
 }
 
 //* == popups ==
 
 Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(230)
-	panel := Section(parent, "Popups", height)
+	rows := Make_Rows(36, 36)
+	panel := Section(parent, "Popups", rows)
 
-	popup_menu := GUI.Make_Popup_Menu(
+	popup_menu = GUI.Make_Popup_Menu(
 		g,
-		panel,
+		g.root,
 		GUI.Popup_Menu_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "popup_menu",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 16, top = 120, right = 244, bottom = 220},
+				offsets = GUI.Offset{left = 120, top = 120, right = 360, bottom = 240},
 			},
 			items = {"Open", "Save", "Save as", "Close"},
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, popup_menu)
 
-	popup_panel := GUI.Make_Popup_Panel(
+	popup_panel = GUI.Make_Popup_Panel(
 		g,
-		panel,
+		g.root,
 		GUI.Popup_Panel_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "popup_panel",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 260, top = 120, right = 488, bottom = 220},
+				offsets = GUI.Offset{left = 300, top = 150, right = 620, bottom = 250},
 				style = demo_style(),
 			},
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, popup_panel)
 	GUI.Make_Label(
 		g,
 		popup_panel,
@@ -552,50 +577,54 @@ Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
 		},
 	)
 
-	accept_dialog := GUI.Make_Accept_Dialog(
+	accept_dialog = GUI.Make_Accept_Dialog(
 		g,
-		panel,
+		g.root,
 		GUI.Accept_Dialog_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "accept_dialog",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 504, top = 120, right = 732, bottom = 200},
+				offsets = GUI.Offset{left = 320, top = 200, right = 620, bottom = 320},
 			},
 			text = "Save the changes?",
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, accept_dialog)
 
-	confirmation_dialog := GUI.Make_Confirmation_Dialog(
+	confirmation_dialog = GUI.Make_Confirmation_Dialog(
 		g,
-		panel,
+		g.root,
 		GUI.Accept_Dialog_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "confirmation_dialog",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 16, top = 120, right = 244, bottom = 200},
+				offsets = GUI.Offset{left = 320, top = 200, right = 640, bottom = 330},
 			},
 			text = "Close the file without saving?",
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, confirmation_dialog)
 
-	file_dialog := GUI.Make_File_Dialog(
+	file_dialog = GUI.Make_File_Dialog(
 		g,
-		panel,
+		g.root,
 		GUI.File_Dialog_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "file_dialog",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 260, top = 120, right = 488, bottom = 200},
+				offsets = GUI.Offset{left = 260, top = 120, right = 740, bottom = 420},
 			},
 			mode = .Open_File,
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, file_dialog)
+	GUI.File_Dialog_Set_Path(g, file_dialog, "examples/01_gallery")
 
 	GUI.Make_Button(
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "open_menu", preset = .Top_Left, offsets = Slot(0, 0)},
+			Base_Opts = GUI.Base_Opts{name = "open_menu", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 30)},
 			text = "Open the menu",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 				GUI.Popup_Menu_Open(gui, popup_menu)
@@ -607,7 +636,7 @@ Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "open_panel", preset = .Top_Left, offsets = Slot(1, 0)},
+			Base_Opts = GUI.Base_Opts{name = "open_panel", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 30)},
 			text = "Open the panel",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 				GUI.Popup_Panel_Open(gui, popup_panel)
@@ -619,7 +648,7 @@ Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "open_accept", preset = .Top_Left, offsets = Slot(2, 0)},
+			Base_Opts = GUI.Base_Opts{name = "open_accept", preset = .Top_Left, offsets = Place(rows, 2, 0, COLUMN_WIDTH, 30)},
 			text = "Ask to accept",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 				GUI.Dialog_Open(gui, accept_dialog)
@@ -631,7 +660,7 @@ Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "open_confirm", preset = .Top_Left, offsets = Slot(0, 1)},
+			Base_Opts = GUI.Base_Opts{name = "open_confirm", preset = .Top_Left, offsets = Place(rows, 0, 1, COLUMN_WIDTH, 30)},
 			text = "Ask to confirm",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 				GUI.Dialog_Open(gui, confirmation_dialog)
@@ -643,7 +672,7 @@ Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "open_file", preset = .Top_Left, offsets = Slot(1, 1)},
+			Base_Opts = GUI.Base_Opts{name = "open_file", preset = .Top_Left, offsets = Place(rows, 1, 1, COLUMN_WIDTH, 30)},
 			text = "Ask for a file",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 				GUI.File_Dialog_Open(gui, file_dialog)
@@ -651,40 +680,59 @@ Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
 		},
 	)
 
-	return height
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "popup_hint",
+				preset = .Top_Left,
+				offsets = Place(rows, 2, 1, COLUMN_WIDTH, 30),
+				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
+			},
+			text = "The popups come up over it.",
+		},
+	)
+
+	return Rows_Height(rows)
 }
 
 //* == overlays ==
 
 Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(330)
-	panel := Section(parent, "Overlays", height)
+	rows := Make_Rows(36, 250, 240)
+	panel := Section(parent, "Overlays", rows)
 
+	//* The toast sits in the bottom right corner of the window, over the gallery.
 	toast = GUI.Make_Toast(
 		g,
-		panel,
+		g.root,
 		GUI.Toast_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "toast",
-				preset = .Top_Left,
-				offsets = GUI.Offset{left = 16, top = 44, right = 244, bottom = 80},
+				preset = .Bottom_Right,
+				offsets = GUI.Offset{left = -336, top = -64, right = -16, bottom = -16},
 			},
 			text = "Saved",
 			kind = .Success,
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, toast)
+	Place_In_Corner(toast, GUI.Anchor{1, 1, 1, 1}, GUI.Offset{left = -336, top = -64, right = -16, bottom = -16})
 
+	//* The palette is a panel over the program.
 	palette = GUI.Make_Command_Palette(
 		g,
-		panel,
+		g.root,
 		GUI.Command_Palette_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "palette",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 16, top = 90, right = 244, bottom = 210},
+				offsets = GUI.Offset{left = 200, top = 60, right = 800, bottom = 380},
 			},
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, palette)
 
 	GUI.Command_Add(g, "Save", GUI.Shortcut{key = .S, mods = GUI.Mods{.Ctrl}}, nil)
 	GUI.Command_Add(g, "Open", GUI.Shortcut{key = .O, mods = GUI.Mods{.Ctrl}}, nil)
@@ -692,12 +740,12 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 
 	context_menu = GUI.Make_Context_Menu(
 		g,
-		panel,
+		g.root,
 		GUI.Context_Menu_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "context_menu",
 				preset = .Top_Left,
-				offsets = GUI.Offset{left = 16, top = 220, right = 244, bottom = 320},
+				offsets = GUI.Offset{left = 120, top = 120, right = 360, bottom = 280},
 			},
 			items = {
 				GUI.Context_Menu_Item{text = "Cut"},
@@ -707,12 +755,13 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 			},
 		},
 	)
+	GUI.Popup_Attach_To_Root(g, context_menu)
 
 	GUI.Make_Button(
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "show_toast", preset = .Top_Left, offsets = Slot(1, 0)},
+			Base_Opts = GUI.Base_Opts{name = "show_toast", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 30)},
 			text = "Show the toast",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 				GUI.Toast_Show(gui, toast, "The file was saved.", .Success, 3)
@@ -724,10 +773,10 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "show_palette", preset = .Top_Left, offsets = Slot(2, 0)},
+			Base_Opts = GUI.Base_Opts{name = "show_palette", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 30)},
 			text = "Open the palette",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
-				GUI.Popup_Open(gui, palette)
+				GUI.Command_Palette_Open(gui, palette)
 			},
 		},
 	)
@@ -736,11 +785,70 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Button_Opts{
-			Base_Opts = GUI.Base_Opts{name = "show_context", preset = .Top_Left, offsets = Slot(1, 1)},
+			Base_Opts = GUI.Base_Opts{name = "show_context", preset = .Top_Left, offsets = Place(rows, 2, 0, COLUMN_WIDTH, 30)},
 			text = "Open the menu",
 			on_pressed = proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 				GUI.Context_Menu_Open(gui, context_menu, GUI.Vec2{280, 130})
 			},
+		},
+	)
+
+	GUI.Make_Color_Picker(
+		g,
+		panel,
+		GUI.Color_Picker_Opts{
+			Base_Opts = GUI.Base_Opts{name = "color_picker", preset = .Top_Left, offsets = Place(rows, 2, 1, COLUMN_WIDTH, 90)},
+			colour = GUI.RGBA(0.25, 0.62, 1.0, 1),
+		},
+	)
+
+	//* The pickers have a row that is tall enough for their open panel.
+	date_picker = GUI.Make_Date_Picker(
+		g,
+		panel,
+		GUI.Date_Picker_Opts{
+			Base_Opts = GUI.Base_Opts{name = "date_picker", preset = .Top_Left, offsets = Place(rows, 0, 1, COLUMN_WIDTH, 250)},
+			year = 2026,
+			month = 11,
+			day = 9,
+		},
+	)
+
+	time_picker = GUI.Make_Time_Picker(
+		g,
+		panel,
+		GUI.Time_Picker_Opts{
+			Base_Opts = GUI.Base_Opts{name = "time_picker", preset = .Top_Left, offsets = Place(rows, 1, 1, COLUMN_WIDTH, 250)},
+			hour = 14,
+			minute = 30,
+		},
+	)
+
+	emoji_picker = GUI.Make_Emoji_Picker(
+		g,
+		panel,
+		GUI.Emoji_Picker_Opts{
+			Base_Opts = GUI.Base_Opts{name = "emoji_picker", preset = .Top_Left, offsets = Place(rows, 0, 2, COLUMN_WIDTH, 240)},
+			emoji = "\U0001F600",
+			group = 0,
+		},
+	)
+
+	emoji_hint := "The emoji are drawn in colour."
+	if !emoji_font {
+		emoji_hint = "The colour emoji font is missing: no glyph is drawn."
+	}
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "emoji_hint",
+				preset = .Top_Left,
+				offsets = Place(rows, 1, 2, COLUMN_WIDTH, 30),
+				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
+			},
+			text = emoji_hint,
 		},
 	)
 
@@ -751,61 +859,21 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "tooltip_subject",
 				preset = .Top_Left,
-				offsets = Slot(2, 1),
+				offsets = Place(rows, 2, 2, COLUMN_WIDTH, 30),
 				tooltip = "The tooltip waits until the pointer rests on the thing.",
 			},
 			text = "Rest on me",
 		},
 	)
 
-	GUI.Make_Date_Picker(
-		g,
-		panel,
-		GUI.Date_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "date_picker", preset = .Top_Left, offsets = Place(0, 2, 228, 90)},
-			year = 2026,
-			month = 11,
-			day = 9,
-		},
-	)
-
-	GUI.Make_Time_Picker(
-		g,
-		panel,
-		GUI.Time_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "time_picker", preset = .Top_Left, offsets = Place(1, 2, 228, 90)},
-			hour = 14,
-			minute = 30,
-		},
-	)
-
-	GUI.Make_Color_Picker(
-		g,
-		panel,
-		GUI.Color_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "color_picker", preset = .Top_Left, offsets = Place(2, 2, 228, 90)},
-			colour = GUI.RGBA(0.25, 0.62, 1.0, 1),
-		},
-	)
-
-	GUI.Make_Emoji_Picker(
-		g,
-		panel,
-		GUI.Emoji_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "emoji_picker", preset = .Top_Left, offsets = Place(0, 3, 228, 90)},
-			emoji = "\U0001F600",
-			group = 0,
-		},
-	)
-
-	return height
+	return Rows_Height(rows)
 }
 
 //* == containers ==
 
 Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(470)
-	panel := Section(parent, "Containers", height)
+	rows := Make_Rows(110, 110, 110, 110)
+	panel := Section(parent, "Containers", rows)
 
 	//* A plain panel: it places its children where they are told to.
 	box := GUI.Make_Panel(
@@ -815,7 +883,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "panel_demo",
 				preset = .Top_Left,
-				offsets = Place(0, 0, 228, 96),
+				offsets = Place(rows, 0, 0, COLUMN_WIDTH, 96),
 				style = demo_style(),
 			},
 		},
@@ -841,7 +909,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "vbox_demo",
 				preset = .Top_Left,
-				offsets = Place(1, 0, 228, 96),
+				offsets = Place(rows, 1, 0, COLUMN_WIDTH, 96),
 				separation = 4,
 				style = demo_style(),
 				tooltip = "vbox demo",
@@ -871,7 +939,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "hbox_demo",
 				preset = .Top_Left,
-				offsets = Place(2, 0, 228, 96),
+				offsets = Place(rows, 2, 0, COLUMN_WIDTH, 96),
 				separation = 8,
 				style = demo_style(),
 				tooltip = "hbox demo",
@@ -893,7 +961,8 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 		)
 	}
 
-	//* A grid: the children are put in rows and columns.
+	//* A grid: the children are put in rows and columns, and the lines
+	//* between the cells are drawn.
 	grid := GUI.Make_Grid_Container(
 		g,
 		panel,
@@ -901,11 +970,14 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "grid_demo",
 				preset = .Top_Left,
-				offsets = Place(0, 1, 228, 96),
+				offsets = Place(rows, 0, 1, COLUMN_WIDTH, 96),
 				style = demo_style(),
 				tooltip = "grid container demo",
 			},
 			columns = 2,
+			margin = {8, 8, 8, 8},
+			show_lines = true,
+			line_colour = GUI.RGBA(0.30, 0.33, 0.40, 1),
 		},
 	)
 	for text in ([]string{"A", "B", "C", "D"}) {
@@ -930,7 +1002,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "margin_demo",
 				preset = .Top_Left,
-				offsets = Place(1, 1, 228, 96),
+				offsets = Place(rows, 1, 1, COLUMN_WIDTH, 96),
 				style = demo_style(),
 				tooltip = "margin container demo",
 			},
@@ -954,7 +1026,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "center_demo",
 				preset = .Top_Left,
-				offsets = Place(2, 1, 228, 96),
+				offsets = Place(rows, 2, 1, COLUMN_WIDTH, 96),
 				style = demo_style(),
 				tooltip = "center container demo",
 			},
@@ -976,7 +1048,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "panel_container_demo",
 				preset = .Top_Left,
-				offsets = Place(0, 2, 228, 96),
+				offsets = Place(rows, 0, 2, COLUMN_WIDTH, 96),
 				style = demo_style(),
 				tooltip = "panel container demo",
 			},
@@ -999,7 +1071,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "scroll_demo",
 				preset = .Top_Left,
-				offsets = Place(1, 2, 228, 96),
+				offsets = Place(rows, 1, 2, COLUMN_WIDTH, 96),
 				style = demo_style(),
 				tooltip = "scroll container demo",
 			},
@@ -1025,7 +1097,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "scroll_area_demo",
 				preset = .Top_Left,
-				offsets = Place(2, 2, 228, 96),
+				offsets = Place(rows, 2, 2, COLUMN_WIDTH, 96),
 				style = demo_style(),
 				tooltip = "scroll area demo",
 			},
@@ -1051,7 +1123,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "flow_demo",
 				preset = .Top_Left,
-				offsets = Place(0, 3, 228, 96),
+				offsets = Place(rows, 0, 3, COLUMN_WIDTH, 96),
 				separation = 6,
 				style = demo_style(),
 				tooltip = "flow demo",
@@ -1080,7 +1152,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "aspect_demo",
 				preset = .Top_Left,
-				offsets = Place(1, 3, 228, 96),
+				offsets = Place(rows, 1, 3, COLUMN_WIDTH, 96),
 				style = demo_style(),
 			},
 			ratio = 2,
@@ -1106,7 +1178,7 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "split_demo",
 				preset = .Top_Left,
-				offsets = Place(2, 3, 228, 96),
+				offsets = Place(rows, 2, 3, COLUMN_WIDTH, 96),
 				style = demo_style(),
 				tooltip = "split demo",
 			},
@@ -1128,20 +1200,20 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 		)
 	}
 
-	return height
+	return Rows_Height(rows)
 }
 
-//* == The simple drawings ==
+//* == Simple drawings ==
 
 Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(220)
-	panel := Section(parent, "Simple drawings", height)
+	rows := Make_Rows(110, 110, 36, 36)
+	panel := Section(parent, "Simple drawings", rows)
 
 	GUI.Make_Label(
 		g,
 		panel,
 		GUI.Label_Opts{
-			Base_Opts = GUI.Base_Opts{name = "label", preset = .Top_Left, offsets = Slot(0, 0)},
+			Base_Opts = GUI.Base_Opts{name = "label", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 30)},
 			text = "A label",
 		},
 	)
@@ -1150,17 +1222,20 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Color_Rect_Opts{
-			Base_Opts = GUI.Base_Opts{name = "color_rect", preset = .Top_Left, offsets = Slot(1, 0), tooltip = "A color rect"},
+			Base_Opts = GUI.Base_Opts{name = "color_rect", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 30), tooltip = "A color rect"},
 			colour = GUI.RGBA(0.25, 0.62, 1.0, 1),
 		},
 	)
+
+	icon, icon_ok := GUI.Texture_Load_File(g, "examples/01_gallery/Max-Disabled.png")
+	barrel, barrel_ok := GUI.Texture_Load_File(g, "examples/01_gallery/buttonDefault.png")
 
 	GUI.Make_Texture_Rect(
 		g,
 		panel,
 		GUI.Texture_Rect_Opts{
-			Base_Opts = GUI.Base_Opts{name = "texture_rect", preset = .Top_Left, offsets = Place(2, 0, 120, 96), tooltip = "texture rect demo"},
-			texture = GUI.GUI_Atlas_Texture(g),
+			Base_Opts = GUI.Base_Opts{name = "texture_rect", preset = .Top_Left, offsets = Place(rows, 2, 0, 120, 96), tooltip = "texture rect demo"},
+			texture = icon,
 		},
 	)
 
@@ -1168,9 +1243,9 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Nine_Patch_Opts{
-			Base_Opts = GUI.Base_Opts{name = "nine_patch_rect", preset = .Top_Left, offsets = Place(0, 1, 120, 96), tooltip = "nine patch rect demo"},
-			texture = GUI.GUI_Atlas_Texture(g),
-			patch = {24, 24, 24, 24},
+			Base_Opts = GUI.Base_Opts{name = "nine_patch_rect", preset = .Top_Left, offsets = Place(rows, 0, 1, 120, 96), tooltip = "nine patch rect demo"},
+			texture = barrel,
+			patch = {40, 16, 40, 16},
 		},
 	)
 
@@ -1181,7 +1256,7 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 		GUI.Widget_Opts{
 			name = "image",
 			preset = .Top_Left,
-			offsets = Place(1, 1, 120, 96),
+			offsets = Place(rows, 1, 1, 120, 96),
 			style = GUI.Style{
 				box = GUI.StyleBox{bg_color = GUI.RGBA(0.20, 0.24, 0.32, 1)},
 			},
@@ -1196,7 +1271,7 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "reference_rect",
 				preset = .Top_Left,
-				offsets = Place(2, 1, 120, 96),
+				offsets = Place(rows, 2, 1, 120, 96),
 				tooltip = "reference rect",
 			},
 		},
@@ -1209,17 +1284,27 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "reference_hint",
 				preset = .Top_Left,
-				offsets = Slot(0, 2),
+				offsets = Place(rows, 0, 2, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
-			text = "The rectangle before the label holds a place in the layout.",
+			text = "The rectangle holds a place in the layout.",
 		},
 	)
 
+	//* The line across is under the first row, the one at the side
+	//* stands between the second and the third column.
 	hsep := GUI.Make_Separator(g, panel, false)
-	GUI.Widget_Set_Offsets(g, hsep, GUI.Offset{left = 16, top = 196, right = 300, bottom = 197})
+	GUI.Widget_Set_Offsets(
+		g,
+		hsep,
+		GUI.Offset{left = 16, top = ROW_TOP + rows.tops[1] - 6, right = 488, bottom = ROW_TOP + rows.tops[1] - 5},
+	)
 	vsep := GUI.Make_Separator(g, panel, true)
-	GUI.Widget_Set_Offsets(g, vsep, GUI.Offset{left = 480, top = 44, right = 481, bottom = 140})
+	GUI.Widget_Set_Offsets(
+		g,
+		vsep,
+		GUI.Offset{left = 495, top = ROW_TOP, right = 496, bottom = ROW_TOP + 96},
+	)
 
 	GUI.Make_Label(
 		g,
@@ -1228,27 +1313,30 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "separator_hint",
 				preset = .Top_Left,
-				offsets = Slot(0, 3),
+				offsets = Place(rows, 0, 3, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
 			text = "The line across is a horizontal separator, the one at the side stands up.",
 		},
 	)
 
-	return height
+	_ = icon_ok
+	_ = barrel_ok
+
+	return Rows_Height(rows)
 }
 
 //* == data ==
 
 Section_Data :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(230)
-	panel := Section(parent, "Data", height)
+	rows := Make_Rows(180)
+	panel := Section(parent, "Data", rows)
 
 	table := GUI.Make_Data_Table(
 		g,
 		panel,
 		GUI.Data_Table_Opts{
-			Base_Opts = GUI.Base_Opts{name = "data_table", preset = .Top_Left, offsets = Place(0, 0, 228, 170)},
+			Base_Opts = GUI.Base_Opts{name = "data_table", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 170)},
 		},
 	)
 	GUI.data_table_add_column(g, table, "Name", 130)
@@ -1263,7 +1351,7 @@ Section_Data :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Virtual_List_Opts{
-			Base_Opts = GUI.Base_Opts{name = "virtual_list", preset = .Top_Left, offsets = Place(1, 0, 228, 170)},
+			Base_Opts = GUI.Base_Opts{name = "virtual_list", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 170)},
 			source = gallery_list_source(),
 		},
 	)
@@ -1275,14 +1363,14 @@ Section_Data :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "virtual_hint",
 				preset = .Top_Left,
-				offsets = Slot(2, 0),
+				offsets = Place(rows, 2, 0, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
-			text = "A list of a hundred thousand rows. Only the rows on the screen are drawn.",
+			text = "Only the rows on the screen are drawn.",
 		},
 	)
 
-	return height
+	return Rows_Height(rows)
 }
 
 //* The rows of the virtual list.
@@ -1302,14 +1390,14 @@ gallery_list_source :: proc() -> GUI.List_Source {
 //* == The heavy widgets ==
 
 Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
-	height := f32(390)
-	panel := Section(parent, "Heavy widgets", height)
+	rows := Make_Rows(180, 180, 80)
+	panel := Section(parent, "Heavy widgets", rows)
 
 	chart := GUI.Make_Chart(
 		g,
 		panel,
 		GUI.Chart_Opts{
-			Base_Opts = GUI.Base_Opts{name = "chart", preset = .Top_Left, offsets = Place(0, 0, 228, 170)},
+			Base_Opts = GUI.Base_Opts{name = "chart", preset = .Top_Left, offsets = Place(rows, 0, 0, COLUMN_WIDTH, 170)},
 			kind = .Bar,
 		},
 	)
@@ -1321,7 +1409,7 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Node_Graph_Opts{
-			Base_Opts = GUI.Base_Opts{name = "node_graph", preset = .Top_Left, offsets = Place(1, 0, 228, 170), tooltip = "Node Graph"},
+			Base_Opts = GUI.Base_Opts{name = "node_graph", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 170), tooltip = "Node Graph"},
 		},
 	)
 	first := GUI.node_graph_add_node(g, graph, "Read", GUI.Vec2{30, 30})
@@ -1334,7 +1422,7 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Canvas_Opts{
-			Base_Opts = GUI.Base_Opts{name = "canvas", preset = .Top_Left, offsets = Place(2, 0, 228, 170), tooltip = "a canvas"},
+			Base_Opts = GUI.Base_Opts{name = "canvas", preset = .Top_Left, offsets = Place(rows, 2, 0, COLUMN_WIDTH, 170), tooltip = "a canvas"},
 		},
 	)
 	GUI.canvas_set_paint(g, canvas, gallery_paint)
@@ -1343,7 +1431,7 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Vector_Drawing_Opts{
-			Base_Opts = GUI.Base_Opts{name = "vector_drawing", preset = .Top_Left, offsets = Place(0, 1, 228, 170)},
+			Base_Opts = GUI.Base_Opts{name = "vector_drawing", preset = .Top_Left, offsets = Place(rows, 0, 1, COLUMN_WIDTH, 170)},
 		},
 	)
 	GUI.vector_drawing_add_rect(g, drawing, GUI.Vec2{40, 40}, GUI.Vec2{180, 140}, GUI.RGBA(0.40, 0.85, 0.50, 1))
@@ -1354,7 +1442,7 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.File_Viewer_Opts{
-			Base_Opts = GUI.Base_Opts{name = "file_viewer", preset = .Top_Left, offsets = Place(1, 1, 228, 170), tooltip = "file viewer"},
+			Base_Opts = GUI.Base_Opts{name = "file_viewer", preset = .Top_Left, offsets = Place(rows, 1, 1, COLUMN_WIDTH, 170), tooltip = "file viewer"},
 		},
 	)
 	GUI.file_viewer_add_entry(g, files, "src", 0, true)
@@ -1363,11 +1451,12 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 	GUI.file_viewer_add_entry(g, files, "README.md", 4096, false)
 	GUI.file_viewer_add_entry(g, files, "LICENSE", 1024, false)
 
+	//* The player is under the canvas, not on top of it.
 	GUI.Make_Audio_Player(
 		g,
 		panel,
 		GUI.Audio_Player_Opts{
-			Base_Opts = GUI.Base_Opts{name = "audio_player", preset = .Top_Left, offsets = Place(2, 1, 228, 60), tooltip = "audio player"},
+			Base_Opts = GUI.Base_Opts{name = "audio_player", preset = .Top_Left, offsets = Place(rows, 2, 1, COLUMN_WIDTH, 60), tooltip = "audio player"},
 			path = "assets/sounds/beep.wav",
 			volume = 0.8,
 			loops = true,
@@ -1381,18 +1470,16 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "audio_hint",
 				preset = .Top_Left,
-				offsets = Slot(2, 1),
+				offsets = Place(rows, 0, 2, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
-			text = "Audio player",
+			text = "The audio player is under the canvas.",
 		},
 	)
 
-	return height
+	return Rows_Height(rows)
 }
 
-//* The paint of the canvas: it is called every frame and it puts a few
-//* things in the canvas.
 gallery_paint :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID, state: ^GUI.Canvas_State) {
 	GUI.canvas_add_rect(gui, id, GUI.Vec2{20, 20}, GUI.Vec2{120, 80}, GUI.RGBA(0.25, 0.60, 1.00, 1))
 	GUI.canvas_add_circle(gui, id, GUI.Vec2{180, 20}, GUI.Vec2{90, 90}, GUI.RGBA(0.95, 0.55, 0.20, 1))

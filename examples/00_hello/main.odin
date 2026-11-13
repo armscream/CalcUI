@@ -1,22 +1,24 @@
 //* == Hello ==
 //* The smallest program that uses CalcUI: a window with a label, a
-//* button and a text field in it.
-
+//* button and a text field in it. The button counts its presses and the
+//* count is shown next to it. Every widget takes the size of its text.
 package main
 
+import "core:fmt"
 import "core:log"
-import common "../common"
+import App "../../src/App"
 import GUI "../../src/GUI"
 
 g: ^GUI.GUI
 clicks: int
+count_label: GUI.Widget_ID
 
 main :: proc() {
-	common.Run(
+	App.Run(
 		"CalcUI - Hello",
-		520,
-		240,
-		proc(app: ^common.App) {
+		420,
+		180,
+		proc(app: ^App.App) {
 			g = app.gui
 
 			GUI.Make_Label(
@@ -25,7 +27,7 @@ main :: proc() {
 				GUI.Label_Opts{
 					Base_Opts = GUI.Base_Opts{
 						name = "title",
-						offsets = GUI.Offset{left = 16, top = 16, right = -16},
+						offsets = GUI.Offset{left = 16, top = 16, right = -16, bottom = 40},
 					},
 					text = "Hello, CalcUI",
 				},
@@ -37,26 +39,40 @@ main :: proc() {
 				GUI.Button_Opts{
 					Base_Opts = GUI.Base_Opts{
 						name = "press",
-						offsets = GUI.Offset{left = 16, top = 52, right = 140, bottom = 84},
+						offsets = GUI.Offset{left = 16, top = 52, right = -16, bottom = 84},
 					},
 					text = "Press me",
 					on_pressed = on_press,
 				},
 			)
 
-			GUI.Make_Text_Input(
+			count_label = GUI.Make_Label(
 				g,
 				g.root,
-				GUI.Text_Input_Opts{
+				GUI.Label_Opts{
+					Base_Opts = GUI.Base_Opts{
+						name = "count",
+						offsets = GUI.Offset{left = 16, top = 92, right = -16, bottom = 116},
+					},
+					text = "0 presses",
+				},
+			)
+
+			GUI.Make_Text_Box(
+				g,
+				g.root,
+				GUI.Text_Box_Opts{
 					Base_Opts = GUI.Base_Opts{
 						name = "name",
-						offsets = GUI.Offset{left = 16, top = 100, right = -16, bottom = 132},
+						offsets = GUI.Offset{left = 16, top = 124, right = -16, bottom = 156},
 					},
 					text = "type here",
 				},
 			)
 		},
-		nil,
+		proc(app: ^App.App) {
+			GUI.Widget_Set_Text(app.gui, count_label, fmt.tprintf("%d presses", clicks))
+		},
 	)
 	log.info("the hello example is done")
 }

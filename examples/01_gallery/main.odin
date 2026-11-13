@@ -7,6 +7,7 @@ package main
 
 import "core:log"
 import App "../../src/App"
+import Backend "../../src/Backend"
 import GUI "../../src/GUI"
 
 import "core:mem"
@@ -42,5 +43,8 @@ main :: proc() {
 
 //* The gallery widget setup proc.
 setup :: proc(app: ^App.App) {
-	Init_Gallery(app.gui, app.family)
+    //* The sound of the gallery: it is false when there is no sound card,
+    //* and the GUI stays usable without it.
+    Backend.sdl3_audio_install(app.gui)
+    Init_Gallery(app.gui, app.family)
 }
