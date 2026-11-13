@@ -17,15 +17,16 @@ Interfaces can be built programmatically or described in scene files, allowing c
 
 ## Screenshots
 
-<p align="center">
-  <img src="assets/calcdock.png" alt="CalcUI docking system" width="100%">
-</p><p align="center">
-  <img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="100%">
-</p><p align="center">
-  <img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="100%">
-</p><p align="center">
-  <img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="100%">
-</p>Features
+<table>
+  <tr>
+    <td align="center"><img src="assets/calcdock.png" alt="CalcUI docking system" width="49%"></td>
+    <td align="center"><img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="49%"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="49%"></td>
+    <td align="center"><img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="49%"></td>
+  </tr>
+</table>   
 
 - Retained-mode architecture – Persistent widget tree with independent widget identities and state.
 - Incremental layout engine – Dirty-driven measurement and arrangement. Only affected layout branches are recalculated.
@@ -335,4 +336,4 @@ Third-party components retain their respective licenses:
 - SDL3 and Runa: zlib.
 - Ported Skald code: BSD-2-Clause.
 
-See [![Notice](https://img.shields.io/github/notice/armscream/CalcUI)](https://github.com/armscream/CalcUI/blob/main/NOTICE) for third-party attributions.
+See [![Notice](https://img.shields.io/badge/Notice-Attributions-blue)](https://github.com/armscream/CalcUI/blob/main/NOTICE) for third-party attributions.
