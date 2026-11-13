@@ -36,7 +36,7 @@ Screenshots
 - Multiple windows – Window management, overlays, popups and detached panels.
 - Headless testing – Test GUI logic without opening a window.
 
-Layout Engine
+# Layout Engine
 
 CalcUI uses a fully incremental, dirty-driven layout engine. Rather than recalculating the entire widget tree every frame, changes invalidate the relevant layout state and propagate through affected dependencies.
 
@@ -72,23 +72,25 @@ Complex layouts
 
 These can be combined to build everything from simple application interfaces to complex editor layouts.
 
-Widgets
+# Widgets
 
 CalcUI includes a broad collection of built-in widgets and interface components.
 
-Category| Widgets
-Basic| Buttons, check boxes, toggle switches, ranges, ratings, number inputs
-Containers| Margin, VBox, HBox, ScrollBox, Accordion
-Text & Input| Text boxes, rich text editor, search fields, chat input
-Selection| Combo boxes, color picker, date picker, time picker, emoji picker
-Menus & Overlays| Command palette, context menus, tooltips, popups, toast notifications
-Data| Data tables, virtual lists, charts
-Visualization| Canvas, node graphs, vector drawing
-File & Content| File viewer
-Layout| Dockspaces, floating and detachable panels
+| Category | Widgets |
+|---|---|
+| Basic | Buttons, check boxes, toggle switches, ranges, ratings, number inputs |
+| Containers | Margin, VBox, HBox, ScrollBox, Accordion |
+| Text & Input | Text boxes, rich text editor, search fields, chat input |
+| Selection | Combo boxes, color picker, date picker, time picker, emoji picker |
+| Menus & Overlays | Command palette, context menus, tooltips, popups, toast notifications |
+| Data | Data tables, virtual lists, charts |
+| Visualization | Canvas, node graphs, vector drawing |
+| File & Content | File viewer |
+| Layout | Dockspaces, floating and detachable panels |
 
-Quick Start
+# Quick Start
 
+```odin
 import GUI "calcui/src/GUI"
 
 g := GUI.Init_GUI(width, height, backend)
@@ -106,8 +108,9 @@ GUI.Make_Button(g, g.root, GUI.Button_Opts{
     text = "OK",
     on_pressed = on_ok,
 })
+```
 
-Declarative UI & Scenes
+# Declarative UI & Scenes
 
 Interfaces can be constructed programmatically or defined in scene files.
 
@@ -138,27 +141,31 @@ The included backends use SDL3:
 
 SDL3 is used by the examples and included integrations, but it is not a requirement of the GUI architecture. Other rendering systems can be integrated by implementing the necessary backend operations and wiring up window events, input, textures and presentation.
 
-Display Scaling
+# Display Scaling
 
 CalcUI uses logical units for widget geometry, padding, borders, font sizes and image dimensions.
 
 The renderer converts these values into physical pixels using "GUI.scale". Pointer positions and window dimensions are also expressed in logical units.
 
+```odin
 g := GUI.Init_GUI(logical_width, logical_height, backend)
 GUI.GUI_Set_Scale(g, pixel_density)
+```
 
 Call "GUI_Set_Scale" when a window moves between displays with different pixel densities. Glyphs are rasterized again at the new physical size to maintain sharp text.
 
-Fonts
+# Fonts
 
 Font families support fallback chains. When a family does not contain a requested glyph, CalcUI searches its fallback families.
 
+```odin
 family := GUI.Font_Family_Add(g, "Roboto", FONT_DATA)
 GUI.Font_Family_Set_Fallback(g, family, symbol_family)
+```
 
 "GUI.Font_Has_Glyph" checks whether a family or its fallbacks contain a particular codepoint.
 
-Text Boxes
+# Example Widget - Text Boxes
 
 CalcUI uses a single "TextBox" widget for both single-line and multiline input.
 
@@ -174,6 +181,7 @@ Supported features include:
 
 Input rules are configured per instance.
 
+```odin
 GUI.Make_Text_Box(g, g.root, GUI.Text_Box_Opts{
     Base_Opts = GUI.Base_Opts{name = "amount"},
     rules = GUI.Text_Rules{
@@ -189,13 +197,15 @@ GUI.Make_Text_Box(g, g.root, GUI.Text_Box_Opts{
     flags = GUI.Text_Box_Flags{.Multiline},
     text = "A multiline text box.",
 })
+```
 
 See "docs/widgets.md" (docs/widgets.md) for widget behaviour and available options.
 
-Custom Widgets
+# Custom Widgets
 
 Custom widgets are registered as classes. Each class defines callbacks for drawing, measurement and input, with optional lifecycle and layout hooks.
 
+```odin
 class := GUI.Widget_Register_Class(g, GUI.Widget_Class_Desc{
     name = "Gauge",
     kind = GUI.Widget_Kind{
@@ -211,28 +221,30 @@ id := GUI.Make_Custom_Widget(
     class,
     GUI.Base_Opts{name = "gauge"},
 )
+```
 
 Custom classes can also define signals, default styles and scene-file constructors.
 
 See "docs/extending.md" (docs/extending.md).
 
-Examples
+# Examples
 
 The "examples" directory contains standalone applications demonstrating CalcUI's features.
 
-Example| Description
-"00_hello"| Basic window, label, button and text field.
-"01_gallery"| Widget gallery, toolbar, docking and text showcase.
-"02_docking"| Docking, panel movement and drag-and-drop.
-"03_text"| Text sizing, colours, alignment and wrapping.
-"04_overlays"| Detached panels and multiple windows.
-"05_theming"| Themes and widget styles.
-"06_data"| Checkboxes, sliders, progress bars, lists and trees.
-"07_widgets"| Inputs, pickers, chat, tables and command palette.
-"08_heavy"| Charts, node graphs, canvas and editor widgets.
-"09_scene"| Scene loading and default themes.
+| Example | Description |
+|---|---|
+| `00_hello` | Basic window, label, button and text field. |
+| `01_gallery` | Widget gallery, toolbar, docking and text showcase. |
+| `02_docking` | Docking, panel movement and drag-and-drop. |
+| `03_text` | Text sizing, colours, alignment and wrapping. |
+| `04_overlays` | Detached panels and multiple windows. |
+| `05_theming` | Themes and widget styles. |
+| `06_data` | Checkboxes, sliders, progress bars, lists and trees. |
+| `07_widgets` | Inputs, pickers, chat, tables and command palette. |
+| `08_heavy` | Charts, node graphs, canvas and editor widgets. |
+| `09_scene` | Scene loading and default themes. |
 
-Building
+# Building
 
 CalcUI requires the "Odin compiler" (https://odin-lang.org/).
 
@@ -269,26 +281,28 @@ This checks the GUI, window and backend packages, runs GUI tests, builds the exa
 
 GitHub Actions runs these checks on Windows, Linux and macOS.
 
-Project Structure
+# Project Structure
 
-Directory| Description
-"src/GUI"| Widget tree, layout, rendering, text, atlas and themes.
-"src/Backend"| SDL3 renderer and SDL3 GPU backends.
-"src/Window"| Window management, events, popups, cursor and clipboard.
-"examples"| Example applications.
-"assets"| Fonts, images and other example assets.
-"tools"| Development tools, shaders and frame capture utilities.
-"docs"| Usage, widget, extension and scene documentation.
+| Directory | Description |
+|---|---|
+| `src/GUI` | Widget tree, layout, rendering, text, atlas and themes. |
+| `src/Backend` | SDL3 renderer and SDL3 GPU backends. |
+| `src/Window` | Window management, events, popups, cursor and clipboard. |
+| `examples` | Example applications. |
+| `assets` | Fonts, images and other example assets. |
+| `tools` | Development tools, shaders and frame capture utilities. |
+| `docs` | Usage, widget, extension and scene documentation. |
 
-Documentation
+## Documentation
 
-Document| Description
-"docs/Usage.md" (docs/Usage.md)| Getting started and API overview.
-"docs/widgets.md" (docs/widgets.md)| Widget behaviour and available options.
-"docs/extending.md" (docs/extending.md)| Creating custom widgets.
-"docs/scene-format.md" (docs/scene-format.md)| Scene format and loading.
+| Document | Description |
+|---|---|
+| [`docs/Usage.md`](docs/Usage.md) | Getting started and API overview. |
+| [`docs/widgets.md`](docs/widgets.md) | Widget behaviour and available options. |
+| [`docs/extending.md`](docs/extending.md) | Creating custom widgets. |
+| [`docs/scene-format.md`](docs/scene-format.md) | Scene format and loading. |   
 
-Shaders
+# Shaders
 
 Compiled shaders are included in the repository, so a shader compiler is not needed to build CalcUI.
 
@@ -302,7 +316,7 @@ src/Backend/build_shaders.sh
 
 Shader compilation requires "glslc", available through the Vulkan SDK.
 
-License
+## License
 
 CalcUI is licensed under "LGPL-3.0" (LICENSE).
 
