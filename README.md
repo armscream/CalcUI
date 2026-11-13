@@ -17,28 +17,19 @@ Interfaces can be built programmatically or described in scene files, allowing c
 
 ## Screenshots
 
-<<<<<<< HEAD
 <table>
   <tr>
-    <td align="center"><img src="assets/calcdock.png" alt="CalcUI docking system" width="49%"></td>
-    <td align="center"><img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="49%"></td>
+    <td align="center"><img src="assets/calcdock.png" alt="CalcUI docking system" width="99%"></td>
+    <td align="center"><img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="99%"></td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="49%"></td>
-    <td align="center"><img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="49%"></td>
+    <td align="center"><img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="99%"></td>
+    <td align="center"><img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="99%"></td>
   </tr>
-</table>   
-=======
-<p align="left">
-  <img src="assets/calcdock.png" alt="CalcUI docking system" width="50%">
-</p><p align="right">
-  <img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="50%">
-</p><p align="left">
-  <img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="50%">
-</p><p align="right">
-  <img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="50%">
-</p>Features
->>>>>>> b62a4b88cb49ecf7ea9db35107bd5b5419b13115
+</table>
+
+
+#Features
 
 - Retained-mode architecture – Persistent widget tree with independent widget identities and state.
 - Incremental layout engine – Dirty-driven measurement and arrangement. Only affected layout branches are recalculated.
@@ -131,7 +122,38 @@ GUI.Make_Button(g, g.root, GUI.Button_Opts{
 
 ## Declarative UI & Scenes
 
-Interfaces can be constructed programmatically or defined in scene files.
+Interfaces can be constructed programmatically, defined in scene files, or loaded from a string.
+
+```odin
+//* The scene from a string: a panel with a title, a button and a field.
+SCENE :: `
+[node name="Root" type="Panel"]
+    bg = {0.07, 0.08, 0.10, 1}
+
+    [node name="Title" type="Label" parent="Root"]
+        anchors = {0, 0, 1, 0}
+        offsets = {20, 20, -20, 56}
+        text = "A scene"
+        font_size = 24
+        colour = {0.92, 0.94, 0.98, 1}
+
+    [node name="Press" type="Button" parent="Root"]
+        anchors = {0, 0, 0, 0}
+        offsets = {20, 72, 160, 108}
+        text = "Press me"
+
+    [node name="Name" type="TextBox" parent="Root"]
+        anchors = {0, 0, 1, 0}
+        offsets = {20, 124, -20, 160}
+        text = "your name"
+`
+// snippet of the scene loading code, attaching to root, same can be done below existing widgets.
+			root := GUI.Scene_Load(g, SCENE)
+			if root == GUI.INVALID_WIDGET_ID {
+				log.error("the scene did not load")
+				return
+			}
+```
 
 Scene files describe widget hierarchies and their configuration. They can be loaded at runtime, allowing layouts to be saved, reused and edited independently of application logic.
 
@@ -141,7 +163,7 @@ Custom widget classes can also register constructors for use in scene files.
 
 See "docs/scene-format.md" (docs/scene-format.md) for the scene format and loading API.
 
-Rendering & Backends
+# Rendering & Backends
 
 CalcUI separates its GUI core from the underlying rendering and window systems.
 
@@ -258,11 +280,9 @@ The "examples" directory contains standalone applications demonstrating CalcUI's
 | `03_text` | Text sizing, colours, alignment and wrapping. |
 | `04_overlays` | Detached panels and multiple windows. |
 | `05_theming` | Themes and widget styles. |
-| `06_data` | Checkboxes, sliders, progress bars, lists and trees. |
-| `07_widgets` | Inputs, pickers, chat, tables and command palette. |
-| `08_heavy` | Charts, node graphs, canvas and editor widgets. |
-| `09_scene` | Scene loading and default themes. |
-
+| `06_scene` | Complete UI Scene loading from string. |
+| `07_custom_widget` | Demo of a custom widget. |
+| `08_custom_backend` | Demo with a custom renderer. |
 
 
 # Building
