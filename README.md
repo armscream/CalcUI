@@ -161,7 +161,7 @@ This provides a workflow similar to Godot's scene system: build a UI hierarchy, 
 
 Custom widget classes can also register constructors for use in scene files.
 
-See "docs/scene-format.md" (docs/scene-format.md) for the scene format and loading API.
+See [`docs/scene-format.md`](docs/scene-format.md) for the scene format and loading API.
 
 # Rendering & Backends
 
@@ -240,7 +240,7 @@ GUI.Make_Text_Box(g, g.root, GUI.Text_Box_Opts{
 })
 ```
 
-See "docs/widgets.md" (docs/widgets.md) for widget behaviour and available options.
+See [`!docs/widgets.md"`](docs/widgets.md) for widget behaviour and available options.
 
 ## Custom Widgets
 
@@ -266,7 +266,7 @@ id := GUI.Make_Custom_Widget(
 
 Custom classes can also define signals, default styles and scene-file constructors.
 
-See "docs/extending.md" (docs/extending.md).
+See [`docs/extending.md`](docs/extending.md).
 
 # Examples
 
@@ -287,7 +287,7 @@ The "examples" directory contains standalone applications demonstrating CalcUI's
 
 # Building
 
-CalcUI requires the "Odin compiler" (https://odin-lang.org/).
+CalcUI requires the [`Odin compiler`](https://odin-lang.org/).
 
 Prepare the repository:
 
@@ -361,7 +361,7 @@ Shader compilation requires "glslc", available through the Vulkan SDK.
 
 # License
 
-CalcUI is licensed under "LGPL-3.0" (LICENSE).
+CalcUI is licensed under [`LGPL-3.0`](LICENSE).
 
 Third-party components retain their respective licenses:
 
