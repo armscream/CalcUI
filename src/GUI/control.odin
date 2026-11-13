@@ -80,6 +80,21 @@ hits_that_take_the_mouse :: proc(g: ^GUI, id: Widget_ID, p: Vec2, out: ^[dynamic
 	}
 }
 
+wheel_chain :: proc(g: ^GUI, global: Vec2) -> (chain: [dynamic]Widget_ID, local: Vec2) {
+	for i := len(g.floats) - 1; i >= 0; i -= 1 {
+		f := g.floats[i]
+		local = Vec2{global.x - f.pos.x, global.y - f.pos.y}
+		if !rect_contains(Rect{x = 0, y = 0, w = f.size.x, h = f.size.y}, local.x, local.y) {
+			continue
+		}
+		collect_hits(g, f.widget, local, &chain)
+		if len(chain) > 0 { return chain, local }
+	}
+	local = main_window_pos(g, global)
+	collect_hits(g, g.root, local, &chain)
+	return chain, local
+}
+
 //* == The focus ==
 
 can_focus :: proc(w: ^Widget) -> bool {
@@ -126,6 +141,8 @@ focus_set :: proc(g: ^GUI, id: Widget_ID) {
 
 	old := g.focused
 	g.focused = id
+	//* The caret of the widget that takes the keyboard is there at once.
+	caret_reset(g)
 	if old != INVALID_WIDGET_ID {
 		signal_focus_exited(g, old)
 		text_box_blur(g, old)

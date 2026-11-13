@@ -135,6 +135,12 @@ handle_mouse_down :: proc(g: ^GUI, e: Mouse_Down_Event) {
 	g.global_pointer = e.global
 	g.pointer_known = true
 
+	//* A click outside the menu that is open closes it, and the click
+	//* goes to the widget under it. The place of the click is the place
+	//* on the screen, so a click in a floating panel is judged against
+	//* the window it belongs to.
+	popup_close_outside(g, e.global)
+
 	chain, local := pointer_chain(g, e.global)
 	defer delete(chain)
 	hot := chain_target(&chain)
@@ -230,15 +236,25 @@ handle_mouse_up :: proc(g: ^GUI, e: Mouse_Up_Event) {
 
 handle_wheel :: proc(g: ^GUI, e: Wheel_Event) {
 	if !g.pointer_known { return }
-	chain, _ := pointer_chain(g, g.global_pointer)
+	chain, _ := wheel_chain(g, g.global_pointer)
 	defer delete(chain)
-	g.hot = chain_target(&chain)
+	g.hot = wheel_hot(g, &chain)
 	fire_pointer_chain(g, &chain, Pointer_Event {
 		kind = .Wheel,
 		pos = g.pointer,
 		global = g.global_pointer,
 		amount = e.amount,
 	})
+}
+
+wheel_hot :: proc(g: ^GUI, chain: ^[dynamic]Widget_ID) -> Widget_ID {
+	for id in chain^ {
+		w := Widget_Get(g, id)
+		if w == nil { continue }
+		if w.mouse_filter == .Ignore { continue }
+		return id
+	}
+	return INVALID_WIDGET_ID
 }
 
 handle_key_down :: proc(g: ^GUI, e: Key_Down_Event) {
@@ -357,10 +373,16 @@ item_list_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 }
 
 tree_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
-	style := resolved_style(g, w)
-	content := content_rect_with(w.rect, style.box.content_margin)
-	index := int((g.pointer.y - content.y) / TREE_ROW)
-	if index < 0 { return }
+	d := tree_data(g, id)
+	if d == nil { return }
+	content := tree_content(g, w)
+	tree_scroll_clamp(d, content.h)
+	//* The row under the pointer is the one that is scrolled to that
+	//* place.
+	offset := g.pointer.y - content.y + d.scroll
+	if offset < 0 { return }
+	index := int(offset / f32(TREE_ROW))
+	if index >= len(d.items) { return }
 	tree_select_item(g, id, index)
 }
 
@@ -409,7 +431,7 @@ uses_arrow_keys :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	if w == nil { return false }
 	if kind := widget_kind(g, w); kind.uses_arrow_keys { return true }
 	#partial switch d in w.data {
-	case Text_Input_Data:
+	case Text_Box_Data:
 		return true
 	}
 	return false

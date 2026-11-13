@@ -65,17 +65,19 @@ audio_set_binding :: proc(g: ^GUI, binding: Audio_Binding) {
 //* Starts a sound. The file is remembered, and the sound plays until it
 //* is stopped or it is over.
 audio_play :: proc(g: ^GUI, path: string) {
-	state := audio_state(g)
-	if state == nil {return}
-	if path != "" && state.path != path {
-		state.path = audio_clone(g, path)
-	}
-	state.position = 0
-	state.length = 0
-	state.playing = true
-	if state.binding.play != nil {
-		state.length = state.binding.play(g, path)
-	}
+  state := audio_state(g)
+  if state == nil {return}
+  if path != "" && state.path != path {
+    state.path = audio_clone(g, path)
+  }
+  state.position = 0
+  state.length = 0
+  if state.binding.play == nil {
+    state.playing = false
+    return
+  }
+  state.playing = true
+  state.length = state.binding.play(g, path)
 }
 
 audio_stop :: proc(g: ^GUI) {
@@ -91,6 +93,13 @@ audio_set_volume :: proc(g: ^GUI, volume: f32) {
 	if state == nil {return}
 	state.volume = clamp(volume, 0, 1)
 	if state.binding.volume != nil {state.binding.volume(g, state.volume)}
+}
+
+//* How loud the sound is, from 0 to 1.
+audio_volume :: proc(g: ^GUI) -> f32 {
+	state := audio_state(g)
+	if state == nil {return 0}
+	return state.volume
 }
 
 //* How far the sound has come, in seconds.

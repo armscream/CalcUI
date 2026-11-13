@@ -50,6 +50,37 @@ float_of :: proc(g: ^GUI, id: Widget_ID) -> int {
 	return FLOAT_NONE
 }
 
+//* The floating panel a widget is in, or FLOAT_NONE. A widget that is
+//* under a floating panel is in that panel, and the panel itself is in
+//* it as well.
+float_index_of :: proc(g: ^GUI, id: Widget_ID) -> int {
+	if id == INVALID_WIDGET_ID { return FLOAT_NONE }
+	for i in 0 ..< len(g.floats) {
+		if g.floats[i].widget == id { return i }
+		if is_descendant(g, g.floats[i].widget, id) { return i }
+	}
+	return FLOAT_NONE
+}
+
+//* The bounds of the window a widget is in: the viewport of the main
+//* window, or the size of the floating panel it is in. The bounds are
+//* in the coordinates of that window.
+widget_bounds :: proc(g: ^GUI, id: Widget_ID) -> Rect {
+	index := float_index_of(g, id)
+	if index == FLOAT_NONE { return g.viewport }
+	f := g.floats[index]
+	return Rect{x = 0, y = 0, w = f.size.x, h = f.size.y}
+}
+
+//* A point on the screen in the coordinates of the window a widget is
+//* in.
+window_local_pos :: proc(g: ^GUI, id: Widget_ID, global: Vec2) -> Vec2 {
+	index := float_index_of(g, id)
+	if index == FLOAT_NONE { return main_window_pos(g, global) }
+	f := g.floats[index]
+	return Vec2{global.x - f.pos.x, global.y - f.pos.y}
+}
+
 //* The place of a point on the screen in the main window.
 main_window_pos :: proc(g: ^GUI, global: Vec2) -> Vec2 {
 	return Vec2{global.x - g.window_rect.x, global.y - g.window_rect.y}

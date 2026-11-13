@@ -394,28 +394,31 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		box  = default_theme_padded(p.surface, p.border, 1, 6, 4, 4),
 		text = Text_Style{colour = p.text},
 	})
-	Theme_Set_Type(theme, .PopupPanel, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 8, 8),
-		text = Text_Style{colour = p.text},
-	})
 	//* The overlays draw their own box, so the theme gives them no
 	//* background of their own: the box of the widget would be drawn
 	//* over the whole of the area the widget has.
 	Theme_Set_Type(theme, .ContextMenu, Style{
 		text = Text_Style{colour = p.text},
 	})
+	Theme_Set_Type(theme, .PopupPanel, Style{
+		text = Text_Style{colour = p.text},
+	})
 	Theme_Set_Type(theme, .AcceptDialog, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 12, 12),
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .ConfirmationDialog, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 12, 12),
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .FileDialog, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 8, 8),
 		text = Text_Style{colour = p.text},
 	})
+	//* The colours of the plates of the overlays: an overlay draws its
+	//* own plate, so it needs the colours of it.
+	overlay_types := []Widget_Type{.PopupPanel, .AcceptDialog, .ConfirmationDialog, .FileDialog}
+	for widget_type in overlay_types {
+		theme_set_color(theme, widget_type, "surface", p.surface)
+		theme_set_color(theme, widget_type, "border", p.border)
+	}
 	Theme_Set_Type(theme, .Tooltip, Style{
 		box  = default_theme_padded(p.surface, p.border, 1, 6, 8, 5),
 		text = Text_Style{colour = p.text},
@@ -423,7 +426,6 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 
 	//* == The widgets that came later ==
 	Theme_Set_Type(theme, .Toast, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 12, 10),
 		text = Text_Style{colour = p.text},
 	})
 	Theme_Set_Type(theme, .CommandPalette, Style{

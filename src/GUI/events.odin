@@ -16,6 +16,7 @@ Key :: enum {
 	Digit5, Digit6, Digit7, Digit8, Digit9,
 	Space, Enter, Escape, Tab, Backspace, Delete,
 	Left, Right, Up, Down, Home, End,
+	Page_Up, Page_Down,
 }
 
 Mod :: enum { Shift, Ctrl, Alt }

@@ -14,42 +14,42 @@ Init_GUI :: proc(width, height: i32, backend: Backend) -> ^GUI {
 	return Init_GUI_With_Atlas(width, height, backend, ATLAS_DEFAULT_SIZE)
 }
 
+//* The GUIs that are alive. The list is what makes a second call of
+//* `Shutdown_GUI` harmless: the pointer of a GUI that was given back is
+//* not in the list any more, so the memory it points at is never read
+//* again. The toolkit is not made for more than one thread, and the list
+//* is not made for more than one thread either.
+gui_alive: [dynamic]rawptr
+
+gui_alive_add :: proc(g: ^GUI) {
+	append(&gui_alive, cast(rawptr) g)
+}
+
+gui_alive_take :: proc(g: ^GUI) -> bool {
+	key := cast(rawptr) g
+	for i in 0 ..< len(gui_alive) {
+		if gui_alive[i] != key { continue }
+		for j in i ..< len(gui_alive) - 1 {
+			gui_alive[j] = gui_alive[j + 1]
+		}
+		resize_dynamic_array(&gui_alive, len(gui_alive) - 1)
+		return true
+	}
+	return false
+}
+
 Init_GUI_With_Atlas :: proc(width, height: i32, backend: Backend, atlas_size: int) -> ^GUI {
-	log.info("Initializing GUI...")
-
-	g := new(GUI)
-	g^ = GUI{}
-	if err := virt.arena_init_growing(&g.arena); err != nil {
-		log.panicf("GUI arena init failed: %v", err)
+	g, err := Init_GUI_With_Atlas_Checked(width, height, backend, atlas_size)
+	if err.code != .None {
+		log.panicf("%s", Error_To_String(err))
 	}
-	if err := virt.arena_init_growing(&g.frame_arena); err != nil {
-		log.panicf("GUI Frame arena init failed: %v", err)
-	}
-
-	g.backend = backend
-	g.viewport = Rect{x = 0, y = 0, w = f32(width), h = f32(height)}
-	g.scale = 1
-	g.glyphs = make(map[Glyph_Key]Glyph_Entry)
-	g.class_by_type = make(map[Widget_Type]Widget_Class_ID)
-	g.class_by_name = make(map[string]Widget_Class_ID)
-	g.atlas = atlas_make(atlas_size, atlas_size)
-	g.atlas_texture = ATLAS_TEXTURE_ID
-	g.target = &g.draw
-	g.font_instances = make(map[Font_Instance_Key]Font_ID)
-	g.default_style = Style{
-		text = Text_Style{
-			colour = RGBA(0.92, 0.94, 0.98, 1),
-		},
-	}
-	init_text(g)
-	g.root = New_Widget(g, .Panel, INVALID_WIDGET_ID, Widget_Opts{name = "root"})
-
-	log.infof("Window extent: %d x %d", width, height)
 	return g
 }
 
 Shutdown_GUI :: proc(g: ^GUI) {
 	if g == nil { return }
+	if !gui_alive_take(g) { return }
+	g.shutdown = true
 	log.info("Shutting down GUI...")
 
 	for w in g.widgets {
@@ -64,6 +64,7 @@ Shutdown_GUI :: proc(g: ^GUI) {
 	theme_destroy(g.theme)
 	atlas_destroy(g.atlas)
 	text_input_ime_destroy(g)
+	undo_destroy(g)
 	delete(g.clipboard.text)
 	if g.backend.destroy_texture != nil {
 		g.backend.destroy_texture(g.backend.ctx, g.atlas_texture)
@@ -95,7 +96,12 @@ Shutdown_GUI :: proc(g: ^GUI) {
 Frame :: proc(g: ^GUI) {
 	virt.arena_free_all(&g.frame_arena)
 	g.dt = frame_time(g)
+	//* The caret of the widget that has the keyboard flashes.
+	caret_tick(g)
 	layout_pass(g)
+	//* The menu of a menu button goes with its button: a window that is
+	//* made smaller, or a button that moves, takes the menu with it.
+	menu_buttons_reposition(g)
 	update_resize_hover(g)
 	build_draw_list(g)
 	atlas_flush(g.atlas, g.backend, g.atlas_texture)

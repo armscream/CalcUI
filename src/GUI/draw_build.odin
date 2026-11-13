@@ -83,12 +83,6 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 			draw_text(g, style.text, r.text, content, colour)
 		case Button_Data:
 			draw_text(g, style.text, r.text, content, colour)
-		case Text_Input_Data:
-			draw_text_input(g, id, w, content, style^)
-		case Popup_Menu_Data:
-			draw_popup_menu(g, w, style^, content)
-		case Dialog_Data:
-			draw_dialog(g, w, style^, content)
 		}
 	}
 
@@ -272,36 +266,6 @@ content_rect_with :: proc(rect: Rect, pad: [4]f32) -> Rect {
 		y = rect.y + pad[1],
 		w = rect.w - pad[0] - pad[2],
 		h = rect.h - pad[1] - pad[3],
-	}
-}
-
-draw_text_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect, style: Style) {
-	#partial switch r in w.data {
-	case Text_Input_Data:
-		tel := text_input_selection_rect(g, id, content)
-		if tel.w > 0 {
-			draw_quad(
-				g.target,
-				tel,
-				g.atlas.white_uv,
-				RGBA(0.25, 0.45, 0.78, 0.55),
-				g.atlas_texture,
-			)
-		}
-
-		text_colour := resolved_text_colour(g, id, w)
-		draw_text(g, style.text, r.text, content, text_colour)
-
-		if g.focused == id {
-			cx := text_input_offset_x(g, id, content, r.caret)
-			draw_quad(
-				g.target,
-				Rect{x = cx, y = content.y, w = 2, h = content.h},
-				g.atlas.white_uv,
-				text_colour,
-				g.atlas_texture,
-			)
-		}
 	}
 }
 
