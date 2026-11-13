@@ -21,6 +21,10 @@ Interfaces can be built programmatically or described in scene files, allowing c
   <img src="assets/calcdock.png" alt="CalcUI docking system" width="100%">
 </p><p align="center">
   <img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="100%">
+</p><p align="center">
+  <img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="100%">
+</p><p align="center">
+  <img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="100%">
 </p>Features
 
 - Retained-mode architecture – Persistent widget tree with independent widget identities and state.
@@ -87,6 +91,7 @@ CalcUI includes a broad collection of built-in widgets and interface components.
 | Visualization | Canvas, node graphs, vector drawing |
 | File & Content | File viewer |
 | Layout | Dockspaces, floating and detachable panels |
+
 
 
 # Quick Start
@@ -246,6 +251,7 @@ The "examples" directory contains standalone applications demonstrating CalcUI's
 | `09_scene` | Scene loading and default themes. |
 
 
+
 # Building
 
 CalcUI requires the "Odin compiler" (https://odin-lang.org/).
@@ -303,6 +309,7 @@ GitHub Actions runs these checks on Windows, Linux and macOS.
 | [`docs/widgets.md`](docs/widgets.md) | Widget behaviour and available options. |
 | [`docs/extending.md`](docs/extending.md) | Creating custom widgets. |
 | [`docs/scene-format.md`](docs/scene-format.md) | Scene format and loading. |   
+
 
 
 ## Shaders
