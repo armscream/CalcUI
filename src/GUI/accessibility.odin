@@ -181,15 +181,13 @@ access_role_of :: proc(g: ^GUI, w: ^Widget) -> Access_Role {
 	#partial switch w.type {
 	case .Button: return .Button
 	case .CheckBox: return .Check_Box
-	case .CheckButton: return .Toggle_Button
 	case .ToggleSwitch: return .Toggle_Button
 	case .OptionButton: return .Combo_Box
 	case .ComboBox: return .Combo_Box
 	case .MenuButton: return .Menu_Bar
 	case .LinkButton: return .Link
 	case .Label: return .Label
-	case .TextInput: return .Text_Input
-	case .TextEdit: return .Text_Input
+	case .TextBox: return .Text_Input
 	case .SearchField: return .Search_Input
 	case .NumberInput: return .Number_Input
 	case .HSlider, .VSlider: return .Slider
@@ -220,8 +218,6 @@ access_default_name :: proc(w: ^Widget) -> string {
 		if d.text != "" { return d.text }
 	case Check_Box_Data:
 		if d.text != "" { return d.text }
-	case Check_Button_Data:
-		if d.text != "" { return d.text }
 	case Link_Button_Data:
 		if d.text != "" { return d.text }
 	case Menu_Button_Data:
@@ -239,9 +235,7 @@ access_default_name :: proc(w: ^Widget) -> string {
 access_default_value :: proc(w: ^Widget) -> Access_Value {
 	if w == nil { return {} }
 	#partial switch d in w.data {
-	case Text_Input_Data:
-		return Access_Value{text = d.text}
-	case Text_Edit_Data:
+	case Text_Box_Data:
 		return Access_Value{text = d.text}
 	case Search_Field_Data:
 		return Access_Value{text = d.text}
@@ -252,8 +246,6 @@ access_default_value :: proc(w: ^Widget) -> Access_Value {
 		if d.max > 0 { percent = d.value / d.max }
 		return Access_Value{number = f64(d.value), max = f64(d.max), percent = percent}
 	case Check_Box_Data:
-		return Access_Value{text = bool_text(d.on)}
-	case Check_Button_Data:
 		return Access_Value{text = bool_text(d.on)}
 	case Toggle_Switch_Data:
 		return Access_Value{text = bool_text(d.on)}

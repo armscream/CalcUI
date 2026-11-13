@@ -1,4 +1,3 @@
-//* == The window of the program ==
 //* The window layer is the only part of the program that knows about
 //* physical pixels. SDL gives the pointer, the size of the window and the
 //* place of the window on the screen in points, and a point is the logical
@@ -329,6 +328,8 @@ translate_key :: proc(k: sdl.Keycode) -> GUI.Key {
 	case sdl.K_DOWN:      return .Down
 	case sdl.K_HOME:      return .Home
 	case sdl.K_END:       return .End
+	case sdl.K_PAGEUP:    return .Page_Up
+	case sdl.K_PAGEDOWN:  return .Page_Down
 	}
 	return .None
 }

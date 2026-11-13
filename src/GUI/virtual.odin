@@ -10,9 +10,6 @@ package GUI
 import "core:math"
 import "core:strings"
 
-//* == The sources ==
-
-//* Where the rows of a list come from.
 List_Source :: struct {
 	//* How many rows there are.
 	count: proc(ctx: rawptr) -> int,
@@ -31,7 +28,6 @@ List_Source :: struct {
 	ctx: rawptr,
 }
 
-//* Where the rows of a table come from.
 Table_Source :: struct {
 	//* How many rows there are.
 	count: proc(ctx: rawptr) -> int,
@@ -46,14 +42,11 @@ Table_Source :: struct {
 	ctx: rawptr,
 }
 
-//* The rows of a list, for the lists whose rows are texts.
 List_Texts :: struct {
 	items: [dynamic]string,
-	//* The keys of the rows, when the rows have keys of their own.
 	keys:  [dynamic]u64,
 }
 
-//* The rows of a table, for the tables whose rows the program keeps.
 Table_Rows :: struct {
 	items: [dynamic]Data_Table_Row,
 }
@@ -76,8 +69,6 @@ List_Texts_Add :: proc(texts: ^List_Texts, text: string, key: u64 = 0) {
 	append(&texts.items, text)
 	append(&texts.keys, key)
 }
-
-//* == The sources that are made for you ==
 
 //* Makes a source of a list of texts. The texts are not copied, so they
 //* must stay as long as the source is used.
@@ -121,9 +112,6 @@ Table_Source_Rows :: proc(rows: ^Table_Rows) -> Table_Source {
 	}
 }
 
-//* == Asking a source ==
-
-//* The number of rows of a source.
 list_source_count :: proc(source: List_Source) -> int {
 	if source.count == nil {return 0}
 	count := source.count(source.ctx)
@@ -131,7 +119,6 @@ list_source_count :: proc(source: List_Source) -> int {
 	return count
 }
 
-//* The text of a row of a source.
 list_source_text :: proc(source: List_Source, index: int) -> string {
 	if source.text == nil {return ""}
 	return source.text(source.ctx, index)
@@ -156,7 +143,6 @@ list_source_height :: proc(source: List_Source, index: int, fallback: f32) -> f3
 	return height
 }
 
-//* The number of rows of a source.
 table_source_count :: proc(source: Table_Source) -> int {
 	if source.count == nil {return 0}
 	count := source.count(source.ctx)
@@ -164,7 +150,6 @@ table_source_count :: proc(source: Table_Source) -> int {
 	return count
 }
 
-//* The values of a row of a source.
 table_source_values :: proc(source: Table_Source, index: int) -> []string {
 	if source.values == nil {return nil}
 	return source.values(source.ctx, index)
@@ -180,16 +165,12 @@ table_source_key :: proc(source: Table_Source, index: int) -> u64 {
 	return u64(index) + 1
 }
 
-//* == The rows that are on the screen ==
 
-//* The rows that are on the screen: the first row that is not above the
-//* screen, and the row after the last one that is on it.
 Visible_Rows :: struct {
 	first: int,
 	last: int,
 }
 
-//* How many rows of a height fit on a screen of a height.
 visible_row_count :: proc(viewport, row_height: f32) -> int {
 	if row_height <= 0 {return 0}
 	rows := int(math.ceil(viewport / row_height))
@@ -207,7 +188,6 @@ visible_rows_fixed :: proc(count: int, scroll, viewport, row_height: f32) -> Vis
 	return {first = first, last = last}
 }
 
-//* == The look ==
 
 //* The colour of the rows that are picked. The theme has the colour
 //* under the name "selected_color"; the colour of the collection
@@ -218,18 +198,24 @@ virtual_selected_colour :: proc(g: ^GUI, w: ^Widget) -> Colour {
 	return COLLECT_ACCENT_SOFT
 }
 
-//* == The scroll ==
 
-//* The greatest scroll there can be: the height of the rows without the
-//* height of the screen.
+//* The greatest scroll there can be: the height of the rows without the height of the screen.
 scroll_maximum :: proc(content_height, viewport: f32) -> f32 {
 	maximum := content_height - viewport
 	if maximum < 0 {return 0}
 	return maximum
 }
-
-//* Puts a scroll where it belongs: never above the first row and never
-//* below the last one.
 scroll_clamp :: proc(scroll: ^f32, content_height, viewport: f32) {
 	scroll^ = clamp(scroll^, 0, scroll_maximum(content_height, viewport))
+}
+
+//* Scrolls the content of a widget with the wheel and says whether the
+//* scroll really moved. A widget whose content fits in it has no room to
+//* scroll, so the wheel goes on to the container around it: the wheel is
+//* only taken by a widget that really scrolled.
+wheel_scroll :: proc(scroll: ^f32, delta, content_size, viewport: f32) -> bool {
+	scroll_clamp(scroll, content_size, viewport)
+	scroll^ -= delta
+	scroll_clamp(scroll, content_size, viewport)
+	return true
 }

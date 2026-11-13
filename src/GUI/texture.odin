@@ -1,8 +1,8 @@
-//* The textures of the GUI: pictures that are put into the atlas and
-//* drawn out of it, the same way the glyphs are.
 package GUI
 
 import "core:image/png"
+
+import "core:os"
 
 Texture :: struct {
 	region: Atlas_Region,
@@ -67,6 +67,17 @@ texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 	texture := texture_from_pixels(g, pixels, w, h)
 	if texture.region.id < 0 {return {}, false}
 	return texture, true
+}
+
+//* Reads a picture from a file and puts it into the atlas. The picture
+//* keeps its region, its size and its uv, so it is drawn the same way
+//* the glyphs are. The second value says whether the picture was read.
+Texture_Load_File :: proc(g: ^GUI, path: string) -> (Texture, bool) {
+	if g == nil {return {}, false}
+	data, err := os.read_entire_file_from_path(path, context.allocator)
+	if err != nil {return {}, false}
+	defer delete(data)
+	return texture_from_png(g, data)
 }
 
 texture_free :: proc(g: ^GUI, texture: Texture) {

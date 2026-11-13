@@ -1,43 +1,4 @@
-//* Making a widget, moving it in the tree and taking it away again.
-//* A widget keeps its identity when it moves, so a handle stays valid and
-//* the tree can be rearranged without losing anything.
-//*
-//* == What a widget owns ==
-//* A text that the widget owns is made with `strings.clone(text)` (the
-//* default allocator) and is given back with `delete`. A text that lives
-//* as long as the GUI is made in the arena of the GUI
-//* (`virt.arena_allocator(&g.arena)`) and is never given back; the arena
-//* is given back when the GUI is shut down.
-//* `widget_release_data` never gives back arena memory.
-//*
-//* == The data of the widgets ==
-//* Variant               | what it owns                          | what is given back
-//* Text_Input_Data       | the text of the field                 | the text
-//* Text_Edit_Data        | the text of the field                 | the text
-//* Rich_Text_Editor_Data | the text, the cursors                 | the text, the cursors
-//* Popup_Menu_Data       | the list of the items                 | the list
-//* Search_Field_Data     | the text of the field                 | the text
-//* Item_List_Data        | the list of the items                 | the list
-//* Tree_Data             | the list of the items                 | the list
-//* Option_Button_Data    | the list of the items                 | the list
-//* Menu_Button_Data      | the list of the items                 | the list
-//* Combo_Box_Data        | the list of the items                 | the list
-//* Context_Menu_Data     | the list of the items                 | the list
-//* Command_Palette_Data  | the text of the filter, the commands  | the text, the commands
-//* Segmented_Data        | the list of the items                 | the list
-//* Chat_Input_Data       | the text of the field, the lines      | the text, the list of the lines
-//* Virtual_List_Data     | the picks, the offsets                | the picks, the offsets
-//* Data_Table_Data       | the rows, the values, the columns, the order, the layout | all of them
-//* Chart_Data            | the series, the values of the series, the labels | all of them
-//* Node_Graph_Data       | the nodes, the ports, the wires       | all of them
-//* Custom_Data           | what the program made                 | what the program says
-//*
-//* The texts inside the lists of the items are the texts of the program,
-//* and the texts of the lines of a chat are in the arena of the GUI: they
-//* are never given back. The labels, the buttons, the toasts, the
-//* tooltips, the emoji and the audio player own nothing at all: their
-//* texts are the texts of the program. The canvas, the file viewer and
-//* the vector drawing hold their things in the arena of the GUI.
+
 package GUI
 
 import "core:log"
@@ -79,10 +40,12 @@ widget_slot :: proc(g: ^GUI) -> int {
 //* mutated by writing to the struct returned by Widget_Get. The widget
 //* belongs to the class of its kind, when there is one.
 New_Widget :: proc(g: ^GUI, type: Widget_Type, parent: Widget_ID, opts: Widget_Opts = {}) -> Widget_ID {
+	if type == .Button {
+		button_kind_register(g)
+	}
 	return new_widget(g, type, parent, opts, class_of_type(g, type))
 }
 
-//* Creates a widget of a class. The class says what the widget does.
 new_widget :: proc(
 	g: ^GUI,
 	type: Widget_Type,
@@ -147,14 +110,12 @@ new_widget :: proc(
 	w.tab_index = opts.tab_index
 	w.size_flags_h = opts.size_flags_h
 	w.size_flags_v = opts.size_flags_v
-	//* A widget that says nothing fills the room of its parent and takes
-	//* a share of the room that is left over: that is what a widget did
-	//* before the flags were used.
-	if w.size_flags_h == (Size_Flags{}) { w.size_flags_h = Size_Flags{.Fill, .Expand} }
-	if w.size_flags_v == (Size_Flags{}) { w.size_flags_v = Size_Flags{.Fill, .Expand} }
-	//* The ratio of a widget that says nothing is 1, so its share of the
-	//* room that is left over is its weight. A ratio of 0 is set with
-	//* `Widget_Set_Stretch_Ratio`.
+	// size to content by default and a share of the room that is left over: a widget 
+	// fills the room of its parent only when it asks for it.
+	if w.size_flags_h == (Size_Flags{}) { w.size_flags_h = Size_Flags{.Expand} }
+	if w.size_flags_v == (Size_Flags{}) { w.size_flags_v = Size_Flags{.Expand} }
+	// The ratio of a widget that says nothing is 1, so its share of the
+	// room that is left over is its weight. A ratio of 0 is set with `Widget_Set_Stretch_Ratio`.
 	w.stretch_ratio = opts.stretch_ratio
 	if w.stretch_ratio == 0 { w.stretch_ratio = 1 }
 	w.clip_contents = opts.clip_contents != .Off
@@ -184,10 +145,10 @@ new_widget :: proc(
 		w.data = Split_Data{direction = opts.split}
 	case .Tabs:
 		w.data = Tabs_Data{active = 0}
-	case .TextInput:
-		text_input_kind_register(g)
+	case .TextBox:
+		text_box_kind_register(g)
 		text := strings.clone(opts.text)
-		w.data = Text_Input_Data {
+		w.data = Text_Box_Data {
 			text      = text,
 			caret     = len(text),
 			sel_start = len(text),
@@ -199,8 +160,7 @@ new_widget :: proc(
 		w.data = None_Data{}
 	}
 
-	//* The focus of a widget comes from its kind, unless the caller
-	//* asks for another one.
+	//* The focus of a widget comes from its kind, unless the caller asks for another one.
 	if opts.focus_mode != .None { w.focus_mode = opts.focus_mode }
 
 	if parent != INVALID_WIDGET_ID {
@@ -245,8 +205,6 @@ Widget_Detach :: proc(g: ^GUI, child: Widget_ID) {
 	w.parent = INVALID_WIDGET_ID
 	w.prev_sibling = INVALID_WIDGET_ID
 	w.next_sibling = INVALID_WIDGET_ID
-	//* A widget that leaves the tree cannot have the keyboard: the
-	//* keyboard belongs to the tree.
 	if g.focused == child { focus_clear(g) }
 	//* A panel that changes place starts out with the size the layout gives it:
 	//* the size it was pulled to belonged to the old place.
@@ -370,13 +328,10 @@ Widget_Insert_At :: proc(g: ^GUI, parent, child: Widget_ID, index: int) {
 	} else {
 		p.last_child = child
 	}
-	//* A tab host that gets a tab in front of the one it is showing
-	//* keeps showing that one.
 	if p.type == .Tabs || p.type == .TabContainer {
 		active := tabs_active(p)
 		if at <= active { set_tab_active(g, p, active + 1) }
 	}
-	//* The widget has a new place, and the parent has one child more.
 	invalidate(g, parent, DIRTY_ALL)
 	invalidate(g, w.id, DIRTY_ALL)
 }
@@ -437,8 +392,6 @@ Widget_Free :: proc(g: ^GUI, id: Widget_ID) -> bool {
 		gone_widget.freeing = true
 	}
 
-	//* The widget that has the keyboard gives it up, whether it is the
-	//* one that is destroyed or one of the widgets under it.
 	for gone in subtree {
 		if g.focused == gone {
 			focus_clear(g)
@@ -448,35 +401,24 @@ Widget_Free :: proc(g: ^GUI, id: Widget_ID) -> bool {
 
 	//* The parent it left has one child less, so it is out of date.
 	Widget_Detach(g, id)
-
 	//* Every widget of the subtree leaves its place in the tree as
 	//* well, so that the links of the tree are whole at every step.
-	for gone in subtree {
-		Widget_Detach(g, gone)
-	}
-
+	for gone in subtree {Widget_Detach(g, gone)}
 	//* Everything that holds on to one of the widgets lets go of it.
-	for gone in subtree {
-		widget_forget(g, gone)
-	}
+	for gone in subtree {widget_forget(g, gone)}
 
-	//* What the widgets own is given back, and their slots are free again.
 	for gone in subtree {
 		gone_widget := Widget_Get(g, gone)
 		if gone_widget == nil { continue }
-		//* The class of the widget is told that it goes away, before its data
-		//* is given back.
 		widget_notify_destroy(g, gone, gone_widget)
 		widget_release_data(g, gone_widget)
 		slot := int(gone.index) - 1
 		gone_widget.id = INVALID_WIDGET_ID
 		append(&g.free_widgets, u32(slot))
 	}
-
 	return true
 }
 
-//* The widget and everything under it, the children before their parent.
 collect_subtree :: proc(g: ^GUI, id: Widget_ID, out: ^[dynamic]Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -493,6 +435,7 @@ collect_subtree :: proc(g: ^GUI, id: Widget_ID, out: ^[dynamic]Widget_ID) {
 //* Everything that holds on to a widget lets go of it when the widget
 //* is destroyed: the pointer, the capture of the mouse, the drag, the
 //* resize, the floating panels and the other widgets.
+@(private)
 widget_forget :: proc(g: ^GUI, id: Widget_ID) {
 	if g.hot == id { g.hot = INVALID_WIDGET_ID }
 	if g.active == id { g.active = INVALID_WIDGET_ID }
@@ -538,10 +481,14 @@ widget_forget :: proc(g: ^GUI, id: Widget_ID) {
 		if g.popups[i].id != id { continue }
 		ordered_remove(&g.popups, i)
 	}
+
+	//* The stack of the changes of the widget goes with it.
+	undo_forget(g, id)
 }
 
 //* Takes a widget out of the references of another widget: the links of
 //* the tree, the neighbours of the focus and the target of a tooltip.
+@(private)
 widget_unreference :: proc(w: ^Widget, id: Widget_ID) {
 	if w == nil { return }
 	if w.parent == id { w.parent = INVALID_WIDGET_ID }
@@ -562,19 +509,20 @@ widget_unreference :: proc(w: ^Widget, id: Widget_ID) {
 
 //* Gives back what a widget owns. The texts of the program are not
 //* freed; what the widget made for itself is. The memory of the arena of
-//* the GUI is not freed here: the arena is given back when the GUI is
-//* shut down.
+//* the GUI is not freed here: the arena is given back when the GUI is shut down.
+@(private)
 widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	if w == nil { return }
 	#partial switch &d in w.data {
-	case Text_Input_Data:
-		delete(d.text)
-	case Text_Edit_Data:
+	case Text_Box_Data:
 		delete(d.text)
 	case Popup_Menu_Data:
 		delete(d.items)
 	case Search_Field_Data:
 		delete(d.text)
+	case Color_Picker_Data:
+		//* The code that is being typed belongs to the widget.
+		delete(d.edit_text)
 	case Item_List_Data:
 		delete(d.items)
 	case Tree_Data:
@@ -593,9 +541,6 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	case Segmented_Data:
 		delete(d.items)
 	case Chat_Input_Data:
-		//* The text of the field belongs to the widget; the texts of
-		//* the lines are in the arena of the GUI, so only the text and
-		//* the list of the lines are given back.
 		delete(d.text)
 		delete(d.lines)
 	case Virtual_List_Data:
@@ -633,7 +578,6 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 			delete(d.state.cursors)
 		}
 	case Custom_Data:
-		//* The data of a program is given back by the program.
 		if d.destroy != nil && d.user != nil { d.destroy(d.user) }
 	}
 	w.data = None_Data{}

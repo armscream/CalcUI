@@ -1,13 +1,4 @@
-//* The widgets CalcUI started with: the panel, the button, the label and
-//* the text field.
-
 package GUI
-
-//* == The widgets CalcUI started with ==
-//* They have been there from the beginning, and each one is made straight
-//* with `New_Widget`.
-
-//* == The panel ==
 
 Panel_Opts :: struct {
 	Base_Opts: Base_Opts,
@@ -18,23 +9,73 @@ Make_Panel :: proc(g: ^GUI, parent: Widget_ID, opts: Panel_Opts) -> Widget_ID {
 	return New_Widget(g, .Panel, parent, base_widget_opts(opts.Base_Opts))
 }
 
-//* == The button ==
+Button_Align :: enum {
+	Theme,
+	Left,
+	Center,
+	Right,
+}
 
 Button_Opts :: struct {
 	Base_Opts:  Base_Opts,
 	text:       string,
 	on_pressed: proc(g: ^GUI, id: Widget_ID),
+	text_align: Button_Align,
 }
 
-//* Makes a button. It says so when it is pressed.
 Make_Button :: proc(g: ^GUI, parent: Widget_ID, opts: Button_Opts) -> Widget_ID {
 	widget_opts := base_widget_opts(opts.Base_Opts)
 	widget_opts.text = opts.text
 	widget_opts.on_click = opts.on_pressed
-	return New_Widget(g, .Button, parent, widget_opts)
+	id := New_Widget(g, .Button, parent, widget_opts)
+	if opts.text_align != .Theme {
+		w := Widget_Get(g, id)
+		if w != nil {
+			align := button_align_of(opts.text_align)
+			fields := text_fields_of(&w.style.text)
+			fields += {.Align}
+			w.style.text.set = fields
+			w.style.text.align = align
+		}
+	}
+	return id
 }
 
-//* == The label ==
+button_align_of :: proc(align: Button_Align) -> Text_Align {
+	switch align {
+	case .Left:
+		return .Left
+	case .Center:
+		return .Center
+	case .Right:
+		return .Right
+	case .Theme:
+		return .Left
+	}
+	return .Left
+}
+
+button_kind :: proc() -> Widget_Kind {
+	return Widget_Kind {
+		draw = draw_button,
+		style = Style{text = Text_Style{align = .Center, valign = .Center}},
+		theme_name = "Button",
+	}
+}
+
+//* The kind of the button is registered when a button is made, so that
+//* a button made with `New_Widget` has it as well.
+button_kind_register :: proc(g: ^GUI) {
+	if g == nil {return}
+	kind_register(g, .Button, button_kind())
+}
+
+draw_button :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
+	#partial switch d in w.data {
+	case Button_Data:
+		draw_text(g, resolved_style(g, w).text, d.text, content, resolved_text_colour(g, id, w))
+	}
+}
 
 Label_Opts :: struct {
 	Base_Opts: Base_Opts,
@@ -47,23 +88,6 @@ Make_Label :: proc(g: ^GUI, parent: Widget_ID, opts: Label_Opts) -> Widget_ID {
 	widget_opts.text = opts.text
 	return New_Widget(g, .Label, parent, widget_opts)
 }
-
-//* == The text field ==
-
-Text_Input_Opts :: struct {
-	Base_Opts: Base_Opts,
-	text:      string,
-}
-
-//* Makes a text field. The text can be edited while the program runs.
-Make_Text_Input :: proc(g: ^GUI, parent: Widget_ID, opts: Text_Input_Opts) -> Widget_ID {
-	widget_opts := base_widget_opts(opts.Base_Opts)
-	widget_opts.text = opts.text
-	return New_Widget(g, .TextInput, parent, widget_opts)
-}
-
-//* == The boxes ==
-
 Box_Opts :: struct {
 	Base_Opts: Base_Opts,
 }
@@ -78,8 +102,6 @@ Make_HBox :: proc(g: ^GUI, parent: Widget_ID, opts: Box_Opts) -> Widget_ID {
 	return New_Widget(g, .HBox, parent, base_widget_opts(opts.Base_Opts))
 }
 
-//* == The split ==
-
 Split_Opts :: struct {
 	Base_Opts: Base_Opts,
 	direction: Split_Direction,
@@ -93,14 +115,11 @@ Make_Split :: proc(g: ^GUI, parent: Widget_ID, opts: Split_Opts) -> Widget_ID {
 	return New_Widget(g, .Split, parent, widget_opts)
 }
 
-//* == The tabs ==
-
 Tabs_Opts :: struct {
 	Base_Opts: Base_Opts,
 }
 
-//* Makes a tab host. Its children are its tabs, and one of them is
-//* showing at a time.
+//* Makes a tab host. Its children are its tabs, and one of them is showing at a time.
 Make_Tabs :: proc(g: ^GUI, parent: Widget_ID, opts: Tabs_Opts) -> Widget_ID {
 	return New_Widget(g, .Tabs, parent, base_widget_opts(opts.Base_Opts))
 }

@@ -1,71 +1,50 @@
-//* The loader of scene files: a tree of widgets written down as text, in
-//* the format of Godot. The keys, the anchors, the styles and the rules
-//* of the loader are in docs/scene-format.md.
-//*
-//* == What the loader checks ==
-//* The loader reads a file into a document of nodes, checks the document,
-//* and then makes a tree of widgets out of it. Every thing that is wrong
-//* with the file is said in a report: how bad it is, the line it is on,
-//* the node it is about and the property it is about.
-//*
-//* | What is wrong | How bad | What the loader does |
+//* Loads scene files: widget trees described in a Godot-style text format.
+//* See docs/scene-format.md for the syntax and supported properties.
+//
+//* The loader parses and validates a document before creating its widget
+//* tree. Issues are collected in a report with severity, line, node, and
+//* property information.
+//
+//* | Issue | Severity | Result |
 //* |---|---|---|
-//* | a property the loader does not know | warning | the property is not used |
-//* | a property the kind of widget does not use | warning | the property is not used |
-//* | a value that cannot be read | warning | the property is not used |
-//* | a node without a type | error | the node is skipped |
-//* | a type that is not a kind of widget | error | the node is skipped |
-//* | a kind of widget with no constructor | error | the node is skipped |
-//* | two nodes with the same name | error | the later node is skipped |
-//* | a parent that is not in the file | error | the node goes to the root |
-//* | a node that is its own parent | error | the node goes to the root |
-//* | parents that make a circle | error | the nodes go to the root |
-//*
-//* A node that cannot be made is skipped, but its name stays: the
-//* children of the node hang under the node it would have hung under.
-//* The first node of a name keeps the name, so the children of the later
-//* node hang under the first one.
-//*
-//* The loader is forgiving where that keeps a file of a newer version
-//* loadable: a line it does not know is skipped, and a node whose parent
-//* comes later in the file waits for that parent. The wait goes on until
-//* the loader makes no more progress, so a node whose parent waits for a
-//* parent of its own is made as well.
-//*
-//* == What the document owns ==
-//* A document of nodes holds the strings of the file: the name, the
-//* type and the parent of every node, its text, the name of the family
-//* of its fonts, the key and the value of every property, and the path
-//* of every node. The strings live in the allocator that was given to
-//* Scene_Parse, and Scene_Doc_Destroy gives them back with it. A string
-//* that a property line or a broken parent replaced is given back as
-//* well, so that nothing of the document is left behind.
-//*
-//* A document that was made by hand has no allocator, and none of its
-//* strings are given back: they belong to the program that made them.
-//*
-//* The allocator of the arena of the GUI does nothing when it is asked
-//* to free, so a document that was parsed in the arena of the GUI is
-//* given back when the GUI is shut down, and a document that was
-//* parsed with the heap allocator gives its strings back at once.
-//*
-//* == What the widgets own ==
-//* A widget of a scene file gets a copy of the name and of the text of
-//* its node. The copy lives in the arena of the GUI, so the document
-//* may be given back at any time and the widget keeps what it needs.
-//*
-//* == The families of the fonts ==
-//* The families of the fonts belong to the GUI: they are given back
-//* when the GUI is shut down. A widget holds only the number of a
-//* family, so the widget does not own the family. The name of a family
-//* in a file is a string of the document, and it is given back with the
-//* document.
-//*
-//* == The report ==
-//* The report holds the things that are wrong, one after the other, in
-//* the order they were found. It is made of a list of entries, and the
-//* report owns the strings of the entries, so the caller gives the
-//* whole of it back with Scene_Report_Destroy.
+//* | Unknown property | Warning | Ignored |
+//* | Unsupported property for widget type | Warning | Ignored |
+//* | Invalid property value | Warning | Ignored |
+//* | Missing node type | Error | Node skipped |
+//* | Unknown widget type | Error | Node skipped |
+//* | Missing constructor | Error | Node skipped |
+//* | Duplicate node name | Error | Later node skipped |
+//* | Missing parent | Error | Node attached to root |
+//* | Node is its own parent | Error | Node attached to root |
+//* | Parent cycle | Error | Affected nodes attached to root |
+//
+//* Skipped nodes retain their names, so their children attach to the
+//* skipped node's resolved parent. For duplicate names, the first node
+//* owns the name.
+//
+//* Unknown sections and lines are ignored. Nodes whose parents appear
+//* later are deferred until their parents are created.
+//
+//* == Document ownership ==
+//* Parsed strings are allocated by the allocator passed to Scene_Parse.
+//* Scene_Doc_Destroy releases them, including strings replaced while
+//* parsing or validation. Hand-built documents have no owned allocator;
+//* their strings remain the caller's responsibility.
+//
+//* Arena allocations are reclaimed when the arena is destroyed. With a
+//* heap allocator, destroying the document releases its strings.
+//
+//* == Widget ownership ==
+//* Widgets copy their node name and text into the GUI arena. The document
+//* can therefore be destroyed after instantiation.
+//
+//* == Font ownership ==
+//* Font families belong to the GUI and are released with it. Widgets
+//* store only a family ID; font names remain owned by the document.
+//
+//* == Report ownership ==
+//* Reports own their entries and message strings. Release them with
+//* Scene_Report_Destroy.
 
 package GUI
 
@@ -76,13 +55,8 @@ import virt "core:mem/virtual"
 import "core:strconv"
 import "core:strings"
 
-//* == The properties of a node ==
-//* Every kind of widget uses these properties: where the widget sits in
-//* its parent, how big it may be, whether it is shown, and the look of
-//* the box around it and of the text in it. The property "bg" sets the
-//* colour of the box, and it is the fill of a colour rectangle as well.
-//* The property "font" names a family of the fonts of the GUI, and the
-//* text of the widget is set in that family.
+//* == Node properties ==
+//* Properties shared by all widget types.
 SCENE_PROPERTIES_COMMON :: [12]string {
 	"anchors",
 	"offsets",
@@ -98,20 +72,15 @@ SCENE_PROPERTIES_COMMON :: [12]string {
 	"bg",
 }
 
-//* Only the kinds of widget that show text of their own use the property
-//* "text". The others take no text from a file. The text of a command
-//* palette is the text of its filter, and the text of a chat input is
-//* the text in its field.
-SCENE_TYPES_WITH_TEXT :: [19]Widget_Type {
+//* Widget types that accept their own text property.
+SCENE_TYPES_WITH_TEXT :: [17]Widget_Type {
 	.Button,
 	.Label,
-	.TextInput,
+	.TextBox,
 	.CheckBox,
-	.CheckButton,
 	.MenuButton,
 	.LinkButton,
 	.RichTextLabel,
-	.TextEdit,
 	.AcceptDialog,
 	.ConfirmationDialog,
 	.Toast,
@@ -124,15 +93,11 @@ SCENE_TYPES_WITH_TEXT :: [19]Widget_Type {
 	.EmojiPicker,
 }
 
-//* How a scene file makes a widget of a kind. The constructor gets the
-//* GUI, the parent of the widget, the name of the node and the text of
-//* the node, and gives back the widget it made.
+//* Creates a widget for a scene node.
 Scene_Constructor :: proc(g: ^GUI, parent: Widget_ID, name: string, text: string) -> Widget_ID
 
-//* == The document of a scene ==
-//* A scene file describes a tree of widgets in a text form: a list of
-//* nodes, and every node is a block of `key = value` lines that starts
-//* with a `[node ...]` line.
+//* == Scene document ==
+//* A scene is a list of nodes, each introduced by a [node ...] header.
 //*
 //*   [node name="Root" type="Panel"]
 //*       anchors = {0, 0, 1, 1}
@@ -144,15 +109,14 @@ Scene_Constructor :: proc(g: ^GUI, parent: Widget_ID, name: string, text: string
 //*           font_size = 28
 //*           colour = {0.9, 0.9, 0.95, 1}
 
-//* One line of a node: the key and the value that were read, and the line
-//* of the file they are on.
+//* A parsed property and its source line.
 Scene_Property :: struct {
 	key:   string,
 	value: string,
 	line:  int,
 }
 
-//* A node of a scene file, with the look it asks for.
+//* A scene node and its parsed properties.
 Scene_Node :: struct {
 	name:                string,
 	type:                string,
@@ -199,34 +163,16 @@ Scene_Node :: struct {
 	skipped:             bool,
 }
 
-//* A scene file that has been read. The strings of the nodes live in the
-//* allocator that was given to Scene_Parse, and the caller owns that
-//* allocator.
-//
-//* The allocator is in the document, so that Scene_Doc_Destroy can give
-//* the strings back. A document that was made by hand has no allocator,
-//* and none of its strings are given back.
+//* Parsed scene document. Parsed strings belong to allocator.
 Scene_Doc :: struct {
 	nodes:     [dynamic]Scene_Node,
 	allocator: mem.Allocator,
 }
 
-//* Gives the memory of a document back: the strings of every node and
-//* the arrays of the properties of every node.
+//* Releases document strings and property arrays. Hand-built documents
+//* have no allocator, so their strings are left untouched.
 //
-//* Every string of a node is given back: the one that came from the
-//* header, and the one that a property line or a broken parent put in
-//* its place. The path of a node without a parent is its name, so it
-//* is not given back a second time.
-//
-//* The strings of the document live in the allocator of the document,
-//* and they are given back with it. A document that was made by hand
-//* has no allocator, and its strings are left alone: they belong to
-//* the program that made them.
-//
-//* The allocator of the arena of the GUI does nothing when it is asked
-//* to free, so a document that was parsed in the arena of the GUI is
-//* given back when the GUI is shut down.
+//* Root paths share the node name and are not freed separately.
 Scene_Doc_Destroy :: proc(doc: ^Scene_Doc) {
 	if doc == nil {return}
 	allocator := doc.allocator
@@ -237,8 +183,6 @@ Scene_Doc_Destroy :: proc(doc: ^Scene_Doc) {
 			delete(node.parent, allocator)
 			delete(node.text, allocator)
 			delete(node.font, allocator)
-			//* The path of a node without a parent is its name, so
-			//* it is not given back a second time.
 			if node.parent != "" {delete(node.path, allocator)}
 			for &property in node.properties {
 				delete(property.key, allocator)
@@ -250,13 +194,9 @@ Scene_Doc_Destroy :: proc(doc: ^Scene_Doc) {
 	delete(doc.nodes)
 }
 
-//* == Loading a scene ==
+//* == Loading scenes ==
 
-//* Reads a scene file and makes the tree of widgets it describes. The
-//* tree hangs under the root of the GUI, and the first node that could
-//* be made is the root of the tree.
-//
-//* What is wrong with the file is said in the log.
+//* Loads a scene and logs any reported issues.
 Scene_Load :: proc(g: ^GUI, text: string) -> Widget_ID {
 	root, report := Scene_Load_Report(g, text)
 	defer Scene_Report_Destroy(&report)
@@ -264,13 +204,8 @@ Scene_Load :: proc(g: ^GUI, text: string) -> Widget_ID {
 	return root
 }
 
-//* Reads a scene file and makes the tree of widgets it describes, and
-//* says what is wrong with the file.
-//
-//* The caller owns the report and gives it back with
-//* `Scene_Report_Destroy(&report)`.
-//
-//* The strings of the report live in the arena of the GUI.
+//* Loads a scene and returns its report. Report strings use the GUI arena;
+//* release the report with Scene_Report_Destroy.
 Scene_Load_Report :: proc(g: ^GUI, text: string) -> (Widget_ID, Scene_Report) {
 	report: Scene_Report
 	if g == nil {return INVALID_WIDGET_ID, report}
@@ -285,30 +220,14 @@ Scene_Load_Report :: proc(g: ^GUI, text: string) -> (Widget_ID, Scene_Report) {
 	return root, report
 }
 
-//* Reads a scene file into a document of nodes and says what is wrong
-//* with it. The strings of the document live in the allocator that is
-//* given, and the caller owns that allocator.
-//
-//* The report owns its own strings, and they live in the allocator that
-//* is given as well. The caller gives the report back with
-//* `Scene_Report_Destroy(&report)`.
-//
-//* The document can be made into a tree as many times as the program
-//* wants: see Scene_Instantiate.
+//* Parses a scene into a reusable document. Document strings and report
+//* strings use the supplied allocator.
 Scene_Parse :: proc(text: string, allocator: mem.Allocator) -> (Scene_Doc, Scene_Report) {
 	return scene_parse(text, allocator)
 }
 
-//* Makes the tree of widgets of a document. The tree hangs under the
-//* root of the GUI, and the first node that could be made is the root of
-//* the tree.
-//
-//* The document is not changed, so a document can be made into a tree
-//* again and again, and every tree is a tree of its own.
-//
-//* The caller owns the report and gives it back with
-//* `Scene_Report_Destroy(&report)`. The strings of the report live in
-//* the arena of the GUI.
+//* Instantiates a document without modifying it. The document can be
+//* instantiated more than once. Report strings use the GUI arena.
 Scene_Instantiate :: proc(g: ^GUI, doc: Scene_Doc) -> (Widget_ID, Scene_Report) {
 	report: Scene_Report
 	if g == nil {return INVALID_WIDGET_ID, report}
@@ -330,8 +249,6 @@ Scene_Instantiate :: proc(g: ^GUI, doc: Scene_Doc) -> (Widget_ID, Scene_Report) 
 		if node.parent != "" {
 			p, found := built[node.parent]
 			if !found {
-				//* The parent comes later in the file: the node waits
-				//* for it.
 				append(&waiting, index)
 				continue
 			}
@@ -364,11 +281,8 @@ Scene_Instantiate :: proc(g: ^GUI, doc: Scene_Doc) -> (Widget_ID, Scene_Report) 
 	return root, report
 }
 
-//* Puts the constructor of a kind of widget in the table of the GUI, so
-//* that a scene file can have a node of that kind.
-//
-//* A constructor that is nothing is refused. A constructor that is put
-//* in the table twice replaces the one that was there, and says so.
+//* Registers a widget constructor. A nil constructor is rejected;
+//* registering an existing type replaces its constructor.
 Scene_Register_Constructor :: proc(
 	g: ^GUI,
 	widget_type: Widget_Type,
@@ -394,7 +308,7 @@ Scene_Register_Constructor :: proc(
 	return true
 }
 
-//* The constructor of a kind of widget, or nothing when there is none.
+//* Returns the registered constructor, or nil if none exists.
 Scene_Constructor_Of :: proc(g: ^GUI, widget_type: Widget_Type) -> Scene_Constructor {
 	if g == nil {return nil}
 	index := int(widget_type)
@@ -402,20 +316,11 @@ Scene_Constructor_Of :: proc(g: ^GUI, widget_type: Widget_Type) -> Scene_Constru
 	return g.scene_constructors[index]
 }
 
-//* == Finding a widget of a scene ==
-//* The path of a widget is the name of the widget under the name of its
-//* parent: the root of the tree has the name of the root, and every
-//* widget under it has the name of its parent in front of its own.
-//
-//*   [node name="Root" type="Panel"]
-//*       [node name="Box" type="VBox" parent="Root"]
-//*           [node name="Ok" type="Button" parent="Box"]
-//
-//* The button above has the path "Root/Box/Ok".
-//
-//* Two widgets under the same parent may have the same name: the path of
-//* them is then the same, and the first one that is found is the one
-//* that is given back.
+//* == Finding widgets ==
+//* Paths use node names separated by '/'. For example:
+//* Root/Box/Ok
+//*
+//* Duplicate child names resolve to the first matching child.
 Scene_Find :: proc(g: ^GUI, root: Widget_ID, path: string) -> Widget_ID {
 	if g == nil || path == "" {return INVALID_WIDGET_ID}
 
@@ -436,7 +341,7 @@ Scene_Find :: proc(g: ^GUI, root: Widget_ID, path: string) -> Widget_ID {
 	return current
 }
 
-//* The names of a path: one for every widget on the way down the tree.
+//* Splits a widget path into its names.
 scene_split_path :: proc(path: string, names: ^[dynamic]string) {
 	start := 0
 	for i in 0 ..< len(path) {
@@ -447,8 +352,7 @@ scene_split_path :: proc(path: string, names: ^[dynamic]string) {
 	append(names, path[start:])
 }
 
-//* The child of a widget with a name. The first one that is found is the
-//* one that is given back.
+//* Returns the first child with the requested name.
 scene_find_child :: proc(g: ^GUI, id: Widget_ID, name: string) -> Widget_ID {
 	w := Widget_Get(g, id)
 	if w == nil {return INVALID_WIDGET_ID}
@@ -462,7 +366,7 @@ scene_find_child :: proc(g: ^GUI, id: Widget_ID, name: string) -> Widget_ID {
 	return INVALID_WIDGET_ID
 }
 
-//* == The constructors of the widgets ==
+//* == Widget constructors ==
 
 scene_constructor_panel :: proc(
 	g: ^GUI,
@@ -491,16 +395,16 @@ scene_constructor_label :: proc(
 	return Make_Label(g, parent, Label_Opts{Base_Opts = Base_Opts{name = name}, text = text})
 }
 
-scene_constructor_text_input :: proc(
+scene_constructor_text_box :: proc(
 	g: ^GUI,
 	parent: Widget_ID,
 	name: string,
 	text: string,
 ) -> Widget_ID {
-	return Make_Text_Input(
+	return Make_Text_Box(
 		g,
 		parent,
-		Text_Input_Opts{Base_Opts = Base_Opts{name = name}, text = text},
+		Text_Box_Opts{Base_Opts = Base_Opts{name = name}, text = text},
 	)
 }
 
@@ -637,19 +541,6 @@ scene_constructor_check_box :: proc(
 	)
 }
 
-scene_constructor_check_button :: proc(
-	g: ^GUI,
-	parent: Widget_ID,
-	name: string,
-	text: string,
-) -> Widget_ID {
-	return Make_Check_Button(
-		g,
-		parent,
-		Check_Button_Opts{Base_Opts = Base_Opts{name = name}, text = text},
-	)
-}
-
 scene_constructor_option_button :: proc(
 	g: ^GUI,
 	parent: Widget_ID,
@@ -767,19 +658,6 @@ scene_constructor_rich_text_label :: proc(
 		g,
 		parent,
 		Rich_Text_Opts{Base_Opts = Base_Opts{name = name}, text = text},
-	)
-}
-
-scene_constructor_text_edit :: proc(
-	g: ^GUI,
-	parent: Widget_ID,
-	name: string,
-	text: string,
-) -> Widget_ID {
-	return Make_Text_Edit(
-		g,
-		parent,
-		Text_Edit_Opts{Base_Opts = Base_Opts{name = name}, text = text},
 	)
 }
 
@@ -1078,8 +956,6 @@ scene_constructor_tooltip :: proc(
 	return Make_Tooltip(g, parent, Tooltip_Opts{Base_Opts = Base_Opts{name = name}, text = text})
 }
 
-//* == Constructors for heavy widgets ==
-
 scene_constructor_chart :: proc(
 	g: ^GUI,
 	parent: Widget_ID,
@@ -1147,12 +1023,8 @@ scene_constructor_audio_player :: proc(
 	return Make_Audio_Player(g, parent, Audio_Player_Opts{Base_Opts = Base_Opts{name = name}})
 }
 
-//* Puts the constructors of the widgets that exist today in the table.
-//* The table is filled once: a program that brings a widget of its own
-//* puts its constructor in it with Scene_Register_Constructor.
-//
-//* A constructor that is already in the table stays there: the program
-//* that put it there means it.
+//* Registers the built-in constructors once. Custom registrations are
+//* preserved and can override defaults.
 scene_register_defaults :: proc(g: ^GUI) {
 	if g == nil {return}
 	if g.scene_defaults_registered {return}
@@ -1161,7 +1033,7 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register_default(g, .Panel, scene_constructor_panel)
 	scene_register_default(g, .Button, scene_constructor_button)
 	scene_register_default(g, .Label, scene_constructor_label)
-	scene_register_default(g, .TextInput, scene_constructor_text_input)
+	scene_register_default(g, .TextBox, scene_constructor_text_box)
 	scene_register_default(g, .VBox, scene_constructor_vbox)
 	scene_register_default(g, .HBox, scene_constructor_hbox)
 	scene_register_default(g, .Split, scene_constructor_split)
@@ -1177,7 +1049,6 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register_default(g, .TabContainer, scene_constructor_tab_container)
 
 	scene_register_default(g, .CheckBox, scene_constructor_check_box)
-	scene_register_default(g, .CheckButton, scene_constructor_check_button)
 	scene_register_default(g, .OptionButton, scene_constructor_option_button)
 	scene_register_default(g, .MenuButton, scene_constructor_menu_button)
 	scene_register_default(g, .LinkButton, scene_constructor_link_button)
@@ -1192,7 +1063,6 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register_default(g, .NinePatchRect, scene_constructor_nine_patch)
 	scene_register_default(g, .ReferenceRect, scene_constructor_reference_rect)
 	scene_register_default(g, .RichTextLabel, scene_constructor_rich_text_label)
-	scene_register_default(g, .TextEdit, scene_constructor_text_edit)
 	scene_register_default(g, .ItemList, scene_constructor_item_list)
 	scene_register_default(g, .Tree, scene_constructor_tree)
 	scene_register_default(g, .TabBar, scene_constructor_tab_bar)
@@ -1234,8 +1104,7 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register_default(g, .AudioPlayer, scene_constructor_audio_player)
 }
 
-//* Puts the constructor of a kind of widget in the table, when there is
-//* none there yet.
+//* Registers a default only when no constructor is already present.
 scene_register_default :: proc(g: ^GUI, widget_type: Widget_Type, constructor: Scene_Constructor) {
 	index := int(widget_type)
 	for len(g.scene_constructors) <= index {
@@ -1245,12 +1114,10 @@ scene_register_default :: proc(g: ^GUI, widget_type: Widget_Type, constructor: S
 	g.scene_constructors[index] = constructor
 }
 
-//* == Reading the file ==
+//* == Parsing ==
 
-//* Reads a scene file into a document of nodes and checks the document.
-//* The strings of the nodes live in the allocator that is given, and the
-//* allocator is kept in the document, so that Scene_Doc_Destroy can
-//* give the strings back. The strings of the report live in it as well.
+//* Parses nodes and properties, then validates the document.
+//* Document and report strings use the supplied allocator.
 scene_parse :: proc(text: string, allocator: mem.Allocator) -> (Scene_Doc, Scene_Report) {
 	doc: Scene_Doc
 	doc.allocator = allocator
@@ -1305,7 +1172,7 @@ scene_parse :: proc(text: string, allocator: mem.Allocator) -> (Scene_Doc, Scene
 	return doc, report
 }
 
-//* Whether a line is the head of a node, e.g. `[node name="Root"]`.
+//* Returns true for a [node ...] header.
 scene_is_node_header :: proc(line: string) -> bool {
 	i := 1
 	for i < len(line) && scene_is_space(line[i]) {i += 1}
@@ -1314,13 +1181,8 @@ scene_is_node_header :: proc(line: string) -> bool {
 	return line[start:i] == "node"
 }
 
-//* The value of an attribute of the head of a node, e.g. the "type" of
-//* `[node name="Root" type="Panel"]`. The value is empty when the node
-//* does not have the attribute, and it is made in the allocator that is
-//* given, so that it is there for as long as the widgets are.
-//
-//* A value in quotes ends at the first quote that is not escaped, and
-//* the escapes in it are worked out.
+//* Reads a quoted or unquoted node-header attribute.
+//* Quoted values support backslash escapes.
 scene_attr :: proc(header: string, key: string, allocator: mem.Allocator) -> string {
 	at := 0
 	for at < len(header) {
@@ -1356,9 +1218,8 @@ scene_attr :: proc(header: string, key: string, allocator: mem.Allocator) -> str
 	return ""
 }
 
-//* Reads one `key = value` line into a node. The line is kept, so that
-//* the report can say what the line said. A value that cannot be read is
-//* left out, so that a file of a newer version still loads.
+//* Parses a property line and records its source line.
+//* Unrecognized or invalid values are left unused.
 scene_read_line :: proc(
 	node: ^Scene_Node,
 	props: ^[dynamic]Scene_Property,
@@ -1427,25 +1288,21 @@ scene_read_line :: proc(
 	}
 }
 
-//* Puts a new text in a place where there is one, and gives the old one
-//* back. The text is made in the allocator that is given, so that it
-//* lives as long as the document.
+//* Replaces a string using the supplied allocator.
 scene_replace_string :: proc(target: ^string, value: string, allocator: mem.Allocator) {
 	old := target^
 	target^ = scene_string(value, allocator)
 	delete(old, allocator)
 }
 
-//* Takes a text out of a place, and gives it back.
+//* Clears a string and releases its allocation.
 scene_clear_string :: proc(target: ^string, allocator: mem.Allocator) {
 	old := target^
 	target^ = ""
 	delete(old, allocator)
 }
 
-//* The text of a value: the quotes around it are taken off, and the
-//* escapes in it are worked out. The text is made in the allocator that
-//* is given, so that it is there for as long as the widgets are.
+//* Copies a value, removing surrounding quotes and decoding escapes.
 scene_string :: proc(value: string, allocator: mem.Allocator) -> string {
 	trimmed := strings.trim_space(value)
 	if len(trimmed) == 0 || trimmed[0] != '"' {
@@ -1454,9 +1311,7 @@ scene_string :: proc(value: string, allocator: mem.Allocator) -> string {
 	return scene_quoted(trimmed[1:], allocator)
 }
 
-//* The text of a value that begins with a quote: the value ends at the
-//* first quote that is not escaped, and the escapes in it are worked
-//* out. The text is made in the allocator that is given.
+//* Decodes a quoted value. Supports \n, \t, \r, \", and \\.
 scene_quoted :: proc(rest: string, allocator: mem.Allocator) -> string {
 	end := scene_quote_end(rest)
 	body := rest
@@ -1496,10 +1351,7 @@ scene_quoted :: proc(rest: string, allocator: mem.Allocator) -> string {
 	return strings.to_string(builder)
 }
 
-//* The place of the quote that ends a value, or -1 when the value has
-//* no closing quote. A quote is escaped when an odd number of
-//* backslashes stands before it, so a quote behind two backslashes ends
-//* the value and a quote behind one does not.
+//* Finds the closing quote, accounting for escaped backslashes.
 scene_quote_end :: proc(text: string) -> int {
 	slashes := 0
 	for i in 0 ..< len(text) {
@@ -1513,9 +1365,8 @@ scene_quote_end :: proc(text: string) -> int {
 	return -1
 }
 
-//* The numbers of a value: "{1, 2, 3, 4}" and "1, 2, 3, 4" are the same.
-//* The count of the numbers is returned, and it is -1 when a number
-//* cannot be read. The numbers are put in `out` as far as it holds them.
+//* Parses comma-separated numbers, optionally enclosed in braces.
+//* Returns the number parsed, or -1 on invalid input.
 scene_numbers :: proc(value: string, out: []f32) -> int {
 	count := 0
 	i := 0
@@ -1543,17 +1394,17 @@ scene_numbers :: proc(value: string, out: []f32) -> int {
 	return count
 }
 
-//* Reads the numbers of a value into a list. It says when the value does
-//* not hold the count of numbers it should.
+//* Reads exactly count numbers into out.
 scene_read_numbers :: proc(value: string, out: []f32, count: int) -> bool {
 	return scene_numbers(value, out) == count
 }
 
+//* Parses a floating-point value.
 scene_number :: proc(value: string) -> (f32, bool) {
 	return strconv.parse_f32(strings.trim_space(value))
 }
 
-//* The flag of a value: "true" or "false".
+//* Parses true or false.
 scene_bool :: proc(value: string) -> (bool, bool) {
 	trimmed := strings.trim_space(value)
 	if trimmed == "true" {return true, true}
@@ -1561,14 +1412,14 @@ scene_bool :: proc(value: string) -> (bool, bool) {
 	return false, false
 }
 
+//* Returns whether a character is whitespace.
 scene_is_space :: proc(c: u8) -> bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
 }
 
-//* == Checking the document ==
+//* == Validation ==
 
-//* The count of numbers a property asks for, or 0 when the property is
-//* not a list of numbers.
+//* Returns the expected number of values for a list property.
 scene_property_count :: proc(key: string) -> int {
 	switch key {
 	case "anchors", "offsets", "colour", "bg", "border", "padding":
@@ -1579,27 +1430,24 @@ scene_property_count :: proc(key: string) -> int {
 	return 0
 }
 
-//* The text of a thing that is wrong with a scene file. The text is made
-//* in the allocator that is given, so that it lives as long as the
-//* report does.
+//* Formats a report message using the supplied allocator.
 scene_message :: proc(allocator: mem.Allocator, format: string, args: ..any) -> string {
 	return fmt.aprintf(format, ..args, allocator = allocator)
 }
 
-//* Whether the property names the node itself. Every kind of widget uses
-//* these, so they are never said to be unused.
+//* Identifies node-header attributes.
 scene_property_attribute :: proc(key: string) -> bool {
 	return key == "name" || key == "type" || key == "parent"
 }
 
-//* Whether the property is one the loader knows at all.
+//* Returns whether the loader recognizes a property.
 scene_property_known :: proc(key: string) -> bool {
 	if scene_property_attribute(key) {return true}
 	if key == "text" {return true}
 	return scene_property_common(key)
 }
 
-//* Whether a property is one that every kind of widget uses.
+//* Returns whether a property applies to every widget type.
 scene_property_common :: proc(key: string) -> bool {
 	for common in SCENE_PROPERTIES_COMMON {
 		if common == key {return true}
@@ -1607,7 +1455,7 @@ scene_property_common :: proc(key: string) -> bool {
 	return false
 }
 
-//* Whether a kind of widget shows text of its own.
+//* Returns whether a widget type accepts its own text.
 scene_type_shows_text :: proc(widget_type: Widget_Type) -> bool {
 	for kind in SCENE_TYPES_WITH_TEXT {
 		if kind == widget_type {return true}
@@ -1615,18 +1463,17 @@ scene_type_shows_text :: proc(widget_type: Widget_Type) -> bool {
 	return false
 }
 
-//* Whether a kind of widget uses the property.
+//* Returns whether a property applies to the given widget type.
 scene_property_used :: proc(widget_type: Widget_Type, key: string) -> bool {
 	if scene_property_attribute(key) {return true}
 	if key == "text" {return scene_type_shows_text(widget_type)}
 	return scene_property_common(key)
 }
 
-//* Checks a document and says what is wrong with it. The nodes that
-//* cannot be made are marked, and the nodes that cannot find their
-//* parent are sent to the root of the GUI.
+//* Validates node names, types, parents, and parent cycles.
+//* Invalid nodes are marked for skipping; invalid parent links are
+//* cleared so affected nodes attach to the GUI root.
 scene_validate :: proc(doc: ^Scene_Doc, report: ^Scene_Report, allocator: mem.Allocator) {
-	//* The first node of a name keeps the name.
 	first := make(map[string]int)
 	defer delete(first)
 
@@ -1712,8 +1559,7 @@ scene_validate :: proc(doc: ^Scene_Doc, report: ^Scene_Report, allocator: mem.Al
 	}
 }
 
-//* The properties of a node that the loader does not use. The loader says
-//* of each of them, and does not use it.
+//* Reports unknown and unsupported properties.
 scene_check_properties :: proc(node: ^Scene_Node, report: ^Scene_Report) {
 	widget_type, is_kind := fmt.string_to_enum_value(Widget_Type, node.type)
 	for property in node.properties {
@@ -1746,8 +1592,7 @@ scene_check_properties :: proc(node: ^Scene_Node, report: ^Scene_Report) {
 	}
 }
 
-//* The properties of a node that the kind of the widget does not use.
-//* The loader says of each of them, and does not use it.
+//* Reports properties unsupported by the given widget type.
 scene_check_kind_properties :: proc(
 	node: Scene_Node,
 	widget_type: Widget_Type,
@@ -1769,7 +1614,7 @@ scene_check_kind_properties :: proc(
 	}
 }
 
-//* The value of a property has to be the shape the property asks for.
+//* Checks whether a property value matches its expected format.
 scene_check_value :: proc(
 	node: ^Scene_Node,
 	property: Scene_Property,
@@ -1819,8 +1664,7 @@ scene_check_value :: proc(
 	}
 }
 
-//* The parents of the nodes cannot make a circle. The nodes of a circle
-//* go to the root of the GUI.
+//* Finds parent cycles and detaches their nodes from the hierarchy.
 scene_check_circles :: proc(
 	doc: ^Scene_Doc,
 	parent_of: []int,
@@ -1877,9 +1721,7 @@ scene_check_circles :: proc(
 	}
 }
 
-//* The message of a circle: the names of all the nodes of the circle.
-//* The message is made in the allocator of the report, and the report
-//* owns it.
+//* Builds the error message listing the nodes in a parent cycle.
 scene_circle_message :: proc(doc: ^Scene_Doc, circle: []int, report: ^Scene_Report) -> string {
 	builder: strings.Builder
 	if _, err := strings.builder_init_len_cap(
@@ -1901,8 +1743,7 @@ scene_circle_message :: proc(doc: ^Scene_Doc, circle: []int, report: ^Scene_Repo
 	return strings.to_string(builder)
 }
 
-//* The path of a node: the name of the node under the path of its
-//* parent. The path of a node without a parent is its name.
+//* Builds a node's path from its parent's path.
 scene_path_of :: proc(
 	doc: ^Scene_Doc,
 	index: int,
@@ -1926,35 +1767,35 @@ scene_path_of :: proc(
 	return node.path
 }
 
-//* == Making the tree ==
+//* == Instantiation ==
 
-//* Makes the widget of a node and puts the look of the node on it. An
-//* invalid widget is returned when the kind of widget has no constructor.
-//
-//* The widget gets a copy of the name and of the text of the node. The
-//* copy lives in the arena of the GUI, so the document may be given back
-//* at any time and the widget keeps what it needs.
+//* Creates a widget and applies its node properties.
+//* Returns INVALID_WIDGET_ID when creation fails.
 scene_make :: proc(g: ^GUI, node: Scene_Node, parent: Widget_ID, report: ^Scene_Report) -> Widget_ID {
 	allocator := virt.arena_allocator(&g.arena)
 
 	name := strings.clone(node.name, allocator)
 	text := strings.clone(node.text, allocator)
 
-	//* A class of a program's own is named in the file as well: the
-	//* class says how one of its widgets is made. A class without a
-	//* constructor of its own falls back on the kind of widget whose
-	//* name is the same as the name of the class.
 	if id, found := class_by_name(g, node.type); found {
 		c, ok := class_get(g, id)
 		if ok && c.constructor != nil {
-			//* The class says which kind of widget it is, so the
-			//* properties of the node are said against it.
+
 			scene_check_kind_properties(node, c.type, report)
 			return scene_place(g, c.constructor(g, parent, name, text), node, c.type, report)
 		}
 	}
 
-	widget_type, ok := fmt.string_to_enum_value(Widget_Type, node.type)
+	type_name := node.type
+	multiline := false
+	if type_name == "TextInput" {
+		type_name = "TextBox"
+	} else if type_name == "TextEdit" {
+		type_name = "TextBox"
+		multiline = true
+	}
+
+	widget_type, ok := fmt.string_to_enum_value(Widget_Type, type_name)
 	if !ok {
 		scene_report_add(
 			report,
@@ -1980,16 +1821,13 @@ scene_make :: proc(g: ^GUI, node: Scene_Node, parent: Widget_ID, report: ^Scene_
 		)
 		return INVALID_WIDGET_ID
 	}
-	return scene_place(g, constructor(g, parent, name, text), node, widget_type, report)
+	widget := constructor(g, parent, name, text)
+	if multiline {text_box_set_multiline(g, widget, true)}
+	return scene_place(g, widget, node, widget_type, report)
 }
 
-//* Makes the nodes that were waiting for their parent. The pass goes on
-//* until it makes no more progress, so that a node whose parent waits
-//* for a parent of its own is made as well.
-//
-//* The first widget that is made is given back, so that the tree can
-//* have a root even when the node that comes first in the file could
-//* not be made.
+//* Creates nodes deferred until their parents become available.
+//* Repeats until no more waiting nodes can be created.
 scene_make_waiting :: proc(
 	g: ^GUI,
 	doc: Scene_Doc,
@@ -2031,9 +1869,7 @@ scene_make_waiting :: proc(
 	return first
 }
 
-//* Puts the look of a node on the widget of the node. The setters are
-//* used, so that the tree is measured and laid out again where it has
-//* to be.
+//* Applies layout, visibility, font, and style properties to a widget.
 scene_place :: proc(
 	g: ^GUI,
 	id: Widget_ID,
@@ -2076,13 +1912,8 @@ scene_place :: proc(
 	return id
 }
 
-//* The family of the fonts that the text of a node is set in. The name
-//* of the family is looked up in the GUI: a name that is not a family
-//* of the GUI is an error, and a name that is empty is a warning. A
-//* node that asks for no family keeps the font of the theme.
-//
-//* The family belongs to the GUI: the widget holds only the number of
-//* it.
+//* Resolves a node's font family. Missing families are reported;
+//* an unset or invalid family falls back to the theme.
 scene_font_family :: proc(g: ^GUI, node: Scene_Node, report: ^Scene_Report) -> Font_Family_ID {
 	if !node.has_font {return INVALID_FONT_FAMILY_ID}
 
@@ -2115,13 +1946,8 @@ scene_font_family :: proc(g: ^GUI, node: Scene_Node, report: ^Scene_Report) -> F
 	return family
 }
 
-//* The style of a node: the box around the widget and the text in it.
-//* The style says which of its fields are set, so that a colour with an
-//* alpha of zero and a size of zero are not lost on the way.
-//
-//* The family of the fonts is the one the loader looked up: a node that
-//* asks for none has no family, and the text of the widget takes the
-//* family of the theme.
+//* Builds a style from the properties present on a node.
+//* Explicit field flags preserve valid zero values and transparent colours.
 scene_style :: proc(node: Scene_Node, family: Font_Family_ID) -> Style {
 	style := Style{}
 	if node.has_bg {
@@ -2165,9 +1991,8 @@ scene_style :: proc(node: Scene_Node, family: Font_Family_ID) -> Style {
 	return style
 }
 
-//* Writes the things that are wrong with a scene file to the log. An
-//* error of a file is a warning here: the loader goes on and makes what
-//* it can, and the program that wants to know can ask for the report.
+//* Logs report entries. Errors are logged as warnings because loading
+//* continues; callers can inspect the report for exact severity.
 scene_report_log :: proc(report: Scene_Report) {
 	for entry in report.entries {
 		switch entry.severity {
