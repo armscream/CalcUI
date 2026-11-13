@@ -88,6 +88,7 @@ CalcUI includes a broad collection of built-in widgets and interface components.
 | File & Content | File viewer |
 | Layout | Dockspaces, floating and detachable panels |
 
+
 # Quick Start
 
 ```odin
@@ -244,6 +245,7 @@ The "examples" directory contains standalone applications demonstrating CalcUI's
 | `08_heavy` | Charts, node graphs, canvas and editor widgets. |
 | `09_scene` | Scene loading and default themes. |
 
+
 # Building
 
 CalcUI requires the "Odin compiler" (https://odin-lang.org/).
@@ -302,6 +304,7 @@ GitHub Actions runs these checks on Windows, Linux and macOS.
 | [`docs/extending.md`](docs/extending.md) | Creating custom widgets. |
 | [`docs/scene-format.md`](docs/scene-format.md) | Scene format and loading. |   
 
+
 ## Shaders
 
 Compiled shaders are included in the repository, so a shader compiler is not needed to build CalcUI.
@@ -328,3 +331,4 @@ Third-party components retain their respective licenses:
 See <a href="NOTICE" target="_blank">
   <img src="https://img.shields.io/github/notice/armscream/CalcUI" alt="Notice">
 </a>    for third-party attributions.
+See [![Notice](https://img.shields.io/github/notice/armscream/CalcUI)](NOTICE) for third-party attributions.
