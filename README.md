@@ -7,7 +7,7 @@
 
 A renderer-agnostic, retained-mode GUI framework written in Odin.
 
-## WIP
+## **WIP**
 
 CalcUI is a retained-mode GUI toolkit written in "Odin" (https://odin-lang.org/). It provides a persistent widget tree, an incremental layout engine, declarative UI and an extensible rendering architecture.
 
@@ -15,7 +15,7 @@ The GUI core is renderer-agnostic. The included examples use SDL3, but CalcUI ca
 
 Interfaces can be built programmatically or described in scene files, allowing complete UI trees to be serialized, saved and loaded at runtime, similar to Godot's scene-based UI workflow.
 
-Screenshots
+## Screenshots
 
 <p align="center">
   <img src="assets/calcdock.png" alt="CalcUI docking system" width="100%">
@@ -36,7 +36,7 @@ Screenshots
 - Multiple windows – Window management, overlays, popups and detached panels.
 - Headless testing – Test GUI logic without opening a window.
 
-# Layout Engine
+## Layout Engine
 
 CalcUI uses a fully incremental, dirty-driven layout engine. Rather than recalculating the entire widget tree every frame, changes invalidate the relevant layout state and propagate through affected dependencies.
 
@@ -72,7 +72,7 @@ Complex layouts
 
 These can be combined to build everything from simple application interfaces to complex editor layouts.
 
-# Widgets
+## Widgets
 
 CalcUI includes a broad collection of built-in widgets and interface components.
 
@@ -110,7 +110,7 @@ GUI.Make_Button(g, g.root, GUI.Button_Opts{
 })
 ```
 
-# Declarative UI & Scenes
+## Declarative UI & Scenes
 
 Interfaces can be constructed programmatically or defined in scene files.
 
@@ -141,7 +141,7 @@ The included backends use SDL3:
 
 SDL3 is used by the examples and included integrations, but it is not a requirement of the GUI architecture. Other rendering systems can be integrated by implementing the necessary backend operations and wiring up window events, input, textures and presentation.
 
-# Display Scaling
+## Display Scaling
 
 CalcUI uses logical units for widget geometry, padding, borders, font sizes and image dimensions.
 
@@ -154,7 +154,7 @@ GUI.GUI_Set_Scale(g, pixel_density)
 
 Call "GUI_Set_Scale" when a window moves between displays with different pixel densities. Glyphs are rasterized again at the new physical size to maintain sharp text.
 
-# Fonts
+## Fonts
 
 Font families support fallback chains. When a family does not contain a requested glyph, CalcUI searches its fallback families.
 
@@ -165,7 +165,7 @@ GUI.Font_Family_Set_Fallback(g, family, symbol_family)
 
 "GUI.Font_Has_Glyph" checks whether a family or its fallbacks contain a particular codepoint.
 
-# Example Widget - Text Boxes
+## Example Widget - Text Boxes
 
 CalcUI uses a single "TextBox" widget for both single-line and multiline input.
 
@@ -201,7 +201,7 @@ GUI.Make_Text_Box(g, g.root, GUI.Text_Box_Opts{
 
 See "docs/widgets.md" (docs/widgets.md) for widget behaviour and available options.
 
-# Custom Widgets
+## Custom Widgets
 
 Custom widgets are registered as classes. Each class defines callbacks for drawing, measurement and input, with optional lifecycle and layout hooks.
 
@@ -254,10 +254,10 @@ Prepare the repository:
 
 Build the examples:
 
-# Windows
+## Windows
 examples\build.bat
 
-# Linux and macOS
+## Linux and macOS
 ./examples/build.sh
 
 Or build an individual example:
@@ -281,7 +281,7 @@ This checks the GUI, window and backend packages, runs GUI tests, builds the exa
 
 GitHub Actions runs these checks on Windows, Linux and macOS.
 
-# Project Structure
+## Project Structure
 
 | Directory | Description |
 |---|---|
@@ -302,21 +302,21 @@ GitHub Actions runs these checks on Windows, Linux and macOS.
 | [`docs/extending.md`](docs/extending.md) | Creating custom widgets. |
 | [`docs/scene-format.md`](docs/scene-format.md) | Scene format and loading. |   
 
-# Shaders
+## Shaders
 
 Compiled shaders are included in the repository, so a shader compiler is not needed to build CalcUI.
 
 To rebuild them:
 
-# Windows
+ Windows
 src\Backend\build_shaders.bat
 
-# Linux and macOS
+ Linux and macOS
 src/Backend/build_shaders.sh
 
 Shader compilation requires "glslc", available through the Vulkan SDK.
 
-## License
+# License
 
 CalcUI is licensed under "LGPL-3.0" (LICENSE).
 
@@ -325,4 +325,4 @@ Third-party components retain their respective licenses:
 - SDL3 and Runa: zlib.
 - Ported Skald code: BSD-2-Clause.
 
-See "NOTICE" (NOTICE) for third-party attributions.
+See [![Notice](https://img.shields.io/github/notice/armscream/CalcUI)](NOTICE) for third-party attributions.
