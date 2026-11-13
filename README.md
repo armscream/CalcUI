@@ -17,28 +17,19 @@ Interfaces can be built programmatically or described in scene files, allowing c
 
 ## Screenshots
 
-<<<<<<< HEAD
 <table>
   <tr>
-    <td align="center"><img src="assets/calcdock.png" alt="CalcUI docking system" width="49%"></td>
-    <td align="center"><img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="49%"></td>
+    <td align="center"><img src="assets/calcdock.png" alt="CalcUI docking system" width="99%"></td>
+    <td align="center"><img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="99%"></td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="49%"></td>
-    <td align="center"><img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="49%"></td>
+    <td align="center"><img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="99%"></td>
+    <td align="center"><img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="99%"></td>
   </tr>
-</table>   
-=======
-<p align="left">
-  <img src="assets/calcdock.png" alt="CalcUI docking system" width="50%">
-</p><p align="right">
-  <img src="assets/widgetgallery.png" alt="CalcUI widget gallery" width="50%">
-</p><p align="left">
-  <img src="assets/widgetgallery2.png" alt="CalcUI widget gallery" width="50%">
-</p><p align="right">
-  <img src="assets/widgetgallery3.png" alt="CalcUI widget gallery" width="50%">
-</p>Features
->>>>>>> b62a4b88cb49ecf7ea9db35107bd5b5419b13115
+</table>
+
+
+#Features
 
 - Retained-mode architecture – Persistent widget tree with independent widget identities and state.
 - Incremental layout engine – Dirty-driven measurement and arrangement. Only affected layout branches are recalculated.
