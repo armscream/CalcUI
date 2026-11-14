@@ -482,7 +482,7 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 				preset = .Fill,
 				offsets = GUI.Offset{left = 8, top = 32, right = -8, bottom = -8},
 			},
-			text = "The container of the tabs draws the strip itself.",
+			text = "The container draws the strip.",
 		},
 	)
 	GUI.Make_Label(
@@ -494,7 +494,7 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 				preset = .Fill,
 				offsets = GUI.Offset{left = 8, top = 32, right = -8, bottom = -8},
 			},
-			text = "Every tab is a child of the container.",
+			text = "Every tab is a child of it.",
 		},
 	)
 
@@ -515,7 +515,7 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 				offsets = GUI.Offset{left = 8, top = 4, right = -8, bottom = -4},
 				min_size = GUI.Vec2{0, 40},
 			},
-			text = "Only one section is open at a time.",
+			text = "One section opens at a time.",
 		},
 	)
 	GUI.Make_Label(
@@ -528,7 +528,7 @@ Section_Choices :: proc(parent: GUI.Widget_ID) -> f32 {
 				offsets = GUI.Offset{left = 8, top = 4, right = -8, bottom = -4},
 				min_size = GUI.Vec2{0, 40},
 			},
-			text = "The name of a child is the header of its section.",
+			text = "A child name is its header.",
 		},
 	)
 
@@ -1287,19 +1287,28 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 				offsets = Place(rows, 0, 2, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
-			text = "The rectangle holds a place in the layout.",
+			text = "The rect holds a place.",
 		},
 	)
 
 	//* The line across is under the first row, the one at the side
 	//* stands between the second and the third column.
 	hsep := GUI.Make_Separator(g, panel, false)
+	GUI.Widget_Set_Name(g, hsep, "hsep")
+	GUI.Widget_Set_Anchors(g, hsep, GUI.Anchor{0, 0, 0, 0})
 	GUI.Widget_Set_Offsets(
 		g,
 		hsep,
-		GUI.Offset{left = 16, top = ROW_TOP + rows.tops[1] - 6, right = 488, bottom = ROW_TOP + rows.tops[1] - 5},
+		GUI.Offset{
+			left = 16,
+			top = ROW_TOP + rows.tops[1] - 6,
+			right = 504,
+			bottom = ROW_TOP + rows.tops[1] - 5,
+		},
 	)
 	vsep := GUI.Make_Separator(g, panel, true)
+	GUI.Widget_Set_Name(g, vsep, "vsep")
+	GUI.Widget_Set_Anchors(g, vsep, GUI.Anchor{0, 0, 0, 0})
 	GUI.Widget_Set_Offsets(
 		g,
 		vsep,
@@ -1316,7 +1325,7 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 				offsets = Place(rows, 0, 3, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
-			text = "The line across is a horizontal separator, the one at the side stands up.",
+			text = "One line lies across, one stands up.",
 		},
 	)
 
@@ -1366,7 +1375,7 @@ Section_Data :: proc(parent: GUI.Widget_ID) -> f32 {
 				offsets = Place(rows, 2, 0, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
-			text = "Only the rows on the screen are drawn.",
+			text = "Only the visible rows are drawn.",
 		},
 	)
 
@@ -1473,7 +1482,7 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 				offsets = Place(rows, 0, 2, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
-			text = "The audio player is under the canvas.",
+			text = "The player is under the canvas.",
 		},
 	)
 
@@ -1481,8 +1490,13 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 }
 
 gallery_paint :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID, state: ^GUI.Canvas_State) {
-	GUI.canvas_add_rect(gui, id, GUI.Vec2{20, 20}, GUI.Vec2{120, 80}, GUI.RGBA(0.25, 0.60, 1.00, 1))
-	GUI.canvas_add_circle(gui, id, GUI.Vec2{180, 20}, GUI.Vec2{90, 90}, GUI.RGBA(0.95, 0.55, 0.20, 1))
-	GUI.canvas_add_line(gui, id, GUI.Vec2{20, 140}, GUI.Vec2{280, 220}, GUI.RGBA(0.40, 0.85, 0.50, 1))
-	GUI.canvas_add_text(gui, id, GUI.Vec2{20, 240}, "The canvas", GUI.RGBA(0.92, 0.94, 0.98, 1))
+	w := GUI.Widget_Get(gui, id)
+	if w == nil {return}
+	//* An item of a canvas is in the room of the window, so the paint
+	//* starts at the canvas itself.
+	content := GUI.content_rect(gui, w)
+	GUI.canvas_add_rect(gui, id, GUI.Vec2{content.x + 20, content.y + 20}, GUI.Vec2{120, 80}, GUI.RGBA(0.25, 0.60, 1.00, 1))
+	GUI.canvas_add_circle(gui, id, GUI.Vec2{content.x + 180, content.y + 20}, GUI.Vec2{90, 90}, GUI.RGBA(0.95, 0.55, 0.20, 1))
+	GUI.canvas_add_line(gui, id, GUI.Vec2{content.x + 20, content.y + 140}, GUI.Vec2{content.x + 280, content.y + 220}, GUI.RGBA(0.40, 0.85, 0.50, 1))
+	GUI.canvas_add_text(gui, id, GUI.Vec2{content.x + 20, content.y + 240}, "The canvas", GUI.RGBA(0.92, 0.94, 0.98, 1))
 }
