@@ -37,7 +37,7 @@ gauge_class :: proc(g: ^GUI.GUI) -> GUI.Widget_Class_ID {
 			key = gauge_key,
 			text_input = gauge_text_input,
 			uses_arrow_keys = true,
-			style = GUI.Style{box = StyleBox{
+			style = GUI.Style{box = GUI.StyleBox{
 				bg_color = GUI.RGBA(0.15, 0.16, 0.20, 1),
 				content_margin = {6, 4, 6, 4},
 				corner_radius = {4, 4, 4, 4},
@@ -62,12 +62,12 @@ gauge_set_value :: proc(g: ^GUI.GUI, id: GUI.Widget_ID, value: f32) {
 	data := gauge_data(g, id)
 	if data == nil { return }
 
-	value = clamp(value, 0, 1)
-	if data.value == value { return }
+	value_clamped := clamp(value, 0, 1)
+	if data.value == value_clamped { return }
 
-	data.value = value
+	data.value = value_clamped
 	GUI.Widget_Invalidate(g, id, GUI.Dirty_Flags{.Visual})
-	GUI.Signal_Emit(g, id, "value_changed", value)
+	GUI.Signal_Emit(g, id, "value_changed", value_clamped)
 }
 
 gauge_construct :: proc(g: ^GUI.GUI, id: GUI.Widget_ID, w: ^GUI.Widget) {
@@ -221,7 +221,7 @@ test_a_widget_of_a_program_s_own_works_like_the_ones_that_are_built_in :: proc(t
 	testing.expect_value(t, gauge_keyed, 1)
 	testing.expect_value(t, gauge_value(g, gauge), 0.5)
 
-	append(&g.events, Text_Input_Event{text = strings.clone("7")})
+	append(&g.events, GUI.Text_Input_Event{text = strings.clone("7")})
 	GUI.Handle_Events(g)
 	testing.expect_value(t, gauge_typed, 1)
 	testing.expect_value(t, gauge_value(g, gauge), 0.7)
@@ -265,7 +265,7 @@ test_the_theme_can_style_the_class_of_a_program_s_own :: proc(t: ^testing.T) {
 	GUI.Theme_Set_Class(theme, "Gauge", GUI.Style{
 		box = GUI.StyleBox{bg_color = GUI.RGBA(0.9, 0.2, 0.1, 1)},
 	})
-	GUI_Set_Theme(g, theme)
+	GUI.GUI_Set_Theme(g, theme)
 
 	testing.expect_value(t, GUI.Widget_Style(g, gauge).box.bg_color, GUI.RGBA(0.9, 0.2, 0.1, 1))
 	test_gui_destroy(g)
@@ -275,16 +275,16 @@ test_the_theme_can_style_the_class_of_a_program_s_own :: proc(t: ^testing.T) {
 test_the_widgets_that_are_built_in_are_classes_as_well :: proc(t: ^testing.T) {
 	g := test_gui(t)
 
-	box := Make_Check_Box(g, g.root, Check_Box_Opts{text = "agree"})
+	box := GUI.Make_Check_Box(g, g.root, GUI.Check_Box_Opts{text = "agree"})
 	class := GUI.Widget_Class_Of(g, box)
-	testing.expect_value(t, class != INVALID_WIDGET_CLASS_ID, true)
+	testing.expect_value(t, class != GUI.INVALID_WIDGET_CLASS_ID, true)
 	testing.expect_value(t, GUI.Widget_Class_Name(g, class), "CheckBox")
 
-	by_name, found := class_by_name(g, "CheckBox")
+	by_name, found := GUI.class_by_name(g, "CheckBox")
 	testing.expect_value(t, found, true)
 	testing.expect_value(t, by_name, class)
 
-	Widget_Register_Class(g, GUI.Widget_Class_Desc{
+	GUI.Widget_Register_Class(g, GUI.Widget_Class_Desc{
 		name = "CheckBox",
 		kind = GUI.Widget_Kind{theme_name = "CheckBox"},
 	})
@@ -301,7 +301,7 @@ test_a_scene_file_can_name_the_class_of_a_program_s_own :: proc(t: ^testing.T) {
 	gauge_made = 0
 
 	gauge_class(g)
-	root := Scene_Load(g, `
+	root := GUI.Scene_Load(g, `
 [node name="Root" type="Panel"]
     [node name="Gauge" type="Gauge" parent="Root"]
         anchors = {0, 0, 1, 0}

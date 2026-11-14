@@ -28,12 +28,21 @@ if errorlevel 1 (
 )
 
 echo.
-echo == Testing src\GUI
-set CALCUI_SKIP_BENCH=1
-odin test src\GUI
+echo == Checking src\Tests
+odin check src\Tests -no-entry-point
 if errorlevel 1 (
-    echo The tests of src\GUI did not pass.
-    set FAILED=the tests of src\GUI
+    echo src\Tests did not check.
+    set FAILED=src\Tests
+    goto fail
+)
+
+echo.
+echo == Testing src\Tests
+set CALCUI_BENCH_BUDGET=0
+odin test src\Tests -define:ODIN_TEST_THREADS=1
+if errorlevel 1 (
+    echo The tests of src\Tests did not pass.
+    set FAILED=the tests of src\Tests
     goto fail
 )
 
@@ -85,7 +94,7 @@ for %%A in ("%BIN%\shot.png") do if %%~zA LSS 1 (
 
 popd
 echo.
-echo Passed: src\GUI, the tests of src\GUI, the examples, src\Window,
+echo Passed: src\GUI, src\Tests, the examples, src\Window,
 echo src\Backend and the picture in bin\shot.png.
 endlocal
 exit /b 0

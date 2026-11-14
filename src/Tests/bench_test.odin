@@ -149,7 +149,7 @@ bench_scene_panels :: proc(g: ^GUI.GUI, count: int) {
 }
 
 bench_scene_rounded :: proc(g: ^GUI.GUI, count: int) {
-	box := GUI.New_Widget(g, GUI.VBox, g.root, GUI.Widget_Opts{separation = 2})
+	box := GUI.New_Widget(g, .VBox, g.root, GUI.Widget_Opts{separation = 2})
 	style := GUI.Style {
 		box = GUI.StyleBox {
 			bg_color = GUI.RGBA(0.2, 0.2, 0.3, 1),
@@ -162,14 +162,14 @@ bench_scene_rounded :: proc(g: ^GUI.GUI, count: int) {
 }
 
 bench_scene_buttons :: proc(g: ^GUI.GUI, count: int) {
-	box := GUI.New_Widget(g, GUI.VBox, g.root, GUI.Widget_Opts{separation = 2})
+	box := GUI.New_Widget(g, .VBox, g.root, GUI.Widget_Opts{separation = 2})
 	for i in 0 ..< count {
 		GUI.New_Widget(g, .Button, box, GUI.Widget_Opts{name = "button", text = "Press"})
 	}
 }
 
 bench_scene_labels :: proc(g: ^GUI.GUI, count: int) {
-	box := GUI.New_Widget(g, GUI.VBox, g.root, GUI.Widget_Opts{separation = 2})
+	box := GUI.New_Widget(g, .VBox, g.root, GUI.Widget_Opts{separation = 2})
 	for i in 0 ..< count {
 		GUI.New_Widget(g, .Label, box, GUI.Widget_Opts{
 			name = "label",
@@ -352,7 +352,7 @@ test_bench_the_layout_pass_runs :: proc(t: ^testing.T) {
 
 	iterations := 200
 	ns := bench_measure(.Layout, g, t, iterations)
-	bench_report(Bench{"layout, 400 panels", iterations, ns / f64(iterations)})
+	bench_report(Bench{"layout, 400 panels", iterations, ns / f64(iterations), 0, 0})
 	bench_expect_faster(t, ns, iterations, 50e6)
 	test_gui_destroy(g)
 }
@@ -366,7 +366,7 @@ test_bench_the_style_of_every_widget_is_worked_out :: proc(t: ^testing.T) {
 
 	iterations := 200
 	ns := bench_measure(.Style, g, t, iterations)
-	bench_report(Bench{"style, 400 panels", iterations, ns / f64(iterations)})
+	bench_report(Bench{"style, 400 panels", iterations, ns / f64(iterations), 0, 0})
 	bench_expect_faster(t, ns, iterations, 50e6)
 	test_gui_destroy(g)
 }
@@ -380,7 +380,7 @@ test_bench_the_colours_of_every_widget_are_worked_out :: proc(t: ^testing.T) {
 
 	iterations := 200
 	ns := bench_measure(.Style_And_Colour, g, t, iterations)
-	bench_report(Bench{"style and colour, 400 panels", iterations, ns / f64(iterations)})
+	bench_report(Bench{"style and colour, 400 panels", iterations, ns / f64(iterations), 0, 0})
 	bench_expect_faster(t, ns, iterations, 50e6)
 	test_gui_destroy(g)
 }
@@ -389,7 +389,7 @@ test_bench_the_colours_of_every_widget_are_worked_out :: proc(t: ^testing.T) {
 test_bench_the_atlas_is_made_and_given_back :: proc(t: ^testing.T) {
 	iterations := 10
 	ns := bench_measure(.Make_Atlas, nil, t, iterations)
-	bench_report(Bench{"atlas make and destroy", iterations, ns / f64(iterations)})
+	bench_report(Bench{"atlas make and destroy", iterations, ns / f64(iterations), 0, 0})
 	bench_expect_faster(t, ns, iterations, 300e6)
 }
 
@@ -397,7 +397,7 @@ test_bench_the_atlas_is_made_and_given_back :: proc(t: ^testing.T) {
 test_bench_a_gui_is_made_and_given_back :: proc(t: ^testing.T) {
 	iterations := 10
 	ns := bench_measure(.Make_Gui, nil, t, iterations)
-	bench_report(Bench{"make and destroy, 100 widgets", iterations, ns / f64(iterations)})
+	bench_report(Bench{"make and destroy, 100 widgets", iterations, ns / f64(iterations), 0, 0})
 	bench_expect_faster(t, ns, iterations, 300e6)
 }
 
@@ -405,7 +405,7 @@ test_bench_a_gui_is_made_and_given_back :: proc(t: ^testing.T) {
 test_bench_the_atlas_hands_out_and_takes_back_space :: proc(t: ^testing.T) {
 	iterations := 2000
 	ns := bench_measure(.Atlas_Churn, nil, t, iterations)
-	bench_report(Bench{"atlas alloc and free, 16x16", iterations, ns / f64(iterations)})
+	bench_report(Bench{"atlas alloc and free, 16x16", iterations, ns / f64(iterations), 0, 0})
 	bench_expect_faster(t, ns, iterations, 5e6)
 }
 
@@ -413,7 +413,7 @@ test_bench_the_atlas_hands_out_and_takes_back_space :: proc(t: ^testing.T) {
 test_bench_the_atlas_gives_out_a_glyph_page :: proc(t: ^testing.T) {
 	iterations := 2000
 	ns := bench_measure(.Atlas_Churn_Big, nil, t, iterations)
-	bench_report(Bench{"atlas alloc and free, 64x64", iterations, ns / f64(iterations)})
+	bench_report(Bench{"atlas alloc and free, 64x64", iterations, ns / f64(iterations), 0, 0})
 	bench_expect_faster(t, ns, iterations, 5e6)
 }
 

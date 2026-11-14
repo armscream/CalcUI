@@ -1,4 +1,3 @@
-```sh
 #!/bin/sh
 # Runs CalcUI checks.
 #
@@ -33,8 +32,12 @@ echo "== Checking src/GUI"
 odin check src/GUI -no-entry-point
 
 echo
-echo "== Testing src/GUI"
-CALCUI_SKIP_BENCH=1 odin test src/GUI
+echo "== Checking src/Tests"
+odin check src/Tests -no-entry-point
+
+echo
+echo "== Testing src/Tests"
+CALCUI_BENCH_BUDGET=0 odin test src/Tests -define:ODIN_TEST_THREADS=1
 
 echo
 echo "== Building the examples"
@@ -65,6 +68,5 @@ if [ ! -s "$BIN/shot.png" ]; then
 fi
 
 echo
-echo "Passed: src/GUI, the tests of src/GUI, the examples, src/Window,"
+echo "Passed: src/GUI, src/Tests, the examples, src/Window,"
 echo "src/Backend and the picture in bin/shot.png."
-```
