@@ -351,6 +351,7 @@ GitHub Actions runs these checks on Windows, Linux and macOS.
 | [`docs/widgets.md`](docs/widgets.md) | Widget behaviour and available options. |
 | [`docs/extending.md`](docs/extending.md) | Creating custom widgets. |
 | [`docs/scene-format.md`](docs/scene-format.md) | Scene format and loading. |   
+| [`docs/architecture.md`](docs/architecture.md) | Calcui architectural overview. |   
 
 
 
