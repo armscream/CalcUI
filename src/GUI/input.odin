@@ -22,24 +22,25 @@ hit_test_top :: proc(g: ^GUI, global: Vec2) -> (id: Widget_ID, local: Vec2) {
 	return hit_test(g, g.root, local), local
 }
 
-pointer_chain :: proc(g: ^GUI, global: Vec2) -> (chain: [dynamic]Widget_ID, local: Vec2) {
+pointer_chain :: proc(g: ^GUI, global: Vec2) -> (chain: []Widget_ID, local: Vec2) {
+	clear(&g.chain_scratch)
 	for i := len(g.floats) - 1; i >= 0; i -= 1 {
 		f := g.floats[i]
 		local = Vec2{global.x - f.pos.x, global.y - f.pos.y}
 		if !rect_contains(Rect{x = 0, y = 0, w = f.size.x, h = f.size.y}, local.x, local.y) {
 			continue
 		}
-		hits_that_take_the_mouse(g, f.widget, local, &chain)
-		if len(chain) > 0 { return chain, local }
+		hits_that_take_the_mouse(g, f.widget, local, &g.chain_scratch)
+		if len(g.chain_scratch) > 0 { return g.chain_scratch[:], local }
 	}
 	local = main_window_pos(g, global)
-	hits_that_take_the_mouse(g, g.root, local, &chain)
-	return chain, local
+	hits_that_take_the_mouse(g, g.root, local, &g.chain_scratch)
+	return g.chain_scratch[:], local
 }
 
-chain_target :: proc(chain: ^[dynamic]Widget_ID) -> Widget_ID {
-	if len(chain^) == 0 { return INVALID_WIDGET_ID }
-	return chain^[0]
+chain_target :: proc(chain: []Widget_ID) -> Widget_ID {
+	if len(chain) == 0 { return INVALID_WIDGET_ID }
+	return chain[0]
 }
 
 Event_Handled :: proc(g: ^GUI) {
@@ -112,8 +113,7 @@ handle_mouse_move :: proc(g: ^GUI, e: Mouse_Move_Event) {
 	}
 
 	chain, _ := pointer_chain(g, e.global)
-	defer delete(chain)
-	g.hot = chain_target(&chain)
+	g.hot = chain_target(chain)
 
 	if g.active != INVALID_WIDGET_ID {
 		fire_pointer(g, g.active, Pointer_Event {
@@ -123,7 +123,7 @@ handle_mouse_move :: proc(g: ^GUI, e: Mouse_Move_Event) {
 		})
 		return
 	}
-	fire_pointer_chain(g, &chain, Pointer_Event {
+	fire_pointer_chain(g, chain, Pointer_Event {
 		kind = .Move,
 		pos = e.pos,
 		global = e.global,
@@ -142,8 +142,7 @@ handle_mouse_down :: proc(g: ^GUI, e: Mouse_Down_Event) {
 	popup_close_outside(g, e.global)
 
 	chain, local := pointer_chain(g, e.global)
-	defer delete(chain)
-	hot := chain_target(&chain)
+	hot := chain_target(chain)
 	g.hot = hot
 
 	if e.button == .Left { focus_clear(g) }
@@ -154,7 +153,7 @@ handle_mouse_down :: proc(g: ^GUI, e: Mouse_Down_Event) {
 	g.active = INVALID_WIDGET_ID
 	if e.button == .Left { g.active = hot }
 
-	fire_pointer_chain(g, &chain, Pointer_Event {
+	fire_pointer_chain(g, chain, Pointer_Event {
 		kind = .Down,
 		pos = e.pos,
 		global = e.global,
@@ -208,8 +207,7 @@ handle_mouse_up :: proc(g: ^GUI, e: Mouse_Up_Event) {
 	}
 
 	chain, _ := pointer_chain(g, e.global)
-	defer delete(chain)
-	up := chain_target(&chain)
+	up := chain_target(chain)
 	g.hot = up
 
 	if g.active != INVALID_WIDGET_ID {
@@ -220,8 +218,8 @@ handle_mouse_up :: proc(g: ^GUI, e: Mouse_Up_Event) {
 			button = e.button,
 		})
 	} else {
-		fire_pointer_chain(g, &chain, Pointer_Event {
-			kind = .Up,
+	fire_pointer_chain(g, chain, Pointer_Event {
+		kind = .Up,
 			pos = e.pos,
 			global = e.global,
 			button = e.button,
@@ -237,9 +235,8 @@ handle_mouse_up :: proc(g: ^GUI, e: Mouse_Up_Event) {
 handle_wheel :: proc(g: ^GUI, e: Wheel_Event) {
 	if !g.pointer_known { return }
 	chain, _ := wheel_chain(g, g.global_pointer)
-	defer delete(chain)
-	g.hot = wheel_hot(g, &chain)
-	fire_pointer_chain(g, &chain, Pointer_Event {
+	g.hot = wheel_hot(g, chain)
+	fire_pointer_chain(g, chain, Pointer_Event {
 		kind = .Wheel,
 		pos = g.pointer,
 		global = g.global_pointer,
@@ -247,8 +244,8 @@ handle_wheel :: proc(g: ^GUI, e: Wheel_Event) {
 	})
 }
 
-wheel_hot :: proc(g: ^GUI, chain: ^[dynamic]Widget_ID) -> Widget_ID {
-	for id in chain^ {
+wheel_hot :: proc(g: ^GUI, chain: []Widget_ID) -> Widget_ID {
+	for id in chain {
 		w := Widget_Get(g, id)
 		if w == nil { continue }
 		if w.mouse_filter == .Ignore { continue }
@@ -304,9 +301,9 @@ handle_key_down :: proc(g: ^GUI, e: Key_Down_Event) {
 	fire_key(g, g.focused, e)
 }
 
-fire_pointer_chain :: proc(g: ^GUI, chain: ^[dynamic]Widget_ID, e: Pointer_Event) {
+fire_pointer_chain :: proc(g: ^GUI, chain: []Widget_ID, e: Pointer_Event) {
 	g.event_handled = false
-	for id in chain^ {
+	for id in chain {
 		if g.event_handled { return }
 		fire_pointer(g, id, e)
 	}

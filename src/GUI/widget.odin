@@ -118,6 +118,9 @@ new_widget :: proc(
 	// room that is left over is its weight. A ratio of 0 is set with `Widget_Set_Stretch_Ratio`.
 	w.stretch_ratio = opts.stretch_ratio
 	if w.stretch_ratio == 0 { w.stretch_ratio = 1 }
+	w.shrink_weight = opts.shrink_weight
+	if w.shrink_weight < 0 || w.shrink_weight != w.shrink_weight { w.shrink_weight = 0 }
+	w.absolute = opts.absolute
 	w.clip_contents = opts.clip_contents != .Off
 	w.tooltip_text = opts.tooltip
 	w.custom_min_size = opts.custom_min_size
@@ -484,6 +487,9 @@ widget_forget :: proc(g: ^GUI, id: Widget_ID) {
 
 	//* The stack of the changes of the widget goes with it.
 	undo_forget(g, id)
+
+	//* A tween that animates the widget has nothing left to animate.
+	animation_forget(g, id)
 }
 
 //* Takes a widget out of the references of another widget: the links of
@@ -510,7 +516,6 @@ widget_unreference :: proc(w: ^Widget, id: Widget_ID) {
 //* Gives back what a widget owns. The texts of the program are not
 //* freed; what the widget made for itself is. The memory of the arena of
 //* the GUI is not freed here: the arena is given back when the GUI is shut down.
-@(private)
 widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	if w == nil { return }
 	#partial switch &d in w.data {
@@ -522,6 +527,10 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 		delete(d.text)
 	case Color_Picker_Data:
 		//* The code that is being typed belongs to the widget.
+		delete(d.edit_text)
+	case Date_Picker_Data:
+		delete(d.edit_text)
+	case Time_Picker_Data:
 		delete(d.edit_text)
 	case Item_List_Data:
 		delete(d.items)

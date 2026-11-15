@@ -95,6 +95,18 @@ propagate_up :: proc(g: ^GUI, w: ^Widget, flags: Dirty_Flags) {
 		p := Widget_Get(g, parent)
 		if p == nil {break}
 		p.subtree_dirty += flags
+		//* A scroll measures its content from its children, so a child
+		//* that is measured again can change the size there is to
+		//* scroll. The kept content size is dropped; the next query or
+		//* layout pass measures it from the current sizes.
+		if .Measure in flags {
+			#partial switch p.type {
+			case .ScrollContainer, .ScrollArea:
+				if d := scroll_data(g, p.id); d != nil {
+					d.content_ready = false
+				}
+			}
+		}
 		parent = p.parent
 	}
 }

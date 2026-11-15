@@ -198,7 +198,10 @@ kind_merge :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if base.click == nil { base.click = over.click }
 	if base.key == nil { base.key = over.key }
 	if base.update == nil { base.update = over.update }
+	if base.post_update == nil { base.post_update = over.post_update }
 	if base.measure == nil { base.measure = over.measure }
+	if base.measure_width == nil { base.measure_width = over.measure_width }
+	if base.content_size == nil { base.content_size = over.content_size }
 	if base.construct == nil { base.construct = over.construct }
 	if base.destroy == nil { base.destroy = over.destroy }
 	if base.pointer == nil { base.pointer = over.pointer }
@@ -220,7 +223,10 @@ kind_override :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if over.click != nil { base.click = over.click }
 	if over.key != nil { base.key = over.key }
 	if over.update != nil { base.update = over.update }
+	if over.post_update != nil { base.post_update = over.post_update }
 	if over.measure != nil { base.measure = over.measure }
+	if over.measure_width != nil { base.measure_width = over.measure_width }
+	if over.content_size != nil { base.content_size = over.content_size }
 	if over.construct != nil { base.construct = over.construct }
 	if over.destroy != nil { base.destroy = over.destroy }
 	if over.pointer != nil { base.pointer = over.pointer }
@@ -401,14 +407,10 @@ Signal_Emit :: proc(g: ^GUI, id: Widget_ID, name: string, value: any = nil) {
 	//* The connections are taken out of the table before any of them is called:
 	//* a callback that connects to the same signal, or that breaks a connection,
 	//* does not change the ones that are called now.
-	matches: [dynamic]Signal_Conn
-	defer delete(matches)
-	for entry in g.signal_conns {
-		if entry.id != id { continue }
-		if entry.conn.name != name { continue }
-		append(&matches, entry.conn)
-	}
-	for conn in matches {
+	base, count := signal_matches_begin(g, id, name)
+	defer signal_matches_end(g, base)
+	for i in 0 ..< count {
+		conn := g.signal_scratch[base + i]
 		if conn.callback == nil { continue }
 		conn.callback(g, id, value)
 	}

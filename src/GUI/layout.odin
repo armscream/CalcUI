@@ -3,24 +3,52 @@
 //* something changed; a change says what it made stale (see
 //* invalidation.odin).
 //*
+//* == The constraint of a widget ==
+//* Along one axis a widget has three sizes: the least it may take, the
+//* size it would like to take and the most it may take. The preferred
+//* size is the size the measure pass worked out, the floor is the size
+//* the program asked for, and the cap is the largest size it allowed.
+//* A cap of 0 means that there is no cap. The three are normalized, so
+//* the floor is never above the preferred size and a cap below the
+//* preferred size wins over it (see `Layout_Constraint`).
+//*
 //* == The room of a child ==
 //* A container that gives its children a share of its room works it out
-//* like this. Every child is measured, so it knows the smallest size it
-//* asks for. The room that is left over after the smallest sizes and
-//* the separations are taken out is shared among the children that
-//* expand, and the share of a child is its weight times its stretch
-//* ratio.
+//* like this. The room is the content rect of the container: the padding
+//* of the style is taken off before the children are placed, and the
+//* separations are taken off the axis before the solver sees the room.
+//* Every child is measured, so it knows the preferred size it asks for.
+//* The room that is left over after the preferred sizes and the
+//* separations are taken out is shared among the children that expand,
+//* and the share of a child is its weight times its stretch ratio. A
+//* child that reaches its cap is taken out of the sharing, and the room
+//* that is left is shared again among the children that can still grow.
 //*
-//* The flags of a child say what it does with that room. A child that
-//* expands takes its smallest size plus its share of the room that is
-//* left over. A child that does not expand takes only its smallest size,
-//* and the room that is left over goes to the children that expand. A
-//* child that shrinks takes only its smallest size and is centred in the
-//* room it would have had.
+//* When the children do not fit, the room is taken away from the ones
+//* that have a shrink weight until they reach their floor. A child
+//* without a shrink weight keeps its preferred size, and a container
+//* whose children have no shrink weight overflows the way it did before
+//* there were shrink weights.
+//*
+//* The flags of a child say what it does with the room it is given. A
+//* child that expands takes its preferred size plus its share of the
+//* room that is left over. A child that does not expand takes only its
+//* preferred size, and the room that is left over goes to the children
+//* that expand. A child that is centred in its room (the `.Shrink_Center`
+//* flag) takes only its preferred size and sits in the middle of the room
+//* it would have had.
 //*
 //* The flags of the other axis say how the child sits across the
 //* container: it fills the width of a vertical box, or it is centred in
 //* it. There is no room to share across that axis.
+//*
+//* == Absolute children ==
+//* A child that is absolute is taken out of the flow of its container:
+//* it takes no share of the room and it does not move the cursor that
+//* places the other children. It is placed by its anchors and offsets
+//* inside the content of the parent instead. A container of a custom
+//* class that lays itself out decides for itself what an absolute child
+//* means.
 package GUI
 
 //* == The flags of the size ==
@@ -32,30 +60,246 @@ size_flags_of :: proc(c: ^Widget, horizontal: bool) -> Size_Flags {
 }
 
 //* The share of the room of the parent a widget asks for: the weight of
-//* the widget times the ratio of the widget.
+//* the widget times the ratio of the widget. A share that is not a number,
+//* or a share below zero, is a share of nothing.
 share_of :: proc(c: ^Widget) -> f32 {
-	return c.weight * c.stretch_ratio
+	share := c.weight * c.stretch_ratio
+	if share != share || share < 0 {return 0}
+	return share
 }
 
-//* The room a child is given along the axis its parent stacks the
-//* children along: its smallest size plus its share of the room that is
-//* left over. A child that does not expand gets no share, so its room
-//* is its smallest size and the room that is left over goes to the
-//* children that expand.
-axis_room :: proc(c: ^Widget, horizontal: bool, available, total_share: f32) -> f32 {
-	min_size := horizontal ? c.min_size.x : c.min_size.y
-	if !(.Expand in size_flags_of(c, horizontal)) { return min_size }
-	return min_size + available * (share_of(c) / total_share)
+//* The share of a deficit a widget takes. A weight that is not a number,
+//* or a weight below zero, is a weight of nothing, the same way the
+//* setter and the constructor read it.
+shrink_of :: proc(c: ^Widget) -> f32 {
+	weight := c.shrink_weight
+	if weight != weight || weight < 0 {return 0}
+	return weight
+}
+
+//* The least, the wanted and the most a widget may take along one axis.
+//*
+//* `preferred` is the size the measure pass worked out: the size of the
+//* text and the padding of the style, raised by the sizes the program
+//* asked for and clamped by the largest size it allowed. `minimum` is
+//* the floor the program asked for, which is where a shrink stops.
+//* `maximum` is the largest size the program allowed; a value of 0 means
+//* that there is no maximum, the same convention as the options.
+//*
+//* A constraint is always normalized: a floor above the preferred size is
+//* folded into the preferred size, a maximum below the preferred size
+//* wins over it, and a maximum below the floor wins over the floor. A
+//* constraint therefore always satisfies
+//* `minimum <= preferred <= maximum`, unless there is no maximum, in
+//* which case `maximum` is 0.
+//*
+//* The constraint describes the content of a widget. A size the program
+//* pulled into place (`manual_size`) is kept whatever the constraint says,
+//* the same way it was before there were constraints.
+Layout_Constraint :: struct {
+	minimum:   f32,
+	preferred: f32,
+	maximum:   f32,
+}
+
+//* The constraint of a widget along one axis. The preferred size comes
+//* from the measure pass, so it is only up to date after the pass ran.
+layout_constraint :: proc(w: ^Widget, horizontal: bool) -> Layout_Constraint {
+	preferred := horizontal ? w.min_size.x : w.min_size.y
+	floor := horizontal ? max(w.base_min_size.x, w.custom_min_size.x) : max(w.base_min_size.y, w.custom_min_size.y)
+	maximum := horizontal ? w.custom_max_size.x : w.custom_max_size.y
+
+	//* A size that is not a number, or a size below zero, says nothing.
+	if preferred != preferred || preferred < 0 {preferred = 0}
+	if floor != floor || floor < 0 {floor = 0}
+	if maximum != maximum || maximum < 0 {maximum = 0}
+
+	if maximum > 0 && preferred > maximum {preferred = maximum}
+	if floor > preferred {floor = preferred}
+
+	return Layout_Constraint {
+		minimum = floor,
+		preferred = preferred,
+		maximum = maximum,
+	}
+}
+
+//* The constraint of a widget of the GUI along one axis. The preferred
+//* size is measured lazily, so the constraint is only up to date after
+//* a measure pass.
+Widget_Layout_Constraint :: proc(g: ^GUI, id: Widget_ID, horizontal: bool) -> Layout_Constraint {
+	w := Widget_Get(g, id)
+	if w == nil {return {}}
+	return layout_constraint(w, horizontal)
+}
+
+//* Fills `rooms` with the room each child of a container gets along an
+//* axis. `space` is the room of the axis after the separations have been
+//* taken out, so it is the room the children share between them.
+//*
+//* A child that was pulled to a size keeps it, and it is taken out of the
+//* room first, the same way it was before there were constraints. The
+//* other children start at their preferred size.
+//*
+//* When there is room left over, the children that expand take their
+//* preferred size plus a share of it, and their share is their weight
+//* times their stretch ratio. When the children do not fit, the deficit
+//* is taken from the children that have a shrink weight, by their
+//* weight, until they reach their floor. A child without a shrink weight
+//* keeps its preferred size and the container overflows.
+//*
+//* The solver always ends: every pass pins at least one child at its cap
+//* or at its floor, and a container with n children cannot pin more than
+//* n of them. A pass that pins nothing is the last one.
+axis_solve :: proc(
+	g: ^GUI,
+	children: []Widget_ID,
+	horizontal: bool,
+	space: f32,
+	rooms: []f32,
+) {
+	if len(children) == 0 || len(rooms) < len(children) {return}
+
+	preferred_total := f32(0)
+	for id, i in children {
+		rooms[i] = 0
+		c := Widget_Get(g, id)
+		if c == nil || c.absolute {continue}
+		if keeps_size(c, horizontal) {
+			rooms[i] = manual_size_of(c, horizontal)
+		} else {
+			rooms[i] = layout_constraint(c, horizontal).preferred
+		}
+		preferred_total += rooms[i]
+	}
+
+	spare := space - preferred_total
+	if spare >= 0 {
+		axis_grow(g, children, horizontal, spare, rooms)
+	} else {
+		axis_shrink(g, children, horizontal, -spare, rooms)
+	}
+}
+
+//* Shares the room that is left over among the children that expand,
+//* and takes a child that reaches its cap out of the sharing so that the
+//* room it did not use goes to the children that can still grow.
+axis_grow :: proc(
+	g: ^GUI,
+	children: []Widget_ID,
+	horizontal: bool,
+	spare_in: f32,
+	rooms: []f32,
+) {
+	spare := spare_in
+	if spare <= 0 {return}
+
+	for _ in 0 ..= len(children) {
+		total_share := f32(0)
+		for id, i in children {
+			c := Widget_Get(g, id)
+			if c == nil || c.absolute || keeps_size(c, horizontal) {continue}
+			if !(.Expand in size_flags_of(c, horizontal)) {continue}
+			share := share_of(c)
+			if share <= 0 {continue}
+			con := layout_constraint(c, horizontal)
+			if con.maximum > 0 && rooms[i] >= con.maximum {continue}
+			total_share += share
+		}
+		if total_share <= 0 {return}
+
+		added := f32(0)
+		pinned := false
+		for id, i in children {
+			c := Widget_Get(g, id)
+			if c == nil || c.absolute || keeps_size(c, horizontal) {continue}
+			if !(.Expand in size_flags_of(c, horizontal)) {continue}
+			share := share_of(c)
+			if share <= 0 {continue}
+			con := layout_constraint(c, horizontal)
+			if con.maximum > 0 && rooms[i] >= con.maximum {continue}
+
+			room := rooms[i] + spare * (share / total_share)
+			if con.maximum > 0 && room >= con.maximum {
+				room = con.maximum
+				pinned = true
+			}
+			added += room - rooms[i]
+			rooms[i] = room
+		}
+
+		spare -= added
+		//* Nothing was pinned, so every child took all of its share:
+		//* there is nothing left to share again.
+		if !pinned {return}
+		if spare <= 0.0001 {return}
+	}
+}
+
+//* Takes the room that the children need but do not have from the ones
+//* that have a shrink weight, and pins a child at its floor once it can
+//* give no more so that the deficit goes to the children that can.
+axis_shrink :: proc(
+	g: ^GUI,
+	children: []Widget_ID,
+	horizontal: bool,
+	deficit_in: f32,
+	rooms: []f32,
+) {
+	deficit := deficit_in
+	if deficit <= 0 {return}
+
+	for _ in 0 ..= len(children) {
+		total_weight := f32(0)
+		for id, i in children {
+			c := Widget_Get(g, id)
+			if c == nil || c.absolute || keeps_size(c, horizontal) {continue}
+			if shrink_of(c) <= 0 {continue}
+			//* A child that is centred in its room takes only its
+			//* preferred size whatever the room is, so it cannot give
+			//* any room back.
+			if .Shrink_Center in size_flags_of(c, horizontal) {continue}
+			con := layout_constraint(c, horizontal)
+			if rooms[i] <= con.minimum {continue}
+			total_weight += shrink_of(c)
+		}
+		if total_weight <= 0 {return}
+
+		taken := f32(0)
+		pinned := false
+		for id, i in children {
+			c := Widget_Get(g, id)
+			if c == nil || c.absolute || keeps_size(c, horizontal) {continue}
+			if shrink_of(c) <= 0 {continue}
+			if .Shrink_Center in size_flags_of(c, horizontal) {continue}
+			con := layout_constraint(c, horizontal)
+			if rooms[i] <= con.minimum {continue}
+
+			room := rooms[i] - deficit * (shrink_of(c) / total_weight)
+			if room <= con.minimum {
+				room = con.minimum
+				pinned = true
+			}
+			taken += rooms[i] - room
+			rooms[i] = room
+		}
+
+		deficit -= taken
+		//* Nothing was pinned, so every child gave all of its share:
+		//* there is nothing left to take.
+		if !pinned {return}
+		if deficit <= 0.0001 {return}
+	}
 }
 
 //* The size a child takes along the axis its parent stacks the children
 //* along, and how far the child sits from the start of its room.
 //*
-//* A child that fills takes the whole room. A child that shrinks takes
-//* only its smallest size and is centred in the room it would have had.
-//* A child that neither fills nor shrinks takes only its smallest size
-//* and leaves the rest of its room empty. A child that has no size of
-//* its own keeps the room it is given.
+//* A child that fills takes the whole room. A child that is centred in
+//* its room takes only its preferred size and sits in the middle of it.
+//* A child that neither fills nor is centred takes only its preferred
+//* size and leaves the rest of its room empty. A child that has no size
+//* of its own keeps the room it is given.
 axis_size :: proc(c: ^Widget, horizontal: bool, room: f32) -> (size, offset: f32) {
 	flags := size_flags_of(c, horizontal)
 	min_size := horizontal ? c.min_size.x : c.min_size.y
@@ -127,51 +371,46 @@ measure_pass :: proc(g: ^GUI) {
 }
 
 
-snapshot_children :: proc(g: ^GUI, w: ^Widget) -> [dynamic]Widget_ID {
-	children: [dynamic]Widget_ID
-	if g == nil || w == nil {return children}
-	count := 0
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
-		c := Widget_Get(g, child)
-		if c == nil {break}
-		count += 1
-		child = c.next_sibling
-	}
-	if count == 0 {return children}
-	children = make([dynamic]Widget_ID, 0, count, context.allocator)
-	child = w.first_child
-	for child != INVALID_WIDGET_ID {
-		c := Widget_Get(g, child)
-		if c == nil {break}
-		append(&children, child)
-		child = c.next_sibling
-	}
-	return children
-}
-
 measure_node :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
 	//* Nothing under this widget changed: the sizes are the ones they were.
 	if !(.Measure in w.subtree_dirty) {return}
 
-	//* The size of the widget is only worked out again when the widget
-	//* itself changed. A child that changed does not change the size of
-	//* its parent: in CalcUI a container does not add up the sizes of
-	//* its children.
-	if .Measure in w.dirty {
+	//* The children are measured first. A container that derives its
+	//* preferred size from its children needs their sizes, so the pass
+	//* is post-order: the leaves work out their size, then their
+	//* parents add them up. A container only sees the branch that
+	//* changed, because a child that did not change kept its size.
+	dependent := widget_width_dependent(g, w)
+	child := w.first_child
+	for child != INVALID_WIDGET_ID {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		//* A measure hook of a class can change the tree, so the link
+		//* to the next sibling is read before the child is measured.
+		next := c.next_sibling
+		measure_node(g, child)
+		if measured := Widget_Get(g, child); measured != nil && measured.width_dependent {
+			dependent = true
+		}
+		child = next
+	}
+	w.width_dependent = dependent
+
+	//* The size of the widget itself is worked out again when the widget
+	//* changed, and for a container whenever a child changed: the
+	//* container adds up the sizes of its children.
+	intrinsic := widget_measures_children(g, w)
+	if .Measure in w.dirty || intrinsic {
 		measure_widget(g, w)
 		g.measured_count += 1
 		w.dirty -= Dirty_Flags{.Measure}
 	}
-
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
-		if Widget_Get(g, child) == nil {continue}
-		measure_node(g, child)
+	if intrinsic {
+		measure_container(g, w)
 	}
+
 	w.subtree_dirty -= Dirty_Flags{.Measure}
 }
 
@@ -232,9 +471,49 @@ widget_sizes_to_content :: proc(w: ^Widget, horizontal: bool) -> bool {
 //* The padding of the style is never less than a point on a side, so
 //* the content of a widget never touches its border.
 measure_widget :: proc(g: ^GUI, w: ^Widget) {
+	measure_widget_at(g, w, -1)
+}
+
+//* Measures a widget. A `width` below zero means that the width is not
+//* known, which gives the intrinsic size. A width that is known is the
+//* width of the widget on the outside: a text that wraps is measured at
+//* the room its content has, so the height reflects the lines it takes.
+measure_widget_at :: proc(g: ^GUI, w: ^Widget, width: f32) {
+	style := resolved_style(g, w)
+	pad := style.box.content_margin
+	pad[0] = max(pad[0], 1)
+	pad[1] = max(pad[1], 1)
+	pad[2] = max(pad[2], 1)
+	pad[3] = max(pad[3], 1)
+
+	//* A text box takes the width it is given and its height is the
+	//* height of the lines of its text. Its own measure hook works out
+	//* the height of one line; the width-aware version is used here so
+	//* that a multiline box grows when its text wraps.
+	#partial switch d in w.data {
+	case Text_Box_Data:
+		content_w := f32(0)
+		if width >= 0 {
+			content_w = max(width - pad[0] - pad[2], 0)
+		}
+		size := measure_text_box_at_width(g, w.id, w, content_w)
+		//* A class of its own may measure a box as well; its size is a
+		//* floor under the size the lines of the text need.
+		if kind := widget_kind(g, w); kind.measure != nil {
+			hook := kind.measure(g, w.id, w)
+			size.x = max(size.x, hook.x)
+			size.y = max(size.y, hook.y)
+		}
+		w.min_size.x = max(w.base_min_size.x, max(w.custom_min_size.x, size.x))
+		w.min_size.y = max(w.base_min_size.y, size.y)
+		clamp_measured_size(w)
+		return
+	}
+
 	text := ""
 	extra_x := f32(0)
 	extra_y := f32(0)
+	force_wrap := false
 	#partial switch d in w.data {
 	case Label_Data:
 		text = d.text
@@ -252,25 +531,32 @@ measure_widget :: proc(g: ^GUI, w: ^Widget) {
 		text = d.text
 		extra_x = TOGGLE_TRACK_WIDTH + TOGGLE_LABEL_GAP
 		extra_y = TOGGLE_TRACK_HEIGHT
+	case Rich_Text_Data:
+		//* A rich text label is drawn with the words wrapped, whatever
+		//* the style says.
+		text = d.text
+		force_wrap = true
 	}
 
-	style := resolved_style(g, w)
 	if text != "" {
+		ts := style.text
+		if force_wrap {ts.wrap = .Word}
+
 		//* The text is measured as it is drawn, so a text that is
-		//* transformed takes the room of the transformed text.
-		size := text_measure(g, style.text, text, 0)
-		if style.text.wrap != .Off {
+		//* transformed takes the room of the transformed text. A text
+		//* that wraps is measured at the width it is given.
+		text_width := f32(0)
+		if width >= 0 && ts.wrap != .Off {
+			text_width = max(width - pad[0] - pad[2] - extra_x, 0)
+		}
+		size := text_measure(g, ts, text, text_width)
+		if ts.wrap != .Off {
 			//* A text that wraps only has to be as wide as its
 			//* longest word: the rest of it fits on the lines below.
-			font := Font_Resolve(g, style.text)
-			src := apply_text_transform(g, style.text, text)
+			font := Font_Resolve(g, ts)
+			src := apply_text_transform(g, ts, text)
 			size.x = longest_word_width(g, font, src)
 		}
-		pad := style.box.content_margin
-		pad[0] = max(pad[0], 1)
-		pad[1] = max(pad[1], 1)
-		pad[2] = max(pad[2], 1)
-		pad[3] = max(pad[3], 1)
 		w.min_size.x = max(w.base_min_size.x, size.x + pad[0] + pad[2] + extra_x)
 		w.min_size.y = max(w.base_min_size.y, max(size.y, extra_y) + pad[1] + pad[3])
 	} else {
@@ -291,12 +577,279 @@ measure_widget :: proc(g: ^GUI, w: ^Widget) {
 
 	//* A widget never asks for more room than the largest size it may
 	//* have: the room that is left over goes to the other widgets.
-	if w.custom_max_size.x > 0 && w.min_size.x > w.custom_max_size.x {
-		w.min_size.x = w.custom_max_size.x
+	clamp_measured_size(w)
+}
+
+//* True when a widget works out its preferred size from the preferred
+//* sizes of its children. The children are measured before their parent,
+//* so the pass sees the size each one asks for.
+//*
+//* A class that places its children itself decides for itself what they
+//* mean, so the core does not add them up for it.
+widget_measures_children :: proc(g: ^GUI, w: ^Widget) -> bool {
+	if w == nil {return false}
+	if widget_kind(g, w).layout != nil {return false}
+	#partial switch w.type {
+	case .VBox,
+	     .HBox,
+	     .GridContainer,
+	     .MarginContainer,
+	     .CenterContainer,
+	     .PanelContainer,
+	     .ScrollContainer,
+	     .ScrollArea,
+	     .FlowContainer,
+	     .AspectRatioContainer,
+	     .TabContainer,
+	     .Tabs,
+	     .Split:
+		return true
 	}
-	if w.custom_max_size.y > 0 && w.min_size.y > w.custom_max_size.y {
-		w.min_size.y = w.custom_max_size.y
+	return false
+}
+
+//* The size a child asks for. A size the user pulled into place wins over
+//* the measured size, the same way it wins in the solver.
+preferred_size_of :: proc(c: ^Widget) -> Vec2 {
+	size := c.min_size
+	if size.x != size.x || size.x < 0 {size.x = 0}
+	if size.y != size.y || size.y < 0 {size.y = 0}
+	if keeps_size(c, true) {size.x = manual_size_of(c, true)}
+	if keeps_size(c, false) {size.y = manual_size_of(c, false)}
+	return size
+}
+
+//* The largest size a child asks for. `skip` is left out of the count
+//* when it is a child of the container, which is what a scroll container
+//* needs for its bar.
+container_max_child_size :: proc(g: ^GUI, w: ^Widget, skip: Widget_ID) -> Vec2 {
+	size := Vec2{}
+	for child := w.first_child; child != INVALID_WIDGET_ID; {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		next := c.next_sibling
+		if !c.absolute && child != skip {
+			s := preferred_size_of(c)
+			size.x = max(size.x, s.x)
+			size.y = max(size.y, s.y)
+		}
+		child = next
 	}
+	return size
+}
+
+//* The size a box asks for: the largest child across the stack, and the
+//* children one after the other along it, with the separations between
+//* them. An absolute child takes no part in the stack.
+container_box_size :: proc(g: ^GUI, w: ^Widget, vertical: bool) -> Vec2 {
+	size := Vec2{}
+	count := 0
+	for child := w.first_child; child != INVALID_WIDGET_ID; {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		next := c.next_sibling
+		if !c.absolute {
+			s := preferred_size_of(c)
+			if vertical {
+				size.x = max(size.x, s.x)
+				size.y += s.y
+			} else {
+				size.x += s.x
+				size.y = max(size.y, s.y)
+			}
+			count += 1
+		}
+		child = next
+	}
+	if count > 1 {
+		sep := w.separation * f32(count - 1)
+		if vertical {
+			size.y += sep
+		} else {
+			size.x += sep
+		}
+	}
+	return size
+}
+
+//* The size a split asks for: the children one after the other along the
+//* axis of the split, and the largest across it.
+container_split_size :: proc(g: ^GUI, w: ^Widget) -> Vec2 {
+	horizontal := true
+	#partial switch d in w.data {
+	case Split_Data:
+		horizontal = d.direction == .Horizontal
+	}
+
+	size := Vec2{}
+	for child := w.first_child; child != INVALID_WIDGET_ID; {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		next := c.next_sibling
+		if !c.absolute {
+			s := preferred_size_of(c)
+			if horizontal {
+				size.x += s.x
+				size.y = max(size.y, s.y)
+			} else {
+				size.x = max(size.x, s.x)
+				size.y += s.y
+			}
+		}
+		child = next
+	}
+	return size
+}
+
+//* The settings of a grid: the number of columns, the two separations and
+//* the margin. A grid that says nothing about the separations takes the
+//* ones of the theme, and the one of the widget when the theme says
+//* nothing either. The measure pass and the layout pass read them here,
+//* so the two cannot disagree.
+grid_metrics :: proc(
+	g: ^GUI,
+	w: ^Widget,
+) -> (
+	columns: int,
+	h_separation: f32,
+	v_separation: f32,
+	margin: [4]f32,
+) {
+	#partial switch d in w.data {
+	case Grid_Data:
+		columns = d.columns
+		margin = d.margin
+		h_separation = d.h_separation
+		v_separation = d.v_separation
+	}
+	if columns <= 0 {columns = 1}
+	if h_separation <= 0 {h_separation = theme_constant(g, w, "h_separation")}
+	if h_separation <= 0 {h_separation = w.separation}
+	if v_separation <= 0 {v_separation = theme_constant(g, w, "v_separation")}
+	if v_separation <= 0 {v_separation = w.separation}
+	return
+}
+
+//* The size a grid asks for: the widest child of every column, the
+//* tallest child of every row, the separations between the tracks and
+//* the margin of the grid.
+container_grid_size :: proc(g: ^GUI, w: ^Widget) -> Vec2 {
+	columns, h_separation, v_separation, margin := grid_metrics(g, w)
+
+	count := 0
+	for child := w.first_child; child != INVALID_WIDGET_ID; {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		next := c.next_sibling
+		if !c.absolute {count += 1}
+		child = next
+	}
+
+	margin_x := margin[0] + margin[2]
+	margin_y := margin[1] + margin[3]
+	if count == 0 {
+		return Vec2{margin_x, margin_y}
+	}
+
+	rows := (count + columns - 1) / columns
+	track_base := floats_begin(g, columns + rows)
+	defer floats_end(g, track_base)
+
+	i := 0
+	for child := w.first_child; child != INVALID_WIDGET_ID; {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		next := c.next_sibling
+		if !c.absolute {
+			s := preferred_size_of(c)
+			col := track_base + i % columns
+			row := track_base + columns + i / columns
+			if g.float_scratch[col] < s.x {g.float_scratch[col] = s.x}
+			if g.float_scratch[row] < s.y {g.float_scratch[row] = s.y}
+			i += 1
+		}
+		child = next
+	}
+
+	size := Vec2{x = margin_x, y = margin_y}
+	for col in 0 ..< columns {
+		size.x += g.float_scratch[track_base + col]
+	}
+	if columns > 1 {
+		size.x += h_separation * f32(columns - 1)
+	}
+	for row in 0 ..< rows {
+		size.y += g.float_scratch[track_base + columns + row]
+	}
+	if rows > 1 {
+		size.y += v_separation * f32(rows - 1)
+	}
+	return size
+}
+
+//* Adds the sizes of the children to the size a container asks for. Each
+//* container type reads its children in its own way; the padding of the
+//* style is added on top of that, because the content of the container
+//* sits inside it.
+measure_container :: proc(g: ^GUI, w: ^Widget) {
+	content := container_content_size(g, w)
+
+	style := resolved_style(g, w)
+	pad := style.box.content_margin
+	content.x += pad[0] + pad[2]
+	content.y += pad[1] + pad[3]
+
+	if content.x > w.min_size.x {w.min_size.x = content.x}
+	if content.y > w.min_size.y {w.min_size.y = content.y}
+	clamp_measured_size(w)
+}
+
+//* The size the content of a container asks for, without the padding of
+//* its style. The measure pass and the measurement at a width both read
+//* it, so the two cannot disagree.
+container_content_size :: proc(g: ^GUI, w: ^Widget) -> Vec2 {
+	content := Vec2{}
+	#partial switch w.type {
+	case .VBox:
+		content = container_box_size(g, w, true)
+	case .HBox:
+		content = container_box_size(g, w, false)
+	case .Split:
+		content = container_split_size(g, w)
+	case .GridContainer:
+		content = container_grid_size(g, w)
+	case .MarginContainer:
+		content = container_max_child_size(g, w, INVALID_WIDGET_ID)
+		margin := [4]f32{}
+		#partial switch d in w.data {
+		case Margin_Data:
+			margin = d.margin
+		}
+		content.x += margin[0] + margin[2]
+		content.y += margin[1] + margin[3]
+	case .CenterContainer, .PanelContainer, .FlowContainer:
+		content = container_max_child_size(g, w, INVALID_WIDGET_ID)
+	case .ScrollContainer, .ScrollArea:
+		//* The bar of the scroll is not part of the content: it sits
+		//* over the viewport.
+		content = container_max_child_size(g, w, scroll_bar_id(g, w.id))
+	case .AspectRatioContainer:
+		child := container_max_child_size(g, w, INVALID_WIDGET_ID)
+		ratio := f32(1)
+		#partial switch d in w.data {
+		case Aspect_Data:
+			ratio = d.ratio
+		}
+		if ratio <= 0 {ratio = 1}
+		width := max(child.x, child.y * ratio)
+		content = Vec2{width, width / ratio}
+	case .Tabs, .TabContainer:
+		content = container_max_child_size(g, w, INVALID_WIDGET_ID)
+		content.y += TAB_BAR_HEIGHT
+	case:
+		return content
+	}
+	return content
 }
 
 longest_word_width :: proc(g: ^GUI, font: Font_ID, text: string) -> f32 {
@@ -455,17 +1008,68 @@ layout_node :: proc(g: ^GUI, id: Widget_ID, rect, clip: Rect) {
 }
 
 
-layout_by_anchors :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
+//* The smallest size the anchors of a widget may give it. A container
+//* reports the size it would like from its children, but its anchors
+//* decide its viewport: a box, a scroll or a split may be smaller than
+//* that, and the children shrink, overflow or scroll. The size the
+//* program asked for is still a floor.
+anchor_min_size :: proc(g: ^GUI, c: ^Widget) -> Vec2 {
+	size := c.min_size
+	if widget_measures_children(g, c) {
+		size.x = max(c.base_min_size.x, c.custom_min_size.x)
+		size.y = max(c.base_min_size.y, c.custom_min_size.y)
+	}
+	return size
+}
+
+//* Places the absolute children of a container by their anchors and
+//* offsets inside `content`. They are placed after the children that
+//* take part in the flow, so they sit on top of them in the order of the
+//* tree, and they take no share of the room of the container.
+//*
+//* The children are looked at through the links of the tree rather than
+//* through a snapshot, because a widget that is placed can be taken out
+//* of the tree by a hook of a class of the program.
+layout_absolute_children :: proc(g: ^GUI, w: ^Widget, content: Rect) {
+	child := w.first_child
+	for child != INVALID_WIDGET_ID {
 		c := Widget_Get(g, child)
-		if c == nil {continue}
-		child_rect := resolve_rect(
-			rect,
+		if c == nil {break}
+		next := c.next_sibling
+		if c.absolute {
+			layout_node(g, child, resolve_child_rect(g, content, c), w.clip)
+		}
+		child = next
+	}
+}
+
+//* The rect the anchors of a child give it inside `parent`. When the
+//* child is one whose height depends on its width, the anchors are
+//* applied twice: the first pass gives the room, the measurement at that
+//* width gives the height, and the second pass places the child with the
+//* height it asked for.
+resolve_child_rect :: proc(g: ^GUI, parent: Rect, c: ^Widget) -> Rect {
+	rect := resolve_rect(
+		parent,
+		c.anchors,
+		c.offsets,
+		c.min_size,
+		anchor_min_size(g, c),
+		c.grow_h,
+		c.grow_v,
+		c.size_flags_h,
+		c.size_flags_v,
+		widget_sizes_to_content(c, true),
+		widget_sizes_to_content(c, false),
+	)
+	if c.width_dependent && rect.w > 0 {
+		measure_widget_at_width(g, c, child_width_of(c, rect.w))
+		rect = resolve_rect(
+			parent,
 			c.anchors,
 			c.offsets,
 			c.min_size,
+			anchor_min_size(g, c),
 			c.grow_h,
 			c.grow_v,
 			c.size_flags_h,
@@ -473,7 +1077,18 @@ layout_by_anchors :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			widget_sizes_to_content(c, true),
 			widget_sizes_to_content(c, false),
 		)
-		layout_node(g, child, child_rect, w.clip)
+	}
+	return rect
+}
+
+layout_by_anchors :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
+		c := Widget_Get(g, child)
+		if c == nil {continue}
+		layout_node(g, child, resolve_child_rect(g, rect, c), w.clip)
 	}
 }
 
@@ -513,15 +1128,22 @@ hide_branch :: proc(g: ^GUI, w: ^Widget) {
 }
 
 //* A VBox / HBox stacks its children along one axis. Every child gets
-//* its minimum size on that axis plus a share of the leftover space,
+//* its preferred size on that axis plus a share of the leftover space,
 //* weighted. A child that was pulled to a size keeps that size, and
-//* takes it out of the space the others share.
+//* takes it out of the space the others share. A child that reaches its
+//* maximum stops growing, and the room it does not take goes to the
+//* children that can still grow.
 //*
 //* The flags of a child say how much of that room it takes: a child that
-//* expands takes its minimum size plus its share of the leftover space,
-//* and a child that does not expand takes only its minimum size and
-//* leaves the rest of its room empty. A child that shrinks takes only
-//* its minimum size and is centred in the room it would have had.
+//* expands takes its preferred size plus its share of the leftover
+//* space, and a child that does not expand takes only its preferred size
+//* and leaves the rest of its room empty. A child that is centred in its
+//* room (the `.Shrink_Center` flag) takes only its preferred size.
+//*
+//* When the children do not fit, the children that have a shrink weight
+//* give the room back, by their weight, until they reach their floor. A
+//* child without a shrink weight keeps its preferred size, and the box
+//* overflows. An absolute child is taken out of the flow altogether.
 //*
 //* The flags of the other axis say how the child sits across the box: it
 //* fills the width of a vertical box, or it is centred in it.
@@ -534,30 +1156,45 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	horizontal := !vertical
 	sep := w.separation
 
-	children := snapshot_children(g, w)
-	defer delete(children)
+	base, total := children_begin(g, w)
+	defer children_end(g, base)
 
-	total_share := f32(0)
-	total_min := f32(0)
+	//* An absolute child takes no part in the flow, so it does not count
+	//* for the separations either.
 	count := 0
-	for child in children {
-		c := Widget_Get(g, child)
-		if c == nil {continue}
-		if keeps_size(c, horizontal) {
-			total_min += manual_size_of(c, horizontal)
-		} else {
-			total_min += (vertical ? c.min_size.y : c.min_size.x)
-			if .Expand in size_flags_of(c, horizontal) {
-				total_share += share_of(c)
-			}
-		}
+	for i in 0 ..< total {
+		c := Widget_Get(g, g.children_scratch[base + i])
+		if c == nil || c.absolute {continue}
 		count += 1
 	}
-	if total_share <= 0 {total_share = 1}
-	if count == 0 {return}
+	if count == 0 {
+		layout_absolute_children(g, w, rect)
+		return
+	}
 
-	available := (vertical ? rect.h : rect.w) - total_min - sep * f32(count - 1)
-	if available < 0 {available = 0}
+	//* A vertical box knows the width it gives every child before it
+	//* shares the height, so a child whose height depends on its width
+	//* is measured again here. A horizontal box knows the width of a
+	//* child only after the solver ran: it is measured at its slot while
+	//* the children are placed.
+	if vertical && w.width_dependent {
+		measure_children_at_width(g, w, rect.w)
+	}
+
+	//* The room the children share is the room of the axis after the
+	//* separations are taken out. It is not cut to zero: a box whose
+	//* children do not fit tells the solver how much it lacks, and the
+	//* children that can shrink give the room back.
+	space := (vertical ? rect.h : rect.w) - sep * f32(count - 1)
+	room_base := floats_begin(g, total)
+	defer floats_end(g, room_base)
+	axis_solve(
+		g,
+		g.children_scratch[base:base + total],
+		horizontal,
+		space,
+		g.float_scratch[room_base:room_base + total],
+	)
 
 	//* A box that stacks its children from the left to the right puts
 	//* them in the other order when the direction is from the right to
@@ -566,18 +1203,23 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 
 	offset := vertical ? rect.y : rect.x
 	if rtl {offset += rect.w}
-	for child in children {
+	for i in 0 ..< total {
+		child := g.children_scratch[base + i]
 		c := Widget_Get(g, child)
-		if c == nil {continue}
-		room := f32(0)
+		if c == nil || c.absolute {continue}
+		room := g.float_scratch[room_base + i]
 		size := f32(0)
 		in_room := f32(0)
 		if keeps_size(c, horizontal) {
-			room = manual_size_of(c, horizontal)
 			size = room
 		} else {
-			room = axis_room(c, horizontal, available, total_share)
 			size, in_room = axis_size(c, horizontal, room)
+		}
+		//* A horizontal box knows the width of a child only now: a
+		//* child whose height depends on its width is measured at the
+		//* slot it was given.
+		if !vertical && w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, size))
 		}
 		//* Across the box there is no room to share: the child fills
 		//* the box, or it is centred in it.
@@ -627,6 +1269,8 @@ layout_box :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			offset += room + sep
 		}
 	}
+
+	layout_absolute_children(g, w, rect)
 }
 
 //* A Split divides its rect among its children along one axis, weighted.
@@ -648,41 +1292,53 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	}
 	horizontal := dir == .Horizontal
 
-	children := snapshot_children(g, w)
-	defer delete(children)
+	base, total := children_begin(g, w)
+	defer children_end(g, base)
 
-	total_share := f32(0)
-	total_min := f32(0)
-	for child in children {
-		c := Widget_Get(g, child)
-		if c == nil {continue}
-		if keeps_size(c, horizontal) {
-			total_min += manual_size_of(c, horizontal)
-		} else {
-			total_min += horizontal ? c.min_size.x : c.min_size.y
-			if .Expand in size_flags_of(c, horizontal) {
-				total_share += share_of(c)
-			}
-		}
+	count := 0
+	for i in 0 ..< total {
+		c := Widget_Get(g, g.children_scratch[base + i])
+		if c == nil || c.absolute {continue}
+		count += 1
 	}
-	if total_share <= 0 {total_share = 1}
+	if count == 0 {
+		layout_absolute_children(g, w, rect)
+		return
+	}
 
-	available := (horizontal ? rect.w : rect.h) - total_min
-	if available < 0 {available = 0}
+	//* A vertical split gives every child the whole width, so a child
+	//* whose height depends on its width is measured before the height
+	//* is shared. A horizontal split measures a child at its slot.
+	if !horizontal && w.width_dependent {
+		measure_split_children_width(g, w, rect.w, false)
+	}
+
+	space := horizontal ? rect.w : rect.h
+	room_base := floats_begin(g, total)
+	defer floats_end(g, room_base)
+	axis_solve(
+		g,
+		g.children_scratch[base:base + total],
+		horizontal,
+		space,
+		g.float_scratch[room_base:room_base + total],
+	)
 
 	offset := horizontal ? rect.x : rect.y
-	for child in children {
+	for i in 0 ..< total {
+		child := g.children_scratch[base + i]
 		c := Widget_Get(g, child)
-		if c == nil {continue}
-		room := f32(0)
+		if c == nil || c.absolute {continue}
+		room := g.float_scratch[room_base + i]
 		size := f32(0)
 		in_room := f32(0)
 		if keeps_size(c, horizontal) {
-			room = manual_size_of(c, horizontal)
 			size = room
 		} else {
-			room = axis_room(c, horizontal, available, total_share)
 			size, in_room = axis_size(c, horizontal, room)
+		}
+		if horizontal && w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, size))
 		}
 		across, across_offset := cross_size(c, !horizontal, horizontal ? rect.h : rect.w)
 		if horizontal {
@@ -714,18 +1370,27 @@ layout_split :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		//* even when the child does not fill it.
 		offset += room
 	}
+
+	layout_absolute_children(g, w, rect)
 }
 
 //* A tab that is not showing keeps no geometry, so it is neither drawn nor hit.
 layout_tabs :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	content := tabs_content_rect(w)
 
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
-		if Widget_Get(g, child) == nil {continue}
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
+		c := Widget_Get(g, child)
+		if c == nil || c.absolute {continue}
+		if w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, content.w))
+		}
 		layout_node(g, child, content, w.clip)
 	}
+
+	layout_absolute_children(g, w, content)
 }
 
 //* A Grid puts its children in rows and columns. The number of columns
@@ -744,22 +1409,7 @@ layout_tabs :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 //* room of every cell is kept in the data of the widget, so that the
 //* lines between the cells can be drawn.
 layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
-	columns := 1
-	margin := [4]f32{}
-	h_separation := f32(0)
-	v_separation := f32(0)
-	#partial switch &d in w.data {
-	case Grid_Data:
-		columns = d.columns
-		margin = d.margin
-		h_separation = d.h_separation
-		v_separation = d.v_separation
-	}
-	if columns <= 0 {columns = 1}
-	if h_separation <= 0 {h_separation = theme_constant(g, w, "h_separation")}
-	if h_separation <= 0 {h_separation = w.separation}
-	if v_separation <= 0 {v_separation = theme_constant(g, w, "v_separation")}
-	if v_separation <= 0 {v_separation = w.separation}
+	columns, h_separation, v_separation, margin := grid_metrics(g, w)
 
 	//* The margin of the grid is taken off the room of the grid.
 	inner := Rect {
@@ -769,51 +1419,56 @@ layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		h = rect.h - margin[1] - margin[3],
 	}
 
-	children: [dynamic]Widget_ID
-	defer delete(children)
-	child := w.first_child
-	for child != INVALID_WIDGET_ID {
-		c := Widget_Get(g, child)
-		if c == nil {break}
-		append(&children, child)
-		child = c.next_sibling
-	}
-	if len(children) == 0 {
+	base, count := children_begin_flow(g, w)
+	defer children_end(g, base)
+	if count == 0 {
 		grid_cells(g, w.id, 0)
+		layout_absolute_children(g, w, inner)
 		return
 	}
 
 	//* The width of every column and the height of every row: the
-	//* biggest child of the column decides.
-	rows := (len(children) + columns - 1) / columns
-	col_w := make([dynamic]f32, 0, columns, context.allocator)
-	defer delete(col_w)
-	for _ in 0 ..< columns {append(&col_w, 0)}
-	row_h := make([dynamic]f32, 0, rows, context.allocator)
-	defer delete(row_h)
-	for _ in 0 ..< rows {append(&row_h, 0)}
+	//* biggest child of the column decides. The numbers live in the
+	//* float scratch of the GUI, one stack for the two of them.
+	rows := (count + columns - 1) / columns
+	track_base := floats_begin(g, columns + rows)
+	defer floats_end(g, track_base)
 
-	for id, i in children {
-		c := Widget_Get(g, id)
+	for i in 0 ..< count {
+		c := Widget_Get(g, g.children_scratch[base + i])
 		if c == nil {continue}
-		col := i % columns
-		row := i / columns
-		if col_w[col] < c.min_size.x {col_w[col] = c.min_size.x}
-		if row_h[row] < c.min_size.y {row_h[row] = c.min_size.y}
+		col := track_base + i % columns
+		if g.float_scratch[col] < c.min_size.x {g.float_scratch[col] = c.min_size.x}
 	}
 
 	total_w := f32(0)
-	for w_ in col_w {total_w += w_}
+	for col in 0 ..< columns {total_w += g.float_scratch[track_base + col]}
 	available := inner.w - total_w - h_separation * f32(columns - 1)
 	if available < 0 {available = 0}
 	grow := 0
-	for w_ in col_w {
-		if w_ <= 0 {grow += 1}
+	for col in 0 ..< columns {
+		if g.float_scratch[track_base + col] <= 0 {grow += 1}
 	}
 	if grow > 0 {
-		for &w_ in col_w {
-			if w_ <= 0 {w_ += available / f32(grow)}
+		for col in 0 ..< columns {
+			if g.float_scratch[track_base + col] <= 0 {
+				g.float_scratch[track_base + col] += available / f32(grow)
+			}
 		}
+	}
+
+	//* A cell has its width now, so a child whose height depends on its
+	//* width is measured at the width of the column. The height of every
+	//* row is the tallest child in it.
+	for i in 0 ..< count {
+		c := Widget_Get(g, g.children_scratch[base + i])
+		if c == nil {continue}
+		cell_w := g.float_scratch[track_base + i % columns]
+		if w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, cell_w))
+		}
+		row := track_base + columns + i / columns
+		if g.float_scratch[row] < c.min_size.y {g.float_scratch[row] = c.min_size.y}
 	}
 
 	//* The room of every cell of the grid, the ones that have a child
@@ -822,21 +1477,26 @@ layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 
 	x := inner.x
 	for col in 0 ..< columns {
+		col_w := g.float_scratch[track_base + col]
 		y := inner.y
 		for row in 0 ..< rows {
 			i := row * columns + col
-			cell := Rect{x = x, y = y, w = col_w[col], h = row_h[row]}
+			row_h := g.float_scratch[track_base + columns + row]
+			cell := Rect{x = x, y = y, w = col_w, h = row_h}
 			cells[i] = cell
-			if i < len(children) {
-				c := Widget_Get(g, children[i])
+			if i < count {
+				child := g.children_scratch[base + i]
+				c := Widget_Get(g, child)
 				if c != nil {
-					layout_node(g, children[i], cell, w.clip)
+					layout_node(g, child, cell, w.clip)
 				}
 			}
-			y += row_h[row] + v_separation
+			y += row_h + v_separation
 		}
-		x += col_w[col] + h_separation
+		x += col_w + h_separation
 	}
+
+	layout_absolute_children(g, w, inner)
 }
 
 layout_margin :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
@@ -851,23 +1511,37 @@ layout_margin :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		w = rect.w - margin[0] - margin[2],
 		h = rect.h - margin[1] - margin[3],
 	}
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
-		if Widget_Get(g, child) == nil {continue}
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
+		c := Widget_Get(g, child)
+		if c == nil || c.absolute {continue}
+		if w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, inner.w))
+		}
 		layout_node(g, child, inner, w.clip)
 	}
+
+	layout_absolute_children(g, w, inner)
 }
 
 layout_center :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
 		c := Widget_Get(g, child)
-		if c == nil {continue}
+		if c == nil || c.absolute {continue}
 		size := c.min_size
 		if size.x > rect.w {size.x = rect.w}
 		if size.y > rect.h {size.y = rect.h}
+		if w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, size.x))
+			size = c.min_size
+			if size.x > rect.w {size.x = rect.w}
+			if size.y > rect.h {size.y = rect.h}
+		}
 		layout_node(
 			g,
 			child,
@@ -880,15 +1554,24 @@ layout_center :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			w.clip,
 		)
 	}
+
+	layout_absolute_children(g, w, rect)
 }
 
 layout_panel_container :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
-		if Widget_Get(g, child) == nil {continue}
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
+		c := Widget_Get(g, child)
+		if c == nil || c.absolute {continue}
+		if w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, rect.w))
+		}
 		layout_node(g, child, rect, w.clip)
 	}
+
+	layout_absolute_children(g, w, rect)
 }
 
 layout_scroll :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
@@ -901,16 +1584,37 @@ layout_scroll :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		bar = d.bar_id
 		side = d.bar
 	}
-	children := snapshot_children(g, w)
-	defer delete(children)
-	content := Vec2{}
-	for child in children {
+
+	//* The content is measured before it is placed: the bars need its
+	//* size, and a child whose height depends on its width is measured
+	//* before the height it takes is read. The size is kept, so the
+	//* bars and the pointer code read the same content the layout used.
+	content := scroll_content_measure(g, w)
+	viewport := Vec2{max(rect.w, 0), max(rect.h, 0)}
+	#partial switch &d in w.data {
+	case Scroll_Data:
+		d.viewport = viewport
+		d.content = content
+		d.content_ready = true
+		//* A viewport that grew may leave the offset past the end of
+		//* the content: it is pulled back, so the content is not lost
+		//* above the top of the viewport.
+		d.offset.x = clamp(d.offset.x, 0, scroll_maximum(content.x, viewport.x))
+		d.offset.y = clamp(d.offset.y, 0, scroll_maximum(content.y, viewport.y))
+		scroll = d.offset
+	}
+
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
 		c := Widget_Get(g, child)
-		if c == nil {continue}
+		if c == nil || c.absolute {continue}
 		if child == bar {continue}
-		size := c.min_size
-		content.x = max(content.x, size.x)
-		content.y = max(content.y, size.y)
+		//* A child keeps the size it asks for; the measure pass has
+		//* already worked it out, including the height of a container
+		//* whose wrapped text depends on its width.
+		size := preferred_size_of(c)
 		inner := Rect {
 			x = rect.x - scroll.x,
 			y = rect.y - scroll.y,
@@ -920,6 +1624,10 @@ layout_scroll :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		layout_node(g, child, inner, w.clip)
 	}
 	layout_scroll_bar(g, w, rect, bar, side, content, scroll)
+
+	//* An absolute child is placed in the viewport and does not move
+	//* with the content.
+	layout_absolute_children(g, w, rect)
 }
 
 layout_scroll_bar :: proc(
@@ -991,13 +1699,18 @@ layout_flow :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	x := rect.x
 	y := rect.y
 	row_h := f32(0)
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
 		c := Widget_Get(g, child)
-		if c == nil {continue}
+		if c == nil || c.absolute {continue}
 		size := c.min_size
 		if size.x > rect.w {size.x = rect.w}
+		if w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, size.x))
+			size.y = c.min_size.y
+		}
 		if x > rect.x && x + size.x > rect.x + rect.w {
 			//* There is no room left on this row: the next one starts.
 			x = rect.x
@@ -1008,6 +1721,8 @@ layout_flow :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 		x += size.x + sep
 		if size.y > row_h {row_h = size.y}
 	}
+
+	layout_absolute_children(g, w, rect)
 }
 
 layout_aspect :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
@@ -1018,17 +1733,20 @@ layout_aspect :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	}
 	if ratio <= 0 {ratio = 1}
 
-	children := snapshot_children(g, w)
-	defer delete(children)
-	for child in children {
+	base, count := children_begin(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
 		c := Widget_Get(g, child)
-		if c == nil {continue}
-		size := c.min_size
+		if c == nil || c.absolute {continue}
 		w_ := rect.w
 		h_ := w_ / ratio
 		if h_ > rect.h {
 			h_ = rect.h
 			w_ = h_ * ratio
+		}
+		if w.width_dependent {
+			measure_widget_at_width(g, c, child_width_of(c, w_))
 		}
 		layout_node(
 			g,
@@ -1042,6 +1760,8 @@ layout_aspect :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 			w.clip,
 		)
 	}
+
+	layout_absolute_children(g, w, rect)
 }
 
 resolve_rect :: proc(
@@ -1049,6 +1769,7 @@ resolve_rect :: proc(
 	anchors: Anchor,
 	offsets: Offset,
 	min_size: Vec2,
+	floor: Vec2,
 	grow_h, grow_v: Grow,
 	flags_h, flags_v: Size_Flags,
 	content_h, content_v: bool,
@@ -1083,8 +1804,8 @@ resolve_rect :: proc(
 		}
 	}
 
-	if w < min_size.x {
-		d := min_size.x - w
+	if w < floor.x {
+		d := floor.x - w
 		switch grow_h {
 		case .Begin:
 			left -= d
@@ -1093,10 +1814,10 @@ resolve_rect :: proc(
 		case .Both:
 			left -= d * 0.5; right += d * 0.5
 		}
-		w = min_size.x
+		w = floor.x
 	}
-	if h < min_size.y {
-		d := min_size.y - h
+	if h < floor.y {
+		d := floor.y - h
 		switch grow_v {
 		case .Begin:
 			top -= d
@@ -1105,7 +1826,7 @@ resolve_rect :: proc(
 		case .Both:
 			top -= d * 0.5; bottom += d * 0.5
 		}
-		h = min_size.y
+		h = floor.y
 	}
 	return Rect{x = left, y = top, w = w, h = h}
 }

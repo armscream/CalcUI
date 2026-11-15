@@ -30,7 +30,7 @@ Make_Vector_Drawing :: proc(g: ^GUI, parent: Widget_ID, opts: Vector_Drawing_Opt
 vector_drawing_kind :: proc() -> Widget_Kind {
 	return Widget_Kind {
 		draw = draw_vector_drawing,
-		update = update_vector_drawing,
+		post_update = update_vector_drawing,
 		click = click_vector_drawing,
 		style = Style {
 			box = StyleBox {

@@ -28,6 +28,8 @@ Base_Opts :: struct {
 	size_flags_h:  Size_Flags,
 	size_flags_v:  Size_Flags,
 	stretch_ratio: f32,
+	shrink_weight: f32,
+	absolute:      bool,
 	layout_direction: Layout_Direction,
 	clip_contents: Clip_Contents,
 	tooltip:       string,
@@ -62,6 +64,8 @@ A widget is a struct with open fields, so a program may write to it directly. Th
 | `Widget_Set_Weight` | Share of the parent's space. |
 | `Widget_Set_Size_Flags` | Fill/expand behaviour per axis. Expand takes a share of leftover space; fill takes the room it is given; shrink takes the minimum size and centres. Default is `.Fill` and `.Expand` on both axes. |
 | `Widget_Set_Stretch_Ratio` | Share multiplier: weight x ratio. A ratio of 0 leaves only the minimum size. |
+| `Widget_Set_Shrink_Weight` | Share of a deficit when the children of a box do not fit. The children with a weight shrink, by their weight, until they reach their floor; a weight of 0 keeps the preferred size and lets the container overflow. |
+| `Widget_Set_Absolute` | Take the widget out of the flow of its container, or put it back. An absolute widget is placed by its anchors and offsets inside the content of its parent and takes no share of the room. |
 | `Widget_Set_Layout_Direction` | Growth direction, left-to-right or right-to-left. Reverses child order in an HBox; does not change the allotted room. |
 | `Widget_Set_Separation` | Gap between the children of a box. |
 | `Widget_Set_Anchors` | Position within the parent. |
@@ -83,6 +87,8 @@ A widget is a struct with open fields, so a program may write to it directly. Th
 | `Widget_Reparent` | Old name for `Widget_Set_Parent`. |
 
 The framework owns `id`, `type`, `class`, `parent`, `freeing`, `first_child`, `last_child`, `prev_sibling`, `next_sibling`, `data`, `min_size`, `rect`, `clip`, `manual_size`, `manual_w`, `manual_h`, `dirty`, `subtree_dirty` and `style_cache`. Change the parent with `Widget_Set_Parent`, widget data through its kind's setter, and the cached size with `Widget_Set_Manual_Size`.
+
+`Widget_Layout_Constraint` reports the `Layout_Constraint` of a widget along one axis after a measure pass: the floor a shrink may reach, the preferred size the measurement pass worked out, and the maximum a grow may reach, where 0 means that there is no maximum.
 
 `rotation`, `scale`, `pivot_offset` and `content` are unused by the toolkit; a program may read and write them. Transforms are not supported by the draw list, the hit test or the clip stack.
 
@@ -231,7 +237,7 @@ The containers in `src/GUI/widget_containers.odin` lay their children out themse
 | `Make_Margin_Container` | `Margin_Opts{Base_Opts, margin: [4]f32}` | Keeps its child away from the edges; margin is left, top, right, bottom. |
 | `Make_Center_Container` | `Center_Opts{Base_Opts}` | Centres its child at the size the child asks for. |
 | `Make_Panel_Container` | `Panel_Container_Opts{Base_Opts}` | Gives its child the whole area. |
-| `Make_Scroll_Container` | `Scroll_Container_Opts{Base_Opts, scroll_bar}` | Shows part of an oversized child. The wheel scrolls; `scroll_bar` is `.Right`, `.Left`, `.Top`, `.Bottom` or `.None`. |
+| `Make_Scroll_Container` | `Scroll_Container_Opts{Base_Opts, scroll_bar}` | Shows part of an oversized child. The viewport, the content size and the scroll offset are separate: the content may be taller or wider than the viewport. The wheel scrolls; `scroll_bar` is `.Right`, `.Left`, `.Top`, `.Bottom` or `.None`. |
 | `Make_Scroll_Area` | `Scroll_Container_Opts` | Another name for `Make_Scroll_Container`. |
 | `Make_Flow_Container` | `Flow_Container_Opts{Base_Opts}` | Places children in a row and wraps when there is no room. |
 | `Make_Aspect_Container` | `Aspect_Container_Opts{Base_Opts, ratio: f32}` | Keeps its child's aspect ratio; `ratio = 0` means 1. |
@@ -242,7 +248,12 @@ The containers in `src/GUI/widget_containers.odin` lay their children out themse
 | `Scroll_Container_Set_Offset(g, id, offset)` | Scrolls to an offset, clamped to the content. |
 | `Scroll_Container_Get_Offset(g, id)` | Current scroll offset. |
 | `Scroll_Container_Set_Bar(g, id, side)` | Moves or removes the scroll bar. |
+| `Scroll_Container_Content_Size(g, id)` | The measured size of the content, independent of the viewport. |
+| `Scroll_Container_Viewport_Size(g, id)` | The size of the viewport. |
+| `Scroll_Container_Visible_Rect(g, id)` | The part of the content that is inside the viewport, in GUI space. |
 | `tab_container_set_active(g, id, index)` | Shows a tab by index. |
+
+A scroll container measures its content through the measurement pass. A container child reports the sum of its children, a nested container keeps its intrinsic size, and a width-dependent container is measured at the width it asks for, so wrapped text decides the height there is to scroll. Changing a child invalidates the kept content size. Resizing the viewport changes only the viewport and clamps the offset; it does not change the content size. A widget that virtualizes its items can report a logical content size through the `content_size` kind hook without creating a widget per item.
 
 ### Simple controls
 

@@ -24,7 +24,7 @@ texture_from_pixels :: proc(g: ^GUI, pixels: []u8, w, h: int) -> Texture {
 texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 	image, err := png.load_from_bytes(data)
 	if err != nil {return {}, false}
-	defer free(image)
+	defer png.destroy(image)
 
 	w := image.width
 	h := image.height

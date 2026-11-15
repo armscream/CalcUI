@@ -46,6 +46,18 @@ Base_Opts :: struct {
 	//* ratio of 1 is used. A ratio of 0 is set with
 	//* `Widget_Set_Stretch_Ratio`.
 	stretch_ratio: f32,
+	//* The share of a deficit the widget takes when the children of a
+	//* container do not fit. The children that have a weight give way
+	//* until they reach their floor, which is the size asked for with
+	//* `min_size` or `Widget_Set_Custom_Min_Size`. A weight of 0, the
+	//* default, keeps the widget at its preferred size and lets the
+	//* container overflow.
+	shrink_weight: f32,
+	//* Takes the widget out of the flow of its container: it is placed by
+	//* its anchors and offsets instead, and takes no share of the room of
+	//* the container. The built-in containers honour it; a container of
+	//* a custom class that lays itself out decides what it means.
+	absolute:      bool,
 	//* The direction the widget grows in: from the left to the right or
 	//* from the right to the left. A container that stacks its children
 	//* along the horizontal axis puts them in the other order when the
@@ -82,6 +94,8 @@ base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
 		size_flags_h = base.size_flags_h,
 		size_flags_v = base.size_flags_v,
 		stretch_ratio = base.stretch_ratio,
+		shrink_weight = base.shrink_weight,
+		absolute = base.absolute,
 		layout_direction = base.layout_direction,
 		clip_contents = base.clip_contents,
 		tooltip = base.tooltip,

@@ -38,10 +38,6 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 
 	kind := widget_kind(g, w)
 
-	if kind.update != nil {
-		kind.update(g, id, w, g.dt)
-	}
-
 	style := resolved_style(g, w)
 
 	clipped := w.clip_contents
@@ -103,10 +99,10 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 
 draw_children :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	if w == nil {return}
-	children: [dynamic]Widget_ID
-	defer delete(children)
-	z_sorted_children(g, w, &children)
-	for child in children {
+	base, count := children_begin_sorted(g, w)
+	defer children_end(g, base)
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
 		c := Widget_Get(g, child)
 		if c == nil {continue}
 		draw_widget(g, child)
@@ -428,6 +424,19 @@ draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
 	widths := style.box.border_width
 	colours := style.box.border_color
 
+	//* A border of one width and one colour follows the rounded corners
+	//* of the box. The ring is built on the CPU, so it does not depend on
+	//* the shape attribute: the SDL3 renderer has no such attribute, and
+	//* the GPU shader has no per-side border colours either. A border
+	//* whose sides differ keeps the four rectangles below, which is the
+	//* deliberate fallback of both backends.
+	box := style.box
+	radius := stylebox_radius(&box)
+	if radius > 0 && border_is_uniform(widths, colours) {
+		draw_round_border(g, r, widths[0], colours[0], radius)
+		return
+	}
+
 	if widths[0] > 0 && colours[0].a > 0 {
 		draw_quad(
 			g.target,
@@ -463,6 +472,105 @@ draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
 			colours[3],
 			g.atlas_texture,
 		)
+	}
+}
+
+//* True when every side of the border has the same width and the same
+//* visible colour, so the four sides can be joined into one ring.
+border_is_uniform :: proc(widths: [4]f32, colours: [4]Colour) -> bool {
+	if !(widths[0] > 0) || !(colours[0].a > 0) {return false}
+	for i in 1 ..< 4 {
+		if widths[i] != widths[0] {return false}
+		if colours[i] != colours[0] {return false}
+	}
+	return true
+}
+
+BORDER_CORNER_SEGMENTS :: 4
+
+//* Draws a border that follows the rounded corners of the box: four
+//* straight strips and four arcs, each arc cut into convex pieces. The
+//* geometry is clipped and scaled by `draw_polygon`, like any other
+//* polygon of the draw list, so clipping stays correct.
+draw_round_border :: proc(g: ^GUI, r: Rect, width: f32, colour: Colour, radius: f32) {
+	if r.w <= 0 || r.h <= 0 {return}
+
+	//* A border that is as thick as the box is a filled box, and so is a
+	//* corner radius that the box is too small to hold.
+	t := min(width, min(r.w, r.h) * 0.5)
+	rad := min(radius, min(r.w, r.h) * 0.5)
+	if !(t > 0) {return}
+	if rad <= 0 || r.w - t * 2 <= 0 || r.h - t * 2 <= 0 {
+		draw_round_polygon(g, r, colour, rad)
+		return
+	}
+
+	//* The straight strips between the corners. A strip of zero length
+	//* is left out by `draw_quad`.
+	draw_quad(
+		g.target,
+		Rect{x = r.x + rad, y = r.y, w = r.w - rad * 2, h = t},
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+	)
+	draw_quad(
+		g.target,
+		Rect{x = r.x + rad, y = r.y + r.h - t, w = r.w - rad * 2, h = t},
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+	)
+	draw_quad(
+		g.target,
+		Rect{x = r.x, y = r.y + rad, w = t, h = r.h - rad * 2},
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+	)
+	draw_quad(
+		g.target,
+		Rect{x = r.x + r.w - t, y = r.y + rad, w = t, h = r.h - rad * 2},
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+	)
+
+	//* The corners: an outer arc joined to the inner arc of the same
+	//* centre and the radius the border leaves. Each piece is a convex
+	//* trapezoid, so a fan of triangles draws it exactly.
+	inner := max(rad - t, 0)
+	centres := [4][2]f32 {
+		{r.x + rad, r.y + rad},
+		{r.x + r.w - rad, r.y + rad},
+		{r.x + r.w - rad, r.y + r.h - rad},
+		{r.x + rad, r.y + r.h - rad},
+	}
+	starts := [4]f32{180, 270, 0, 90}
+	for c in 0 ..< 4 {
+		for s in 0 ..< BORDER_CORNER_SEGMENTS {
+			a0 := (starts[c] + 90 * f32(s) / f32(BORDER_CORNER_SEGMENTS)) * math.PI / 180
+			a1 := (starts[c] + 90 * f32(s + 1) / f32(BORDER_CORNER_SEGMENTS)) * math.PI / 180
+			piece := [4][2]f32 {
+				{
+					centres[c][0] + rad * math.cos(a0),
+					centres[c][1] + rad * math.sin(a0),
+				},
+				{
+					centres[c][0] + rad * math.cos(a1),
+					centres[c][1] + rad * math.sin(a1),
+				},
+				{
+					centres[c][0] + inner * math.cos(a1),
+					centres[c][1] + inner * math.sin(a1),
+				},
+				{
+					centres[c][0] + inner * math.cos(a0),
+					centres[c][1] + inner * math.sin(a0),
+				},
+			}
+			draw_polygon(g.target, piece[:], colour, g.atlas_texture)
+		}
 	}
 }
 

@@ -585,6 +585,8 @@ Widget :: struct {
 	size_flags_h:     Size_Flags,
 	size_flags_v:     Size_Flags,
 	stretch_ratio:    f32,
+	shrink_weight:    f32,
+	absolute:         bool,
 	clip_contents:    bool,
 
 	//* Additional widget properties.
@@ -606,6 +608,9 @@ Widget :: struct {
 	dirty:            Dirty_Flags,
 	subtree_dirty:    Dirty_Flags,
 	style_cache:      Style_Cache,
+	//* True when the height of the widget, or of a widget below it,
+	//* depends on the width it is given (see measure_width.odin).
+	width_dependent:  bool,
 }
 
 //* All fields are supplied by the program when creating a widget.
@@ -633,6 +638,8 @@ Widget_Opts :: struct {
 	size_flags_h:       Size_Flags,
 	size_flags_v:       Size_Flags,
 	stretch_ratio:      f32,
+	shrink_weight:      f32,
+	absolute:           bool,
 	layout_direction:   Layout_Direction,
 	clip_contents:      Clip_Contents,
 	tooltip:            string,
@@ -766,7 +773,20 @@ GUI :: struct {
 	scene_constructors:        [dynamic]Scene_Constructor,
 	scene_defaults_registered: bool,
 	dt:                        f32,
+	animations:                [dynamic]Tween,
+	animations_done:           [dynamic]Tween,
+	animations_updating:       bool,
+	next_animation_id:         u64,
 	caret_timer:               f32,
+	update_scratch:            [dynamic]Widget_ID,
+	//* Storage that the hot paths reuse instead of allocating. The arrays
+	//* are used as stacks: a walk remembers the length it found, appends
+	//* what it needs, and cuts the array back on the way out.
+	children_scratch:          [dynamic]Widget_ID,
+	float_scratch:             [dynamic]f32,
+	signal_scratch:            [dynamic]Signal_Conn,
+	hit_scratch:               [dynamic]Widget_ID,
+	chain_scratch:             [dynamic]Widget_ID,
 	inspector:                 Inspector,
 	measure_cache:             map[Measure_Key]Vec2,
 	last_frame:                i64,

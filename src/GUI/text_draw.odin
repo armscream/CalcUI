@@ -33,9 +33,10 @@ TEXT_ELLIPSIS :: "…"
 OUTLINE_DIRS :: [8][2]f32{{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 
 Glyph_Quad :: struct {
-	rect: Rect,
-	uv:   [4]f32,
-	tex:  Texture_ID,
+	rect:     Rect,
+	uv:       [4]f32,
+	tex:      Texture_ID,
+	is_color: bool,
 }
 
 Text_Line :: struct {
@@ -77,6 +78,7 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 	if ts.shadow_colour.a > 0 {
 		off := ts.shadow_offset
 		for q in quads {
+			if q.is_color {continue}
 			draw_quad(
 				g.target,
 				Rect{x = q.rect.x + off.x, y = q.rect.y + off.y, w = q.rect.w, h = q.rect.h},
@@ -90,6 +92,7 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 	if ts.outline_size > 0 && ts.outline_colour.a > 0 {
 		d := ts.outline_size
 		for q in quads {
+			if q.is_color {continue}
 			for o in OUTLINE_DIRS {
 				draw_quad(
 					g.target,
@@ -108,7 +111,8 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 	}
 
 	for q in quads {
-		draw_quad(g.target, q.rect, q.uv, colour, q.tex)
+		ink := q.is_color ? Colour{1, 1, 1, colour.a} : colour
+		draw_quad(g.target, q.rect, q.uv, ink, q.tex)
 	}
 
 	if ts.clip {draw_pop_clip(g.target)}
@@ -538,7 +542,7 @@ glyph_quads :: proc(
 			if gi > 0 && extra != 0 && line_has_space(line, gi - 1) {
 				pen += extra * f.scale
 			}
-			quad, uv, ok := font_glyph_place(g, f, pg, pen, baseline)
+			quad, uv, is_color, ok := font_glyph_place(g, f, pg, pen, baseline)
 			if ok {
 				append(
 					&quads,
@@ -546,6 +550,7 @@ glyph_quads :: proc(
 						rect = quad,
 						uv = uv,
 						tex = g.atlas_texture,
+						is_color = is_color,
 					},
 				)
 			}

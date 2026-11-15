@@ -184,7 +184,9 @@ Widget_Set_Max_Size :: proc(g: ^GUI, id: Widget_ID, size: Vec2) {
 	if w == nil { return }
 	if w.custom_max_size == size { return }
 	w.custom_max_size = size
-	invalidate(g, id, Dirty_Flags{.Arrange})
+	//* The maximum clamps the measured size, so the size has to be
+	//* measured again when the maximum changes.
+	invalidate(g, id, Dirty_Flags{.Measure})
 }
 
 //* Sets the widget's share of leftover parent space.
@@ -215,6 +217,33 @@ Widget_Set_Stretch_Ratio :: proc(g: ^GUI, id: Widget_ID, ratio: f32) {
 	if w == nil { return }
 	if w.stretch_ratio == ratio { return }
 	w.stretch_ratio = ratio
+	invalidate(g, id, Dirty_Flags{.Arrange})
+}
+
+//* Sets the share of a deficit the widget takes when the children of a
+//* container do not fit along an axis. A widget with a weight gives way,
+//* by its share of the weights, until it reaches its floor. A weight of
+//* zero keeps the widget at its preferred size, and the container
+//* overflows the way it did before there were shrink weights.
+Widget_Set_Shrink_Weight :: proc(g: ^GUI, id: Widget_ID, weight: f32) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	value := weight
+	if value != value || value < 0 { value = 0 }
+	if w.shrink_weight == value { return }
+	w.shrink_weight = value
+	invalidate(g, id, Dirty_Flags{.Arrange})
+}
+
+//* Takes the widget out of the flow of its container, or puts it back
+//* in the flow. An absolute widget is placed by its anchors and offsets
+//* inside the content of its parent, and it takes no share of the room
+//* of the container.
+Widget_Set_Absolute :: proc(g: ^GUI, id: Widget_ID, absolute: bool) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	if w.absolute == absolute { return }
+	w.absolute = absolute
 	invalidate(g, id, Dirty_Flags{.Arrange})
 }
 

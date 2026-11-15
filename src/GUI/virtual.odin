@@ -215,7 +215,8 @@ scroll_clamp :: proc(scroll: ^f32, content_height, viewport: f32) {
 //* only taken by a widget that really scrolled.
 wheel_scroll :: proc(scroll: ^f32, delta, content_size, viewport: f32) -> bool {
 	scroll_clamp(scroll, content_size, viewport)
+	before := scroll^
 	scroll^ -= delta
 	scroll_clamp(scroll, content_size, viewport)
-	return true
+	return scroll^ != before
 }

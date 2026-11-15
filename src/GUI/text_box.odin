@@ -365,10 +365,16 @@ Text_Box_Cluster :: struct {
 }
 
 text_box_clusters :: proc(g: ^GUI, line: Text_Line, scale: f32) -> []Text_Box_Cluster {
+	//* The clusters live for the frame, and the number of them is not
+	//* known before the glyphs are walked, so they are kept in the frame
+	//* arena rather than on the heap. The arena is given back once a
+	//* frame, so a walk costs a bump of a pointer.
 	allocator := virt.arena_allocator(&g.frame_arena)
 	out := make([dynamic]Text_Box_Cluster, 0, len(line.glyphs), allocator)
 	pen: f32 = 0
 	i := 0
+	ordered := true
+	last := -1
 	for i < len(line.glyphs) {
 		cluster := int(line.glyphs[i].cluster)
 		level := line.glyphs[i].level
@@ -388,11 +394,14 @@ text_box_clusters :: proc(g: ^GUI, line: Text_Line, scale: f32) -> []Text_Box_Cl
 				width = hi_x - lo_x,
 			},
 		)
+		if cluster < last {ordered = false}
+		last = cluster
 		i = j
 	}
 	//* The glyphs of a line are in the order they are seen, and the text
-	//* of a right-to-left line goes the other way.
-	sort_text_box_clusters(out[:])
+	//* of a right-to-left line goes the other way. A line that is already
+	//* in the order of its text, which is the common case, is left alone.
+	if !ordered {sort_text_box_clusters(out[:])}
 	return out[:]
 }
 
@@ -633,6 +642,19 @@ text_box_set_multiline :: proc(g: ^GUI, id: Widget_ID, multiline: bool) {
 //* lines that fit in that room.
 
 measure_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Vec2 {
+	return measure_text_box_at_width(g, id, w, 0)
+}
+
+//* The height of a box when its content is given `width`. A width of 0
+//* means that the text is not broken, which is the size the box asks for
+//* when nothing constrains it. The width of a box is the room it is
+//* given, so its preferred width stays 0.
+measure_text_box_at_width :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	w: ^Widget,
+	width: f32,
+) -> Vec2 {
 	d := text_box_data(g, id)
 	if d == nil {return {}}
 	f := font_get(g, Font_Of(g, w))
@@ -649,10 +671,10 @@ measure_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Vec2 {
 
 	if text_box_is_multiline(d) {
 		//* A box of more than one line is as tall as the lines of its
-		//* text: the lines are the ones that the text is broken into
-		//* when it is not broken at all.
+		//* text: the lines are the ones the text is broken into at the
+		//* width the box is given.
 		ts := text_box_text_style(g, w, true)
-		lines := wrap_text_lines(g, f, ts, d.text, 0)
+		lines := wrap_text_lines(g, f, ts, d.text, max(width, 0))
 		height = max(height, text_box_content_height(lines[:], ts.spacing))
 	}
 
