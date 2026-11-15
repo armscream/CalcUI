@@ -51,13 +51,18 @@ All hooks are optional. When a hook is nil, CalcUI uses the normal control behav
 | `construct` | The widget has been added to the tree. |
 | `destroy` | The widget is being destroyed, before user-data cleanup. |
 | `measure` | The core calculates the widget's minimum size. |
+| `measure_width` | The core measures the widget at the width it is given. Use it when the height depends on the width. |
+| `content_size` | A scroll container asks for the logical size of the widget's content. Use it for a widget that virtualizes its items. |
 | `layout` | The widget lays out its children. |
 | `draw` | The widget's content is drawn. |
-| `update` | Each frame, before drawing. |
+| `update` | Each frame, before layout. State changes made here are measured and arranged in the same frame. |
+| `post_update` | Each frame, after layout and before drawing. Use it for interaction that reads current geometry or the pointer. |
 | `click` | A pressed button is released over the widget. |
 | `pointer` | A pointer or wheel event is received. |
 | `key` | A key is pressed while the widget has focus. |
 | `text_input` | Text is entered while the widget has focus. |
+
+The update phase has two steps. `update` runs before the layout pass, so a size or content change is measured and arranged in the same frame. `post_update` runs after the layout pass, so it can read the current geometry; a change that affects layout is seen by the next frame. Both hooks run once per visible widget per frame, and a widget may be destroyed from either of them.
 
 Two flags affect hook behavior:
 
@@ -90,6 +95,17 @@ gauge_measure :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget) -> GUI.Vec2 {
 }
 ```
 
+When the height of a widget depends on the width it is given, add `measure_width`. The core calls it with the width of the widget on the outside and uses the returned size as a floor under the size the normal measurement gives. A label whose text wraps does this itself, so a custom widget only needs the hook when it draws content of its own that wraps.
+
+When a widget holds its items rather than one widget per item, add `content_size`. A scroll container takes the larger of this size and the sizes of the children it holds, so a virtualized list can report the room all of its rows would take without constructing them. Return a zero vector when the widget has no logical content size of its own.
+
+```odin
+gauge_measure_width :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget, width: f32) -> GUI.Vec2 {
+    size := GUI.Measure_Text(g, GUI.Widget_Style(g, id).text, "100%", max(width - 48, 0))
+    return GUI.Vec2{0, size.y + 8}
+}
+```
+
 When `layout` is provided, the class positions its children and CalcUI does not lay them out again. Without it, children use their anchors.
 
 ### Drawing
@@ -117,6 +133,7 @@ Available drawing and measurement helpers:
 | `Draw_Line` | Draw a line between two points. |
 | `Draw_Polygon` | Draw a polygon. |
 | `Measure_Text` | Measure text as it would be drawn. |
+| `Widget_Measure_At_Width` | Measure a widget at a given width, for content whose height depends on its width. |
 
 Geometry and style helpers:
 
@@ -266,7 +283,7 @@ A scene can then refer to the class by name:
         offsets = {0, 0, 0, 40}
 ```
 
-Register classes before loading the scene. The Gauge in `src/GUI/class_test.odin` is a working example using the public API.
+Register classes before loading the scene. The Gauge in `src/Tests/class_test.odin` is a working example using the public API.
 
 ## Built-in widgets
 

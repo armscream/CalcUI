@@ -1,24 +1,26 @@
 //* == Text ==
-//* The text of CalcUI: the sizes, the colours, the alignment, the
-//* wrapping and the outline.
+//* The text of CalcUI: the sizes, the alignment, the colour and the
+//* wrapping.
 
 package main
 
 import "core:fmt"
 import "core:log"
-import common "../common"
+import App "../../src/App"
 import GUI "../../src/GUI"
 
 g: ^GUI.GUI
 
 main :: proc() {
-	common.Run(
+	App.Run(
 		"CalcUI - Text",
 		720,
 		480,
-		proc(app: ^common.App) {
+		proc(app: ^App.App) {
 			g = app.gui
-			GUI.Widget_Get(g, g.root).style.box.bg_color = GUI.RGBA(0.07, 0.08, 0.10, 1)
+			root_style := GUI.Widget_Get(g, g.root).style
+			root_style.box.bg_color = GUI.RGBA(0.07, 0.08, 0.10, 1)
+			GUI.Widget_Set_Style(g, g.root, root_style)
 
 			box := GUI.Make_VBox(
 				g,

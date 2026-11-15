@@ -160,6 +160,7 @@ app_start :: proc(app: ^App, opts: Options, setup: proc(app: ^App)) -> (started,
 			submit                 = Backend.renderer_submit,
 			submit_target          = Backend.renderer_submit_target,
 			open_url               = Backend.open_url,
+			supports_shapes        = false,
 		}
 	}
 
@@ -222,6 +223,7 @@ app_run :: proc(app: ^App, update: proc(app: ^App)) {
 
 app_stop :: proc(app: ^App, backend_made: bool) {
 	if app.gui != nil {
+		Backend.sdl3_audio_shutdown(app.gui)
 		GUI.Shutdown_GUI(app.gui)
 		app.gui = nil
 	}

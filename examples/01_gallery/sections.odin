@@ -1490,13 +1490,8 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 }
 
 gallery_paint :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID, state: ^GUI.Canvas_State) {
-	w := GUI.Widget_Get(gui, id)
-	if w == nil {return}
-	//* An item of a canvas is in the room of the window, so the paint
-	//* starts at the canvas itself.
-	content := GUI.content_rect(gui, w)
-	GUI.canvas_add_rect(gui, id, GUI.Vec2{content.x + 20, content.y + 20}, GUI.Vec2{120, 80}, GUI.RGBA(0.25, 0.60, 1.00, 1))
-	GUI.canvas_add_circle(gui, id, GUI.Vec2{content.x + 180, content.y + 20}, GUI.Vec2{90, 90}, GUI.RGBA(0.95, 0.55, 0.20, 1))
-	GUI.canvas_add_line(gui, id, GUI.Vec2{content.x + 20, content.y + 140}, GUI.Vec2{content.x + 280, content.y + 220}, GUI.RGBA(0.40, 0.85, 0.50, 1))
-	GUI.canvas_add_text(gui, id, GUI.Vec2{content.x + 20, content.y + 240}, "The canvas", GUI.RGBA(0.92, 0.94, 0.98, 1))
+	GUI.canvas_add_rect(gui, id, GUI.Vec2{20, 20}, GUI.Vec2{120, 80}, GUI.RGBA(0.25, 0.60, 1.00, 1))
+	GUI.canvas_add_circle(gui, id, GUI.Vec2{180, 20}, GUI.Vec2{90, 90}, GUI.RGBA(0.95, 0.55, 0.20, 1))
+	GUI.canvas_add_line(gui, id, GUI.Vec2{20, 140}, GUI.Vec2{280, 220}, GUI.RGBA(0.40, 0.85, 0.50, 1))
+	GUI.canvas_add_text(gui, id, GUI.Vec2{20, 240}, "The canvas", GUI.RGBA(0.92, 0.94, 0.98, 1))
 }
