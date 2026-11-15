@@ -417,6 +417,7 @@ box = GUI.StyleBox{
 			align = .Center,
 			family = body,
 		},
+		transition = GUI.Style_Transition{duration = 0.15, easing = .Out_Cubic},
 	})
 	GUI.Theme_Set_State(theme, .Button, .Hovered, GUI.Style{
 box = GUI.StyleBox{

@@ -42,6 +42,22 @@ New_Widget :: proc(g: ^GUI, type: Widget_Type, parent: Widget_ID, opts: Widget_O
 	return new_widget(g, type, parent, opts, class_of_type(g, type))
 }
 
+widget_type_interactive :: proc(type: Widget_Type) -> bool {
+	#partial switch type {
+	case .Button,
+	     .CheckBox,
+	     .OptionButton,
+	     .MenuButton,
+	     .LinkButton,
+	     .ToggleSwitch,
+	     .Segmented,
+	     .ComboBox,
+	     .Rating:
+		return true
+	}
+	return false
+}
+
 new_widget :: proc(
 	g: ^GUI,
 	type: Widget_Type,
@@ -86,6 +102,7 @@ new_widget :: proc(
 	w.separation = opts.separation
 	if w.separation == 0 { w.separation = 4 }
 	w.draggable = opts.draggable
+	w.grid_placement = grid_placement_normalize(opts.grid_placement)
 	//* A widget that has to grow past its minimum size grows right and
 	//* down, like Godot's default grow direction.
 	w.grow_h = .End
@@ -95,6 +112,8 @@ new_widget :: proc(
 	w.variation = opts.variation
 	w.state = Widget_State{.Visible, .Enabled}
 	if opts.hidden { w.state -= Widget_State{.Visible} }
+	w.interactive = opts.interactive || widget_type_interactive(type)
+	if c, ok := class_get(g, class); ok && c.kind.interactive { w.interactive = true }
 
 	//* The control features. A widget takes the mouse and cuts its children to
 	//* its own rect unless it is told otherwise. The mouse filter of .Stop is

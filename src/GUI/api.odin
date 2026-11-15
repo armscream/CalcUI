@@ -150,6 +150,7 @@ Color_Picker_Layout :: Core.Color_Picker_Layout
 Color_Picker_Opts :: Core.Color_Picker_Opts
 Color_Rect_Data :: Core.Color_Rect_Data
 Color_Rect_Opts :: Core.Color_Rect_Opts
+color_rect_set_colour :: Widgets.color_rect_set_colour
 Colour :: Core.Colour
 Combo_Box_Data :: Core.Combo_Box_Data
 Combo_Box_Item :: Core.Combo_Box_Item
@@ -229,6 +230,7 @@ Draw_List :: Core.Draw_List
 Draw_Polygon :: Core.Draw_Polygon
 Draw_Quad :: Core.Draw_Quad
 Draw_Rect :: Core.Draw_Rect
+Draw_Rect_Radii :: Core.Draw_Rect_Radii
 Draw_Solid :: Core.Draw_Solid
 Draw_Text :: Core.Draw_Text
 Draw_Vertex :: Core.Draw_Vertex
@@ -244,12 +246,19 @@ Emoji_Entry :: Core.Emoji_Entry
 Emoji_Picker_Data :: Core.Emoji_Picker_Data
 Emoji_Picker_Layout :: Core.Emoji_Picker_Layout
 Emoji_Picker_Opts :: Core.Emoji_Picker_Opts
+emoji_picker_emoji :: Widgets.emoji_picker_emoji
+emoji_picker_group :: Widgets.emoji_picker_group
+emoji_picker_is_open :: Widgets.emoji_picker_is_open
+emoji_picker_set :: Widgets.emoji_picker_set
+emoji_picker_set_group :: Widgets.emoji_picker_set_group
+emoji_picker_set_open :: Widgets.emoji_picker_set_open
 Error :: Core.Error
 Error_Code :: Core.Error_Code
 Error_To_String :: Core.Error_To_String
 Event :: Core.Event
 Event_Handled :: Core.Event_Handled
 Event_Is_Handled :: Core.Event_Is_Handled
+Exposed_Event :: Core.Exposed_Event
 FILE_DIALOG_PATH_HEIGHT :: Widgets.FILE_DIALOG_PATH_HEIGHT
 FILE_DIALOG_ROW :: Widgets.FILE_DIALOG_ROW
 FILE_VIEWER_MARK :: Widgets.FILE_VIEWER_MARK
@@ -257,6 +266,7 @@ FILE_VIEWER_ROW :: Widgets.FILE_VIEWER_ROW
 FILE_VIEWER_SIZE_WIDTH :: Widgets.FILE_VIEWER_SIZE_WIDTH
 FILE_VIEWER_WHEEL_ROWS :: Widgets.FILE_VIEWER_WHEEL_ROWS
 FLOAT_NONE :: Core.FLOAT_NONE
+Frame_Mode :: Core.Frame_Mode
 File_Dialog_Close :: Core.File_Dialog_Close
 File_Dialog_Data :: Core.File_Dialog_Data
 File_Dialog_Mode :: Core.File_Dialog_Mode
@@ -298,11 +308,15 @@ GUI :: Core.GUI
 GUI_Access_Epoch :: Core.GUI_Access_Epoch
 GUI_Atlas_Texture :: Core.GUI_Atlas_Texture
 GUI_Atlas_White_UV :: Core.GUI_Atlas_White_UV
+GUI_Frame_Mode :: Core.GUI_Frame_Mode
 GUI_Invalidate_All :: Core.GUI_Invalidate_All
 GUI_Invalidate_Theme :: Core.GUI_Invalidate_Theme
 GUI_Is_Dirty :: Core.GUI_Is_Dirty
+GUI_Needs_Frame :: Core.GUI_Needs_Frame
+GUI_Request_Frame :: Core.GUI_Request_Frame
 GUI_Set_Access_Bridge :: Core.GUI_Set_Access_Bridge
 GUI_Set_Default_Style :: Core.GUI_Set_Default_Style
+GUI_Set_Frame_Mode :: Core.GUI_Set_Frame_Mode
 GUI_Set_Scale :: Core.GUI_Set_Scale
 GUI_Set_Theme :: Core.GUI_Set_Theme
 Glyph_Entry :: Core.Glyph_Entry
@@ -453,6 +467,16 @@ NUMBER_INPUT_ARROWS :: Widgets.NUMBER_INPUT_ARROWS
 NUMBER_INPUT_HEIGHT :: Widgets.NUMBER_INPUT_HEIGHT
 Nine_Patch_Data :: Core.Nine_Patch_Data
 Nine_Patch_Opts :: Core.Nine_Patch_Opts
+Nine_Patch_Cell :: Core.Nine_Patch_Cell
+Nine_Patch_Centre_Mode :: Core.Nine_Patch_Centre_Mode
+Nine_Patch_Edge_Mode :: Core.Nine_Patch_Edge_Mode
+Nine_Patch_Layout :: Core.Nine_Patch_Layout
+Nine_Patch_Set_Modes :: Widgets.Nine_Patch_Set_Modes
+Nine_Patch_Set_Patch :: Widgets.Nine_Patch_Set_Patch
+Nine_Patch_Set_Source :: Widgets.Nine_Patch_Set_Source
+Nine_Patch_Set_Texture :: Widgets.Nine_Patch_Set_Texture
+Nine_Patch_Set_Tint :: Widgets.Nine_Patch_Set_Tint
+NINE_PATCH_CELL_COUNT :: Core.NINE_PATCH_CELL_COUNT
 Node :: Core.Node
 Node_Graph :: Core.Node_Graph
 Node_Graph_Data :: Core.Node_Graph_Data
@@ -496,6 +520,7 @@ Popup_Panel_Opts :: Core.Popup_Panel_Opts
 Popup_Top :: Core.Popup_Top
 Progress_Bar_Data :: Core.Progress_Bar_Data
 Progress_Bar_Opts :: Core.Progress_Bar_Opts
+progress_bar_set_value :: Widgets.progress_bar_set_value
 Quit_Event :: Core.Quit_Event
 RATING_DEFAULT_MAX :: Widgets.RATING_DEFAULT_MAX
 RATING_MARK_WIDTH :: Widgets.RATING_MARK_WIDTH
@@ -582,6 +607,9 @@ Size_Flag :: Core.Size_Flag
 Size_Flags :: Core.Size_Flags
 Slider_Data :: Core.Slider_Data
 Slider_Opts :: Core.Slider_Opts
+slider_factor :: Core.slider_factor
+slider_knob :: Core.slider_knob
+slider_track :: Core.slider_track
 Spin_Box_Data :: Core.Spin_Box_Data
 Spin_Box_Opts :: Core.Spin_Box_Opts
 Split_Data :: Core.Split_Data
@@ -593,6 +621,9 @@ StyleBox :: Core.StyleBox
 Style_Cache :: Core.Style_Cache
 Style_Field :: Core.Style_Field
 Style_State :: Core.Style_State
+Style_Transition :: Core.Style_Transition
+Style_Transition_State :: Core.Style_Transition_State
+Style_Transitions_Update :: Core.Style_Transitions_Update
 TAB_BAR_HEIGHT :: Core.TAB_BAR_HEIGHT
 TAB_PADDING :: Core.TAB_PADDING
 TEXT_BOX_DEFAULT_SHOWN_CHARS :: Core.TEXT_BOX_DEFAULT_SHOWN_CHARS
@@ -665,6 +696,7 @@ Theme_Set_Class :: Core.Theme_Set_Class
 Theme_Set_Class_Color :: Core.Theme_Set_Class_Color
 Theme_Set_Class_Constant :: Core.Theme_Set_Class_Constant
 Theme_Set_Class_State :: Core.Theme_Set_Class_State
+Theme_Set_Color :: Core.theme_set_color
 Theme_Set_Family :: Core.Theme_Set_Family
 Theme_Set_Size :: Core.Theme_Set_Size
 Theme_Set_State :: Core.Theme_Set_State
@@ -772,6 +804,7 @@ Widget_Set_Clip_Contents :: Core.Widget_Set_Clip_Contents
 Widget_Set_Custom_Min_Size :: Core.Widget_Set_Custom_Min_Size
 Widget_Set_Draggable :: Core.Widget_Set_Draggable
 Widget_Set_Enabled :: Core.Widget_Set_Enabled
+Widget_Set_Interactive :: Core.Widget_Set_Interactive
 Widget_Set_Focus_Mode :: Core.Widget_Set_Focus_Mode
 Widget_Set_Focus_Neighbour :: Core.Widget_Set_Focus_Neighbour
 Widget_Set_Focus_Next :: Core.Widget_Set_Focus_Next
@@ -807,15 +840,18 @@ Widget_Set_Z_Index :: Core.Widget_Set_Z_Index
 Widget_State :: Core.Widget_State
 Widget_State_Flag :: Core.Widget_State_Flag
 Widget_Style :: Core.Widget_Style
+Widget_Style_Transition_Active :: Core.Widget_Style_Transition_Active
 Widget_Subtree_Is_Dirty :: Core.Widget_Subtree_Is_Dirty
 Widget_Text_Colour :: Core.Widget_Text_Colour
 Widget_Type :: Core.Widget_Type
 Widget_User_Data :: Core.Widget_User_Data
 atlas_alloc :: Core.atlas_alloc
 atlas_destroy :: Core.atlas_destroy
+atlas_evict :: Core.atlas_evict
 atlas_free :: Core.atlas_free
 atlas_make :: Core.atlas_make
 atlas_region_uv_inside :: Core.atlas_region_uv_inside
+atlas_region_valid :: Core.atlas_region_valid
 audio_set_binding :: Core.audio_set_binding
 audio_volume :: Core.audio_volume
 build_draw_list :: Core.build_draw_list
@@ -864,6 +900,7 @@ init_text :: Core.init_text
 invalidate_all :: Core.invalidate_all
 item_list_select :: Core.item_list_select
 layout_pass :: Core.layout_pass
+nine_patch_layout :: Core.nine_patch_layout
 node_graph_add_node :: Widgets.node_graph_add_node
 node_graph_add_port :: Widgets.node_graph_add_port
 node_graph_connect :: Widgets.node_graph_connect
@@ -904,6 +941,8 @@ widget_release_data :: Core.widget_release_data
 EMOJI_SOURCE: []Core.Emoji_Entry = Core.EMOJI_SOURCE
 
 Frame :: proc(g: ^GUI) {
+	if g == nil {return}
+	Core.Frame_Begin(g)
 	virt.arena_free_all(&g.frame_arena)
 	g.dt = Core.frame_time(g)
 	Core.caret_tick(g)
@@ -913,7 +952,9 @@ Frame :: proc(g: ^GUI) {
 	Widgets.menu_buttons_reposition(g)
 	Core.update_resize_hover(g)
 	Core.widget_post_update_pass(g)
-	Core.build_draw_list(g)
+	if Core.draw_needs_rebuild(g) {
+		Core.build_draw_list(g)
+	}
 	Core.atlas_flush(g.atlas, g.backend, g.atlas_texture)
 	Core.atlas_next_frame(g.atlas)
 	Core.report_atlas_failures(g)

@@ -51,6 +51,7 @@ widget_update_pass :: proc(g: ^GUI) {
 			kind.update(g, id, w, g.dt)
 		}
 	}
+	Style_Transitions_Update(g, g.dt)
 }
 
 //* Runs the interaction part of the update phase, after the layout pass

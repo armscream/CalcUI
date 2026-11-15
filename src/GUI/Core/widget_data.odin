@@ -530,25 +530,64 @@ Command_Palette_Opts :: struct {
 	Base_Opts: Base_Opts,
 }
 
+Grid_Track_Kind :: enum {
+	Auto,
+	Fixed,
+	Flexible,
+}
+
+Grid_Track :: struct {
+	kind:     Grid_Track_Kind,
+	size:     f32,
+	weight:   f32,
+	min_size: f32,
+	max_size: f32,
+}
+
+Grid_Placement :: struct {
+	row:         int,
+	column:      int,
+	row_span:    int,
+	column_span: int,
+}
+
+grid_placement_normalize :: proc(placement: Grid_Placement) -> Grid_Placement {
+	result := placement
+	if result == (Grid_Placement{}) {
+		result = Grid_Placement{row = -1, column = -1, row_span = 1, column_span = 1}
+	}
+	if result.row_span <= 0 {result.row_span = 1}
+	if result.column_span <= 0 {result.column_span = 1}
+	return result
+}
+
 Grid_Data :: struct {
-	columns:      int,
-	h_separation: f32,
-	v_separation: f32,
-	margin:       [4]f32,
-	show_lines:   bool,
-	line_colour:  Colour,
-	cells:        []Rect,
-	cell_count:   int,
+	columns:         int,
+	h_separation:    f32,
+	v_separation:    f32,
+	margin:          [4]f32,
+	show_lines:      bool,
+	line_colour:     Colour,
+	cells:           []Rect,
+	cell_count:      int,
+	column_tracks:   []Grid_Track,
+	row_tracks:      []Grid_Track,
+	placements:      []Grid_Placement,
+	placement_count: int,
+	column_sizes:    []f32,
+	row_sizes:       []f32,
 }
 
 Grid_Opts :: struct {
-	Base_Opts:    Base_Opts,
-	columns:      int,
-	h_separation: f32,
-	v_separation: f32,
-	margin:       [4]f32,
-	show_lines:   bool,
-	line_colour:  Colour,
+	Base_Opts:     Base_Opts,
+	columns:       int,
+	h_separation:  f32,
+	v_separation:  f32,
+	margin:        [4]f32,
+	show_lines:    bool,
+	line_colour:   Colour,
+	column_tracks: []Grid_Track,
+	row_tracks:    []Grid_Track,
 }
 
 Margin_Data :: struct {
@@ -832,14 +871,30 @@ Texture_Rect_Opts :: struct {
 }
 
 Nine_Patch_Data :: struct {
-	texture: Texture,
-	patch:   [4]f32,
+	texture:         Texture,
+	patch:           [4]f32,
+	//* A sub-rectangle of the texture, in pixels. An empty rectangle
+	//* means the whole texture.
+	source:          Rect,
+	tint:            Colour,
+	horizontal_edge: Nine_Patch_Edge_Mode,
+	vertical_edge:   Nine_Patch_Edge_Mode,
+	centre_mode:     Nine_Patch_Centre_Mode,
 }
 
 Nine_Patch_Opts :: struct {
 	Base_Opts: Base_Opts,
 	texture:   Texture,
 	patch:     [4]f32,
+	//* A sub-rectangle of the texture, in pixels. An empty rectangle
+	//* means the whole texture.
+	source:          Rect,
+	//* The colour multiplied into the texture. A zero colour means white,
+	//* which leaves the texture unchanged.
+	tint:            Colour,
+	horizontal_edge: Nine_Patch_Edge_Mode,
+	vertical_edge:   Nine_Patch_Edge_Mode,
+	centre_mode:     Nine_Patch_Centre_Mode,
 }
 
 Reference_Rect_Opts :: struct {

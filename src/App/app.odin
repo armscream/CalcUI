@@ -36,6 +36,7 @@ Options :: struct {
 	title: string,
 	width, height: i32,
 	use_gpu: bool,
+	frame_mode: GUI.Frame_Mode,
 	font_path: string,
 	font_data: []u8,
 	font_name: string,
@@ -114,6 +115,8 @@ parse_args :: proc(opts: ^Options) {
 	for arg in os.args[1:] {
 		if arg == "--gpu" {
 			opts.use_gpu = true
+		} else if arg == "--event-driven" {
+			opts.frame_mode = .Event_Driven
 		} else if !strings.has_prefix(arg, "--") && opts.font_path == "" {
 			opts.font_path = arg
 		}
@@ -172,6 +175,7 @@ app_start :: proc(app: ^App, opts: Options, setup: proc(app: ^App)) -> (started,
 
 	app.gui = GUI.Init_GUI(lw, lh, app.backend)
 	GUI.GUI_Set_Scale(app.gui, plat.Scale(app.window))
+	GUI.GUI_Set_Frame_Mode(app.gui, opts.frame_mode)
 	GUI.Default_Theme_Use(app.gui, true)
 
 	app.family = load_family(app.gui, opts)
@@ -192,8 +196,22 @@ app_run :: proc(app: ^App, update: proc(app: ^App)) {
 		plat.Sync_Scale(app.gui, app.window)
 		plat.Poll_Events(&app.window, &app.gui.events)
 		app.gui.window_rect = plat.Global_Rect(app.window)
-		if update != nil { update(app) }
+
+		input_pending := len(app.gui.events) > 0
+		if update != nil && (input_pending || GUI.GUI_Needs_Frame(app.gui)) {
+			update(app)
+		}
+
 		GUI.Handle_Events(app.gui)
+		if app.gui.quit_requested { break }
+
+		if !GUI.GUI_Needs_Frame(app.gui) {
+			if !input_pending {
+				plat.Wait_Events(&app.window, &app.gui.events)
+			}
+			continue
+		}
+
 		GUI.Frame(app.gui)
 
 		plat.Sync_Popups(&app.window, app.gui.floats[:])

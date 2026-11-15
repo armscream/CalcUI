@@ -78,6 +78,9 @@ gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 		{location = 2, format = .FLOAT4, offset = u32(offset_of(Vertex, colour))},
 		{location = 3, format = .FLOAT4, offset = u32(offset_of(Vertex, shape))},
 		{location = 4, format = .FLOAT2, offset = u32(offset_of(Vertex, local))},
+		{location = 5, format = .FLOAT, offset = u32(offset_of(Vertex, softness))},
+		{location = 6, format = .FLOAT4, offset = u32(offset_of(Vertex, corners))},
+		{location = 7, format = .FLOAT4, offset = u32(offset_of(Vertex, border))},
 	}
 
 	pipeline := sdl.CreateGPUGraphicsPipeline(

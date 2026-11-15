@@ -37,8 +37,11 @@ caret_visible :: proc(g: ^GUI) -> bool {
 caret_tick :: proc(g: ^GUI) {
 	if g == nil {return}
 	if !widget_takes_text(g, g.focused) {
+		if g.caret_timer != 0 {draw_invalidate(g)}
 		g.caret_timer = 0
 		return
 	}
+	was := caret_visible(g)
 	g.caret_timer += g.dt
+	if caret_visible(g) != was {draw_invalidate(g)}
 }

@@ -1,7 +1,6 @@
 package Animation
 
 import "core:log"
-import "core:math"
 
 import Core "../Core"
 
@@ -25,38 +24,7 @@ Animation_Desc :: Core.Animation_Desc
 Tween :: Core.Tween
 
 easing_apply :: proc(easing: Easing, t: f32) -> f32 {
-	x := clamp(t, 0, 1)
-	switch easing {
-	case .Linear:
-		return x
-	case .In_Quad:
-		return x * x
-	case .Out_Quad:
-		y := 1 - x
-		return 1 - y * y
-	case .In_Out_Quad:
-		if x < 0.5 {return 2 * x * x}
-		y := -2 * x + 2
-		return 1 - y * y * 0.5
-	case .In_Cubic:
-		return x * x * x
-	case .Out_Cubic:
-		y := 1 - x
-		return 1 - y * y * y
-	case .In_Out_Cubic:
-		if x < 0.5 {return 4 * x * x * x}
-		y := -2 * x + 2
-		return 1 - y * y * y * 0.5
-	case .In_Sine:
-		return 1 - math.cos(x * math.PI * 0.5)
-	case .Out_Sine:
-		return math.sin(x * math.PI * 0.5)
-	case .In_Out_Sine:
-		return -(math.cos(math.PI * x) - 1) * 0.5
-	case .Smooth:
-		return x * x * (3 - 2 * x)
-	}
-	return x
+	return Core.easing_apply(easing, t)
 }
 
 animation_property_accepts :: proc(property: Animation_Property, kind: Animation_Value_Kind) -> bool {

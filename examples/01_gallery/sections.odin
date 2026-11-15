@@ -19,6 +19,7 @@ INK :: GUI.Colour{0.86, 0.89, 0.95, 1}
 
 presses: int
 press_label: GUI.Widget_ID
+press_buf: [64]u8
 toast: GUI.Widget_ID
 palette: GUI.Widget_ID
 context_menu: GUI.Widget_ID
@@ -196,7 +197,7 @@ Section_Buttons :: proc(parent: GUI.Widget_ID) -> f32 {
 
 on_press :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
 	presses += 1
-	GUI.Widget_Set_Text(gui, press_label, fmt.tprintf("pressed %d times", presses))
+	GUI.Widget_Set_Text(gui, press_label, fmt.bprintf(press_buf[:], "pressed %d times", presses))
 }
 
 //* == inputs ==
@@ -700,7 +701,7 @@ Section_Popups :: proc(parent: GUI.Widget_ID) -> f32 {
 //* == overlays ==
 
 Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
-	rows := Make_Rows(36, 250, 240)
+	rows := Make_Rows(36, 36, 36, 90, 240, 240)
 	panel := Section(parent, "Overlays", rows)
 
 	//* The toast sits in the bottom right corner of the window, over the gallery.
@@ -797,17 +798,16 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Color_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "color_picker", preset = .Top_Left, offsets = Place(rows, 2, 1, COLUMN_WIDTH, 90)},
+			Base_Opts = GUI.Base_Opts{name = "color_picker", preset = .Top_Left, offsets = Place(rows, 0, 3, COLUMN_WIDTH, 90)},
 			colour = GUI.RGBA(0.25, 0.62, 1.0, 1),
 		},
 	)
 
-	//* The pickers have a row that is tall enough for their open panel.
 	date_picker = GUI.Make_Date_Picker(
 		g,
 		panel,
 		GUI.Date_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "date_picker", preset = .Top_Left, offsets = Place(rows, 0, 1, COLUMN_WIDTH, 250)},
+			Base_Opts = GUI.Base_Opts{name = "date_picker", preset = .Top_Left, offsets = Place(rows, 0, 4, COLUMN_WIDTH, 240)},
 			year = 2026,
 			month = 11,
 			day = 9,
@@ -818,7 +818,7 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Time_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "time_picker", preset = .Top_Left, offsets = Place(rows, 1, 1, COLUMN_WIDTH, 250)},
+			Base_Opts = GUI.Base_Opts{name = "time_picker", preset = .Top_Left, offsets = Place(rows, 0, 5, COLUMN_WIDTH, 240)},
 			hour = 14,
 			minute = 30,
 		},
@@ -828,11 +828,12 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Emoji_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "emoji_picker", preset = .Top_Left, offsets = Place(rows, 0, 2, COLUMN_WIDTH, 240)},
+			Base_Opts = GUI.Base_Opts{name = "emoji_picker", preset = .Top_Left, offsets = Place(rows, 1, 4, COLUMN_WIDTH, 240)},
 			emoji = "\U0001F600",
 			group = 0,
 		},
 	)
+	GUI.emoji_picker_set_open(g, emoji_picker, true)
 
 	emoji_hint := "The emoji are drawn in colour."
 	if !emoji_font {
@@ -845,7 +846,7 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "emoji_hint",
 				preset = .Top_Left,
-				offsets = Place(rows, 1, 2, COLUMN_WIDTH, 30),
+				offsets = Place(rows, 2, 4, COLUMN_WIDTH, 30),
 				style = GUI.Style{text = GUI.Text_Style{colour = DIM}},
 			},
 			text = emoji_hint,
@@ -859,14 +860,225 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "tooltip_subject",
 				preset = .Top_Left,
-				offsets = Place(rows, 2, 2, COLUMN_WIDTH, 30),
+				offsets = Place(rows, 1, 3, COLUMN_WIDTH, 30),
 				tooltip = "The tooltip waits until the pointer rests on the thing.",
+				use_theme = true,
+				variation = "accent_button",
 			},
 			text = "Rest on me",
 		},
 	)
 
+	GUI.Make_Button(
+		g,
+		panel,
+		GUI.Button_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "tooltip_subject_second",
+				preset = .Top_Left,
+				offsets = Place(rows, 1, 5, COLUMN_WIDTH, 30),
+				tooltip = "A second tooltip, with a text long enough to wrap inside the panel that the toolkit draws for it.",
+				use_theme = true,
+				variation = "danger_button",
+			},
+			text = "Rest on me too",
+		},
+	)
+
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "tooltip_hint",
+				preset = .Top_Left,
+				offsets = Place(rows, 2, 3, COLUMN_WIDTH, 60),
+				style = GUI.Style{text = GUI.Text_Style{colour = DIM, wrap = .Word}},
+			},
+			text = "Hover a button and hold the pointer still. The tooltip comes up after half a second.",
+		},
+	)
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "emoji_wheel_hint",
+				preset = .Top_Left,
+				offsets = Place(rows, 2, 5, COLUMN_WIDTH, 40),
+				style = GUI.Style{text = GUI.Text_Style{colour = DIM, wrap = .Word}},
+			},
+			text = "The wheel scrolls the emoji grid, the strip on the left changes the group.",
+		},
+	)
+
 	return Rows_Height(rows)
+}
+
+//* == animation ==
+
+Section_Motion :: proc(parent: GUI.Widget_ID) -> f32 {
+	rows := Make_Rows(110, 110, 36)
+	panel := Section(parent, "Animation", rows)
+
+	motion_card = GUI.Make_Panel(
+		g,
+		panel,
+		GUI.Panel_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "motion_card",
+				preset = .Top_Left,
+				offsets = Place(rows, 0, 0, COLUMN_WIDTH, 96),
+				use_theme = true,
+				variation = "accent_panel",
+				tooltip = "A tween is running on the background and on the border of this panel.",
+			},
+		},
+	)
+	GUI.Make_Label(
+		g,
+		motion_card,
+		GUI.Label_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "motion_card_text",
+				preset = .Top_Left,
+				offsets = GUI.Offset{left = 10, top = 10, right = -10, bottom = -10},
+				style = GUI.Style{text = GUI.Text_Style{colour = GUI.RGBA(0.90, 0.94, 1, 1), wrap = .Word}},
+			},
+			text = "The box and its border are tweened.",
+		},
+	)
+
+	motion_bar = GUI.Make_Color_Rect(
+		g,
+		panel,
+		GUI.Color_Rect_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "motion_bar",
+				preset = .Top_Left,
+				offsets = Place(rows, 1, 0, COLUMN_WIDTH, 96),
+				tooltip = "This bar changes its height with a tween.",
+			},
+			colour = GUI.RGBA(0.30, 0.66, 1.0, 1),
+		},
+	)
+
+	motion_label = GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "motion_label",
+				preset = .Top_Left,
+				offsets = Place(rows, 0, 2, COLUMN_WIDTH, 30),
+				style = GUI.Style{text = GUI.Text_Style{colour = INK}},
+			},
+			text = "The opacity of this line is tweened.",
+		},
+	)
+
+	GUI.Make_Button(
+		g,
+		panel,
+		GUI.Button_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "motion_play",
+				preset = .Top_Left,
+				offsets = Place(rows, 1, 2, COLUMN_WIDTH, 30),
+				use_theme = true,
+				variation = "accent_button",
+			},
+			text = "Play the tween again",
+			on_pressed = on_motion_play,
+		},
+	)
+
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "motion_hint",
+				preset = .Top_Left,
+				offsets = Place(rows, 2, 0, COLUMN_WIDTH, 90),
+				style = GUI.Style{text = GUI.Text_Style{colour = DIM, wrap = .Word}},
+			},
+			text = "Every tween here uses the same central animation system: a property, two values, a duration, an easing and a repeat count.",
+		},
+	)
+
+	GUI.Animation_Start(
+		g,
+		GUI.Animation_Desc{
+			target = motion_card,
+			property = .Background,
+			from = GUI.Animation_Value(GUI.RGBA(0.12, 0.25, 0.55, 1)),
+			to = GUI.Animation_Value(GUI.RGBA(0.34, 0.18, 0.58, 1)),
+			duration = 2.0,
+			easing = .Smooth,
+			repeat = -1,
+			ping_pong = true,
+		},
+	)
+	GUI.Animation_Start(
+		g,
+		GUI.Animation_Desc{
+			target = motion_card,
+			property = .Border,
+			from = GUI.Animation_Value(GUI.RGBA(0.30, 0.46, 0.76, 1)),
+			to = GUI.Animation_Value(GUI.RGBA(0.75, 0.40, 0.95, 1)),
+			duration = 2.0,
+			easing = .Smooth,
+			repeat = -1,
+			ping_pong = true,
+		},
+	)
+	motion_bar_anim = GUI.Animation_Start(
+		g,
+		GUI.Animation_Desc{
+			target = motion_bar,
+			property = .Height,
+			from = GUI.Animation_Value(f32(18)),
+			to = GUI.Animation_Value(f32(96)),
+			duration = 1.4,
+			easing = .In_Out_Sine,
+			repeat = -1,
+			ping_pong = true,
+		},
+	)
+	GUI.Animation_Start(
+		g,
+		GUI.Animation_Desc{
+			target = motion_label,
+			property = .Opacity,
+			from = GUI.Animation_Value(f32(1)),
+			to = GUI.Animation_Value(f32(0.25)),
+			duration = 1.2,
+			easing = .Smooth,
+			repeat = -1,
+			ping_pong = true,
+		},
+	)
+
+	return Rows_Height(rows)
+}
+
+on_motion_play :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
+	if motion_bar == GUI.INVALID_WIDGET_ID {return}
+	if motion_bar_anim != GUI.INVALID_ANIMATION_ID {
+		GUI.Animation_Stop(gui, motion_bar_anim)
+	}
+	motion_bar_anim = GUI.Animation_Start(
+		gui,
+		GUI.Animation_Desc{
+			target = motion_bar,
+			property = .Height,
+			from = GUI.Animation_Value(f32(18)),
+			to = GUI.Animation_Value(f32(96)),
+			duration = 0.7,
+			easing = .Out_Cubic,
+		},
+	)
 }
 
 //* == containers ==
@@ -1331,6 +1543,170 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 
 	_ = icon_ok
 	_ = barrel_ok
+
+	return Rows_Height(rows)
+}
+
+//* == Nine-patch images ==
+
+//* A nine-patch panel and the caption under it. The same texture is shown
+//* at several sizes, so it is easy to see that the corners keep their size
+//* while the edges and the centre take the room that is left.
+Nine_Patch_Demo :: proc(
+	panel: GUI.Widget_ID,
+	texture: GUI.Texture,
+	rows: Rows,
+	column, row: int,
+	width, height: f32,
+	patch: [4]f32,
+	horizontal: GUI.Nine_Patch_Edge_Mode,
+	vertical: GUI.Nine_Patch_Edge_Mode,
+	centre: GUI.Nine_Patch_Centre_Mode,
+	name, caption_name, caption: string,
+) {
+	offsets := Place(rows, column, row, width, height)
+	GUI.Make_Nine_Patch_Rect(
+		g,
+		panel,
+		GUI.Nine_Patch_Opts {
+			Base_Opts = GUI.Base_Opts {
+				name = name,
+				preset = .Top_Left,
+				offsets = offsets,
+				tooltip = caption,
+			},
+			texture = texture,
+			patch = patch,
+			horizontal_edge = horizontal,
+			vertical_edge = vertical,
+			centre_mode = centre,
+		},
+	)
+
+	label_offsets := offsets
+	label_offsets.top = offsets.top + height + 6
+	label_offsets.bottom = label_offsets.top + 20
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts {
+			Base_Opts = GUI.Base_Opts {
+				name = caption_name,
+				preset = .Top_Left,
+				offsets = label_offsets,
+				style = GUI.Style {
+					text = GUI.Text_Style{colour = DIM, size = 13, family = family},
+				},
+			},
+			text = caption,
+		},
+	)
+}
+
+Section_Nine_Patch :: proc(parent: GUI.Widget_ID) -> f32 {
+	rows := Make_Rows(150, 150)
+	panel := Section(parent, "Nine-patch", rows)
+
+	texture, ok := GUI.Texture_Load_File(g, "examples/01_gallery/nine_patch.png")
+	_ = ok
+	patch := [4]f32{12, 12, 12, 12}
+
+	Nine_Patch_Demo(
+		panel,
+		texture,
+		rows,
+		0,
+		0,
+		48,
+		48,
+		patch,
+		.Stretch,
+		.Stretch,
+		.Stretch,
+		"nine_patch_original",
+		"nine_patch_original_caption",
+		"Original 48x48",
+	)
+	Nine_Patch_Demo(
+		panel,
+		texture,
+		rows,
+		1,
+		0,
+		210,
+		110,
+		patch,
+		.Stretch,
+		.Stretch,
+		.Stretch,
+		"nine_patch_large",
+		"nine_patch_large_caption",
+		"Larger: the corners stay 12x12",
+	)
+	Nine_Patch_Demo(
+		panel,
+		texture,
+		rows,
+		2,
+		0,
+		210,
+		90,
+		patch,
+		.Stretch,
+		.Stretch,
+		.Stretch,
+		"nine_patch_wide",
+		"nine_patch_wide_caption",
+		"Wide: only the top and bottom edges grow",
+	)
+	Nine_Patch_Demo(
+		panel,
+		texture,
+		rows,
+		0,
+		1,
+		18,
+		18,
+		patch,
+		.Stretch,
+		.Stretch,
+		.Stretch,
+		"nine_patch_small",
+		"nine_patch_small_caption",
+		"Very small: the corners shrink",
+	)
+	Nine_Patch_Demo(
+		panel,
+		texture,
+		rows,
+		1,
+		1,
+		210,
+		110,
+		patch,
+		.Stretch,
+		.Stretch,
+		.Disabled,
+		"nine_patch_empty_centre",
+		"nine_patch_empty_centre_caption",
+		"Empty centre: a frame",
+	)
+	Nine_Patch_Demo(
+		panel,
+		texture,
+		rows,
+		2,
+		1,
+		210,
+		110,
+		patch,
+		.Tile,
+		.Tile,
+		.Tile,
+		"nine_patch_tiled",
+		"nine_patch_tiled_caption",
+		"Tiled edges and centre",
+	)
 
 	return Rows_Height(rows)
 }

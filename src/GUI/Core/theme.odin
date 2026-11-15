@@ -14,6 +14,9 @@ style_fields_of :: proc(s: ^Style) -> bit_set[Style_Field] {
 		fields += bit_set[Style_Field]{.Shadow}
 	}
 	if text_fields_of(&s.text) != (bit_set[Text_Field]{}) {fields += bit_set[Style_Field]{.Text}}
+	if s.transition.duration > 0 || s.transition.easing != .Linear {
+		fields += bit_set[Style_Field]{.Transition}
+	}
 	return fields
 }
 
@@ -79,6 +82,10 @@ apply_style :: proc(base: ^Style, over: ^Style) -> bit_set[Style_Field] {
 	if .Text in fields {
 		apply_text_style(&base.text, &over.text)
 		applied += bit_set[Style_Field]{.Text}
+	}
+	if .Transition in fields {
+		base.transition = over.transition
+		applied += bit_set[Style_Field]{.Transition}
 	}
 	return applied
 }
@@ -174,6 +181,7 @@ theme_style :: proc(g: ^GUI, w: ^Widget) -> Style {
 	if entries, ok := theme_entries_for(g, w); ok {
 		if box, has := entries.styleboxes[THEME_NORMAL]; has {base.box = box}
 		base.text = entries.text
+		base.transition = entries.transition
 	}
 	if w.variation != "" {
 		if v, ok := g.theme.variations[w.variation]; ok {
@@ -225,13 +233,15 @@ state_style_of :: proc(states: ^State_Styles, state: Style_State) -> (^Style, bo
 //* Determines the widget's visual state from enabled, active, hover, and focus status.
 widget_style_state :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Style_State {
 	if !(.Enabled in w.state) {return .Disabled}
-	if g.active == id {return .Pressed}
-	if g.hot == id {return .Hovered}
+	if w.interactive {
+		if g.active == id {return .Pressed}
+		if g.hot == id {return .Hovered}
+	}
 	if g.focused == id {return .Focused}
 	return .Normal
 }
 
-//* Resolves the base style with state overrides and reports the applied fields.
+//* Resolves the base style with state overrides, fallbacks and the state blend.
 resolved_state_style :: proc(
 	g: ^GUI,
 	w: ^Widget,
@@ -242,49 +252,64 @@ resolved_state_style :: proc(
 ) {
 	base := resolved_style(g, w)
 	if base == nil {return nil, {}}
+	target := base^
 	applied: bit_set[Style_Field]
 	if st, ok := theme_state_style(g, w, state); ok {
-		w.style_cache.state = base^
-		applied = apply_style(&w.style_cache.state, st)
-		return &w.style_cache.state, applied
+		applied = apply_style(&target, st)
 	}
-	return base, applied
+	style_state_fallbacks(g, w, state, &target, applied)
+	style_transition_sync(&w.style_cache.transition, target, state, g.style_epoch)
+	w.style_cache.state = style_transition_current(&w.style_cache.transition)
+	return &w.style_cache.state, applied
 }
 
-//* Resolves the background colour, using state styles before fallback tinting.
-resolved_bg :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Colour {
-	state := widget_style_state(g, id, w)
-	s, applied := resolved_state_style(g, w, state)
-	bg := s.box.bg_color
+style_state_fallbacks :: proc(
+	g: ^GUI,
+	w: ^Widget,
+	state: Style_State,
+	style: ^Style,
+	applied: bit_set[Style_Field],
+) {
 	#partial switch state {
 	case .Pressed:
-		if .BG in applied {return bg}
-		return Scale_Colour(bg, 0.75)
+		if .BG not_in applied {style.box.bg_color = Scale_Colour(style.box.bg_color, 0.75)}
 	case .Hovered:
-		if .BG in applied {return bg}
-		return Scale_Colour(bg, 1.3)
+		if .BG not_in applied {style.box.bg_color = Scale_Colour(style.box.bg_color, 1.3)}
 	}
-	return bg
+
+	c := style.text.colour
+	#partial switch state {
+	case .Disabled:
+		if style.text.disabled_colour.a > 0 {
+			c = style.text.disabled_colour
+		} else {
+			c = Scale_Colour(c, 0.5)
+		}
+	case .Pressed:
+		if style.text.pressed_colour.a > 0 {c = style.text.pressed_colour}
+	case .Hovered:
+		if style.text.hover_colour.a > 0 {c = style.text.hover_colour}
+	}
+	if g.focused == w.id && (.Enabled in w.state) && style.text.focus_colour.a > 0 {
+		c = style.text.focus_colour
+	}
+	style.text.colour = c
 }
 
-//* Resolves text colour from state-specific colours, with disabled fallback tinting.
+//* Resolves the background colour of the widget's current state.
+resolved_bg :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Colour {
+	state := widget_style_state(g, id, w)
+	s, _ := resolved_state_style(g, w, state)
+	if s == nil {return {}}
+	return s.box.bg_color
+}
+
+//* Resolves the text colour of the widget's current state.
 resolved_text_colour :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Colour {
 	state := widget_style_state(g, id, w)
 	s, _ := resolved_state_style(g, w, state)
-	c := s.text.colour
-	#partial switch state {
-	case .Disabled:
-		if s.text.disabled_colour.a > 0 {return s.text.disabled_colour}
-		return Scale_Colour(c, 0.5)
-	case .Pressed:
-		if s.text.pressed_colour.a > 0 {return s.text.pressed_colour}
-	case .Hovered:
-		if s.text.hover_colour.a > 0 {return s.text.hover_colour}
-	}
-	if g.focused == id && (.Enabled in w.state) && s.text.focus_colour.a > 0 {
-		return s.text.focus_colour
-	}
-	return c
+	if s == nil {return {}}
+	return s.text.colour
 }
 
 //* Looks up a named colour, preferring the widget's variation over its class or type.
@@ -401,6 +426,7 @@ Theme_Set_Class :: proc(t: ^Theme, name: string, style: Style) {
 	entries := theme_class_entries_of(t, name)
 	entries.styleboxes[THEME_NORMAL] = style.box
 	entries.text = style.text
+	entries.transition = style.transition
 	theme_put_class_entries(t, name, entries)
 	theme_changed(t)
 }
@@ -455,6 +481,7 @@ Theme_Set_Type :: proc(t: ^Theme, widget_type: Widget_Type, style: Style) {
 	entries := theme_entries_of(t, widget_type)
 	entries.styleboxes[THEME_NORMAL] = style.box
 	entries.text = style.text
+	entries.transition = style.transition
 	theme_put_entries(t, widget_type, entries)
 	theme_changed(t)
 }
@@ -686,7 +713,7 @@ GUI_Set_Default_Style :: proc(g: ^GUI, style: Style) {
 //* Extracts the style fields that can affect widget measurement.
 style_size_of :: proc(s: Style) -> Style {
 	return Style {
-		set = s.set,
+		set = s.set - bit_set[Style_Field]{.Transition},
 		box = StyleBox{content_margin = s.box.content_margin},
 		text = text_style_size_of(s.text),
 	}

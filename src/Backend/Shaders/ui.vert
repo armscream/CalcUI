@@ -17,18 +17,24 @@ layout(set = 1, binding = 0) uniform UBO {
 layout(location=0) in vec2 position;
 layout(location=1) in vec2 tex_coord;
 layout(location=2) in vec4 colour;
-//* The shape of the fragment: the kind, the radius of the corners and
-//* the half size of the quad the vertex belongs to.
+//* The shape of the fragment: the kind, a radius and the half size of
+//* the quad the vertex belongs to.
 layout(location=3) in vec4 shape;
 //* Where the vertex sits inside its quad, measured from the middle of
 //* the quad. The fragment shader uses it to work out how far a
 //* fragment is from a rounded corner.
 layout(location=4) in vec2 local;
+layout(location=5) in float softness;
+layout(location=6) in vec4 corners;
+layout(location=7) in vec4 border;
 
 layout(location=0) out vec2 uv;
 layout(location=1) out vec4 v_colour;
 layout(location=2) out vec4 v_shape;
 layout(location=3) out vec2 v_local;
+layout(location=4) out float v_softness;
+layout(location=5) out vec4 v_corners;
+layout(location=6) out vec4 v_border;
 
 void main() {
     vec2 ndc = vec2(
@@ -40,4 +46,7 @@ void main() {
     v_colour = colour;
     v_shape = shape;
     v_local = local;
+    v_softness = softness;
+    v_corners = corners;
+    v_border = border;
 }

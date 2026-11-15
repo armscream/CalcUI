@@ -72,11 +72,56 @@ stylebox_round :: proc(bg: Colour, radius: f32) -> StyleBox {
 	}
 }
 
-//* The corner of the box that is the largest of the four, so that the
-//* shader can use one radius for all of them.
+//* The largest corner radius of the box.
 stylebox_radius :: proc(box: ^StyleBox) -> f32 {
 	r := box.corner_radius
 	return max(max(r[0], r[1]), max(r[2], r[3]))
+}
+
+stylebox_radii :: proc(box: ^StyleBox) -> [4]f32 {
+	return box.corner_radius
+}
+
+clamp_corner_radii :: proc(radii: [4]f32, w, h: f32) -> [4]f32 {
+	out := radii
+	if !(w > 0) || !(h > 0) {return {}}
+	limit := min(w, h) * 0.5
+	for i in 0 ..< 4 {
+		out[i] = clamp(out[i], 0, limit)
+	}
+	if s := radius_pair_scale(out[0], out[1], w); s < 1 {
+		out[0] *= s
+		out[1] *= s
+	}
+	if s := radius_pair_scale(out[3], out[2], w); s < 1 {
+		out[3] *= s
+		out[2] *= s
+	}
+	if s := radius_pair_scale(out[0], out[3], h); s < 1 {
+		out[0] *= s
+		out[3] *= s
+	}
+	if s := radius_pair_scale(out[1], out[2], h); s < 1 {
+		out[1] *= s
+		out[2] *= s
+	}
+	return out
+}
+
+radius_pair_scale :: proc(a, b, extent: f32) -> f32 {
+	sum := a + b
+	if sum > extent && sum > 0 {
+		return extent / sum
+	}
+	return 1
+}
+
+radii_are_zero :: proc(radii: [4]f32) -> bool {
+	return radii[0] <= 0 && radii[1] <= 0 && radii[2] <= 0 && radii[3] <= 0
+}
+
+max_corner_radius :: proc(radii: [4]f32) -> f32 {
+	return max(max(radii[0], radii[1]), max(radii[2], radii[3]))
 }
 
 //* True when the box has a border on any side.

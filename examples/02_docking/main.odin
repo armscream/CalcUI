@@ -20,7 +20,10 @@ centre: GUI.Widget_ID
 editor_tabs: GUI.Widget_ID
 properties: GUI.Widget_ID
 status: GUI.Widget_ID
+status_bar: GUI.Widget_ID
+status_dot: GUI.Widget_ID
 message: string
+message_buf: [128]u8
 
 //* A menu of the menu bar: the name of the menu and the items it holds.
 Menu :: struct {
@@ -113,6 +116,7 @@ setup :: proc(app: ^App.App) {
 	properties = make_properties(g, body)
 
 	make_status_bar(g, column)
+	dock_theme(g)
 }
 
 //* The strip of menus at the top of the window.
@@ -170,7 +174,8 @@ on_menu_selected :: proc(g: ^GUI.GUI, id: GUI.Widget_ID, index: int) {
 	for menu in menus {
 		if menu.name != name {continue}
 		if index < 0 || index >= len(menu.items) {return}
-		message = fmt.tprintf("%s > %s", name, menu.items[index])
+		message = fmt.bprintf(message_buf[:], "%s > %s", name, menu.items[index])
+		flash_status()
 		return
 	}
 }
@@ -218,6 +223,8 @@ make_tool_bar :: proc(g: ^GUI.GUI, parent: GUI.Widget_ID) {
 				Base_Opts = GUI.Base_Opts{
 					name = button[1],
 					size_flags_h = GUI.Size_Flags{.Fill},
+					use_theme = true,
+					variation = button[1] == "dock_as_tab" ? "dock_accent" : "",
 				},
 				text = button[0],
 				on_pressed = on_dock,
@@ -423,6 +430,35 @@ make_status_bar :: proc(g: ^GUI.GUI, parent: GUI.Widget_ID) {
 		},
 	)
 
+	status_bar = bar
+	status_dot = GUI.Make_Color_Rect(
+		g,
+		bar,
+		GUI.Color_Rect_Opts{
+			Base_Opts = GUI.Base_Opts{
+				name = "status_dot",
+				min_size = GUI.Vec2{9, 9},
+				fixed = true,
+				size_flags_v = GUI.Size_Flags{.Shrink_Center},
+				tooltip = "The dot pulses while the window is idle.",
+			},
+			colour = GUI.RGBA(0.36, 0.82, 0.50, 1),
+		},
+	)
+	GUI.Animation_Start(
+		g,
+		GUI.Animation_Desc{
+			target = status_dot,
+			property = .Opacity,
+			from = GUI.Animation_Value(f32(1)),
+			to = GUI.Animation_Value(f32(0.30)),
+			duration = 1.1,
+			easing = .In_Out_Sine,
+			repeat = -1,
+			ping_pong = true,
+		},
+	)
+
 	GUI.Make_Label(
 		g,
 		bar,
@@ -503,11 +539,120 @@ on_dock :: proc(g: ^GUI.GUI, id: GUI.Widget_ID) {
 	case "dock_as_tab":
 		GUI.Dock(g, properties, editor_tabs, .Center)
 		message = "Properties became a tab of the editor."
+		flash_status()
+		flash_properties()
 		return
 	}
 	if zone == .None {return}
 	GUI.Dock(g, properties, body, zone)
-	message = fmt.tprintf("Properties were docked %v.", zone)
+	message = fmt.bprintf(message_buf[:], "Properties were docked %v.", zone)
+	flash_status()
+	flash_properties()
+}
+
+flash_status :: proc() {
+	if status_bar == GUI.INVALID_WIDGET_ID {return}
+	GUI.Animation_Stop_Target(g, status_bar)
+	GUI.Animation_Start(
+		g,
+		GUI.Animation_Desc{
+			target = status_bar,
+			property = .Background,
+			from = GUI.Animation_Value(GUI.RGBA(0.18, 0.34, 0.56, 1)),
+			to = GUI.Animation_Value(GUI.RGBA(0.10, 0.11, 0.14, 1)),
+			duration = 0.45,
+			easing = .Out_Cubic,
+		},
+	)
+}
+
+flash_properties :: proc() {
+	if properties == GUI.INVALID_WIDGET_ID {return}
+	GUI.Animation_Stop_Target(g, properties)
+	GUI.Animation_Start(
+		g,
+		GUI.Animation_Desc{
+			target = properties,
+			property = .Border,
+			from = GUI.Animation_Value(GUI.RGBA(0.36, 0.66, 1.00, 1)),
+			to = GUI.Animation_Value(GUI.RGBA(0.20, 0.22, 0.27, 1)),
+			duration = 0.55,
+			easing = .Out_Cubic,
+		},
+	)
+}
+
+dock_theme :: proc(gui: ^GUI.GUI) {
+	GUI.Default_Theme_Use(gui, true)
+	theme := gui.theme
+	if theme == nil {return}
+	GUI.Theme_Set_Size(theme, 15)
+	GUI.Theme_Set_Type(
+		theme,
+		.Button,
+		GUI.Style {
+			box = GUI.StyleBox {
+				bg_color = GUI.RGBA(0.17, 0.19, 0.24, 1),
+				border_color = {
+					GUI.RGBA(0.28, 0.32, 0.39, 1),
+					GUI.RGBA(0.28, 0.32, 0.39, 1),
+					GUI.RGBA(0.28, 0.32, 0.39, 1),
+					GUI.RGBA(0.28, 0.32, 0.39, 1),
+				},
+				border_width = {1, 1, 1, 1},
+				corner_radius = {5, 5, 5, 5},
+				content_margin = {10, 5, 10, 5},
+			},
+			text = GUI.Text_Style {
+				colour = GUI.RGBA(0.86, 0.89, 0.95, 1),
+				hover_colour = GUI.RGBA(1, 1, 1, 1),
+				pressed_colour = GUI.RGBA(0.84, 0.90, 1, 1),
+				disabled_colour = GUI.RGBA(0.48, 0.51, 0.58, 1),
+				focus_colour = GUI.RGBA(0.47, 0.68, 1.0, 1),
+				align = .Center,
+				valign = .Center,
+			},
+			transition = GUI.Style_Transition{duration = 0.12, easing = .Out_Cubic},
+		},
+	)
+	GUI.Theme_Add_Variation(
+		theme,
+		"dock_accent",
+		.Button,
+		GUI.Style {
+			box = GUI.StyleBox {
+				bg_color = GUI.RGBA(0.24, 0.43, 0.86, 1),
+				border_color = {
+					GUI.RGBA(0.36, 0.57, 1.00, 1),
+					GUI.RGBA(0.36, 0.57, 1.00, 1),
+					GUI.RGBA(0.36, 0.57, 1.00, 1),
+					GUI.RGBA(0.36, 0.57, 1.00, 1),
+				},
+				border_width = {1, 1, 1, 1},
+				corner_radius = {5, 5, 5, 5},
+				content_margin = {10, 5, 10, 5},
+			},
+			text = GUI.Text_Style {colour = GUI.RGBA(1, 1, 1, 1)},
+		},
+	)
+	dock_apply_transitions(gui, gui.root)
+}
+
+dock_apply_transitions :: proc(gui: ^GUI.GUI, id: GUI.Widget_ID) {
+	w := GUI.Widget_Get(gui, id)
+	if w == nil {return}
+	if w.use_theme && w.style.transition.duration == 0 {
+		style := w.style
+		style.transition = GUI.Style_Transition{duration = 0.12, easing = .Out_Cubic}
+		GUI.Widget_Set_Style(gui, id, style)
+	}
+	child := w.first_child
+	for child != GUI.INVALID_WIDGET_ID {
+		c := GUI.Widget_Get(gui, child)
+		if c == nil {break}
+		dock_apply_transitions(gui, child)
+		child = c.next_sibling
+	}
 }
 
 //* Once a frame: the status bar says what happened last.

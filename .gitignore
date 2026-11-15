@@ -26,3 +26,4 @@ tools/
 .kilo/
 Thumbs.db
 __pycache__/
+docs/other
