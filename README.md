@@ -335,7 +335,7 @@ GitHub Actions runs these checks on Windows, Linux and macOS.
 
 | Directory | Description |
 |---|---|
-| `src/GUI` | Widget tree, layout, rendering, text, atlas and themes. |
+| `src/GUI` | Public facade (`api.odin`), plus the `Core`, `Widgets` and `Animation` packages: widget tree, layout, rendering, text, atlas and themes. |
 | `src/Backend` | SDL3 renderer and SDL3 GPU backends. |
 | `src/Window` | Window management, events, popups, cursor and clipboard. |
 | `examples` | Example applications. |

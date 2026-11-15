@@ -19,10 +19,13 @@ The core does not depend directly on SDL. Instead, it communicates with a render
 
 | Directory | Responsibility |
 |---|---|
-| `src/GUI` | GUI core: widget tree, layout, input, drawing, text, atlas, themes, and scene loading. |
+| `src/GUI` | Public facade (`package GUI`). `api.odin` re-exports the public API and defines `Frame`, `Init_GUI`, `New_Widget`, and `Load_UI`, delegating the work to `Core`, `Widgets`, and `Animation`. |
+| `src/GUI/Core` | Engine and core implementation (`package Core`): widget tree, layout, input, draw list, atlas, text including the text box, fonts, style and theme, undo, popups, docking and floating panels, scene support types, widget data and option type declarations, and the remaining core widget modules (audio, default theme, inspector, setters). |
+| `src/GUI/Widgets` | Built-in widget implementations (`package Widgets`) in the `widget_*.odin` files, plus scene loading, saving, and reporting in `scene.odin`, `scene_save.odin`, and `scene_report.odin`. It imports `Core`; `deps.odin` aliases the `Core` names. |
+| `src/GUI/Animation` | Animation and tween implementation (`package Animation`): easing, value interpolation, tween stepping, and animation application. It imports `Core`; `Frame` calls `Animation.Animation_Update` before layout. |
 | `src/Backend` | Rendering implementations: SDL3 Renderer and SDL3 GPU. |
 | `src/Window` | SDL3 windows, event translation, coordinate conversion, floating windows, cursor, and clipboard integration. |
-| `src/GUI/dependencies/Runa` | Text engine: shaping, line breaking, and rasterization. |
+| `src/GUI/dependencies/Runa` | Pristine upstream dependency, unchanged: text shaping, line breaking, and rasterization. |
 | `examples` | Standalone example applications. |
 | `assets` | Fonts and other example resources. |
 | `tools` | Shaders and development utilities. |
@@ -31,7 +34,7 @@ The examples share application and window setup through `examples/common`.
 
 ### 2.1 Rendering Backend Interface
 
-The GUI core communicates with a backend through `Backend`, defined in `src/GUI/types.odin`.
+The GUI core communicates with a backend through `Backend`, defined in `src/GUI/Core/types.odin`.
 
 ```odin
 Backend :: struct {
@@ -131,7 +134,7 @@ prev_sibling: Widget_ID,
 next_sibling: Widget_ID,
 ```
 
-`Widget_Attach` and `Widget_Detach`, implemented in `src/GUI/widget.odin`, update these relationships without rebuilding a separate child array. Their link operations are O(1).
+`Widget_Attach` and `Widget_Detach`, implemented in `src/GUI/Core/widget.odin`, update these relationships without rebuilding a separate child array. Their link operations are O(1).
 
 `Widget_Insert_At` supports insertion at a specific position.
 
@@ -182,28 +185,39 @@ The main window and floating panels are therefore rendered as separate targets.
 
 ## 4. Frame Lifecycle
 
-`Frame`, implemented in `src/GUI/gui.odin`, performs the core's per-frame work.
+`Frame` is defined in `src/GUI/api.odin`, the public facade. It performs the shared per-frame bookkeeping and delegates the engine work to `Core`, the menu work to `Widgets`, and the tween work to `Animation` (`src/GUI/Animation/animation.odin`).
 
 ```odin
 Frame :: proc(g: ^GUI) {
     virt.arena_free_all(&g.frame_arena)
-    g.dt = frame_time(g)
-    layout_pass(g)
-    update_resize_hover(g)
-    build_draw_list(g)
-    atlas_flush(g.atlas, g.backend, g.atlas_texture)
-    atlas_next_frame(g.atlas)
+    g.dt = Core.frame_time(g)
+    Core.caret_tick(g)
+    Core.widget_update_pass(g)
+    Animation.Animation_Update(g, g.dt)
+    Core.layout_pass(g)
+    Widgets.menu_buttons_reposition(g)
+    Core.update_resize_hover(g)
+    Core.widget_post_update_pass(g)
+    Core.build_draw_list(g)
+    Core.atlas_flush(g.atlas, g.backend, g.atlas_texture)
+    Core.atlas_next_frame(g.atlas)
+    Core.report_atlas_failures(g)
 }
 ```
 
 The frame proceeds through the following stages:
 
-1. **Reset frame memory** — Reclaim temporary allocations from the previous frame.
-2. **Update frame time** — Calculate `g.dt`, the elapsed time used by time-dependent widgets.
-3. **Run layout** — Measure and arrange widgets whose layout state has been invalidated.
-4. **Update resize hover** — Determine resize interactions using the current widget geometry.
-5. **Build draw lists** — Generate the main window's draw list and separate lists for floating panels.
-6. **Flush the atlas** — Upload modified texture regions to the backend and advance atlas frame bookkeeping.
+1. **Reset frame memory** - Reclaim temporary allocations from the previous frame.
+2. **Update frame time** - Calculate `g.dt`, the elapsed time used by time-dependent widgets.
+3. **Run the state update** - Call `kind.update` for the visible widgets, before layout. State and data changes made here are measured and arranged in the same frame.
+4. **Run the animations** - Step every tween, apply the value of a property tween to its widget, and invalidate only the systems that property affects. Size and position changes are therefore seen by the layout pass of the same frame.
+5. **Run layout** - Measure and arrange widgets whose layout state has been invalidated.
+6. **Update menus and resize hover** - Reposition open menus and determine resize interactions using the current widget geometry.
+7. **Run the post update** - Call `kind.post_update` for the visible widgets after layout and before drawing. Interaction code that reads rectangles or the pointer belongs here.
+8. **Build draw lists** - Generate the main window's draw list and separate lists for floating panels.
+9. **Flush the atlas** - Upload modified texture regions to the backend, advance atlas frame bookkeeping, and report atlas failures.
+
+Both update passes gather the visible widgets into a snapshot of handles before any hook runs, and look every handle up again before calling its hook. A widget may therefore be destroyed from a hook without leaving the pass with a stale pointer.
 
 The frame function builds rendering data but does not itself present it.
 
@@ -280,7 +294,7 @@ The atlas reserves a 4 × 4 white region near the top-left corner. Solid quads s
 
 ### 5.3 Draw List
 
-The draw list is the rendering contract between the GUI core and its backend. It is defined in `src/GUI/draw.odin`.
+The draw list is the rendering contract between the GUI core and its backend. It is defined in `src/GUI/Core/draw.odin`.
 
 ```odin
 Draw_List :: struct {
@@ -361,11 +375,11 @@ As a result, normal built-in GUI content can be batched into a single command pe
 
 Floating panels have independent draw lists and are submitted separately, so each window has its own batching scope.
 
-The test `test_a_whole_scene_is_one_command` in `src/GUI/draw_call_test.odin` verifies the single-command case for its test scene.
+The benchmarks in `src/Tests/bench_test.odin` report vertex and command counts for their test scenes.
 
 ## 6. Layout Engine
 
-The layout engine is implemented in `src/GUI/layout.odin`.
+The layout engine is implemented in `src/GUI/Core/layout.odin`.
 
 It uses two main stages:
 
@@ -376,7 +390,7 @@ The engine is incremental: changes invalidate specific layout state, allowing un
 
 ### 6.1 Invalidation
 
-Invalidation flags are defined in `src/GUI/invalidation.odin`.
+Invalidation flags are defined in `src/GUI/Core/invalidation.odin`.
 
 | Flag | Meaning |
 |---|---|
@@ -390,7 +404,7 @@ Invalidation propagates where dependencies require it. For example, changing a m
 
 Each widget tracks its own invalidation state and aggregated state for its descendants. The layout passes use the aggregated flags to skip unaffected branches.
 
-Setters in `src/GUI/setter.odin` provide the preferred way to modify widget properties:
+Setters in `src/GUI/Core/setter.odin` provide the preferred way to modify widget properties:
 
 ```odin
 GUI.Widget_Set_Text(g, label, "Updated text")
@@ -422,6 +436,8 @@ Text dimensions are based on the same text layout used for drawing. Transformed 
 Wrapped text accounts for its available width and word boundaries.
 
 Widgets that contain collections may derive their size from their contents. For example, a combo box or tree can account for the width of its entries, while scrollable content can extend beyond the visible viewport.
+
+A scroll container keeps its viewport size, its content size and its scroll offset separately. The content size comes from the measurement pass: a container child reports the sum of its children, a nested container keeps its intrinsic size, and a width-dependent container is measured at the width it asks for. A child that changes invalidates the kept content size. A virtualized child reports a logical content size through the `content_size` kind hook, so the scroll bars can describe content that was never built as widgets.
 
 Text measurements are cached in `g.measure_cache`. Cached results are reused until their relevant inputs change. Measurement is therefore driven by invalidation rather than repeatedly shaping and measuring every widget every frame.
 
@@ -495,30 +511,34 @@ Container widgets determine how their children use available space.
 
 Nested containers can be combined to construct complex layouts.
 
-Box containers allocate each child's minimum size first, then distribute remaining space according to child weights. The separation between children is controlled by `w.separation`, which defaults to 4.
+Box containers start every child at its preferred size, then distribute the room that is left over by weight among the children that expand. A child that reaches its maximum stops growing, and the room it did not take is shared again among the children that can still grow. When the children do not fit, the children that have a shrink weight give room back, by their weight, until they reach their floor. The separation between children is controlled by `w.separation`, which defaults to 4.
 
 ### 6.6 Sizing and Space Allocation
+
+Along one axis a widget is described by a `Layout_Constraint` with three sizes: the floor a shrink may reach, the preferred size measured by the measurement pass, and the maximum a grow may reach. The constraint is normalized so that `minimum <= preferred <= maximum`, and a maximum of 0 means that there is no maximum. `GUI.Widget_Layout_Constraint` reports the constraint of a widget after a measure pass.
 
 Widgets expose several properties that control their sizing behaviour.
 
 | Property | Field | Behaviour |
 |---|---|---|
-| Measured minimum | `w.min_size` | Minimum size determined by measurement. |
-| Custom minimum | `w.custom_min_size` | Additional minimum size requested by the program. |
-| Custom maximum | `w.custom_max_size` | Upper size constraint. |
-| Fixed sizing | `opts.fixed` | Keeps the widget at its minimum size rather than sharing surplus space. |
+| Preferred size | `w.min_size` | Size determined by measurement. |
+| Custom minimum | `w.custom_min_size` | Additional floor requested by the program. |
+| Custom maximum | `w.custom_max_size` | Upper size constraint; 0 means no maximum. |
+| Fixed sizing | `opts.fixed` | Keeps the widget at its preferred size rather than sharing surplus space. |
 | Stretch weight | `w.weight` | Determines the widget's share of available surplus space. |
+| Shrink weight | `w.shrink_weight` | Determines the widget's share of a deficit when the children do not fit. |
+| Absolute | `w.absolute` | Takes the widget out of the flow of its container and places it by its anchors and offsets. |
 | Manual sizing | `w.manual_size`, `w.manual_w`, `w.manual_h` | Stores manually adjusted panel dimensions. |
 
-A weight of zero means the widget receives no share of surplus space.
+A weight of zero means the widget receives no share of surplus space. A shrink weight of zero means the widget keeps its preferred size and the container overflows, which is the behaviour before shrink weights were added.
 
-Manual panel sizes are preserved during layout and deducted from the space available to other children.
+Manual panel sizes are preserved during layout and deducted from the space available to other children. An absolute child does not take a share of the room of its container and does not move the cursor that places the other children; the built-in containers place it by its anchors and offsets after the children in the flow.
 
 Inactive tab pages do not retain visible geometry and are neither drawn nor hit-tested.
 
 ## 7. Input and Interaction
 
-Input events are defined in `src/GUI/events.odin`.
+Input events are defined in `src/GUI/Core/events.odin`.
 
 `GUI.Event` represents platform-independent input, including:
 
@@ -584,7 +604,7 @@ The detailed focus and event rules are documented in [`docs/events-focus.md`](ev
 
 ### 7.3 Signals
 
-Signals are implemented in `src/GUI/signal.odin`.
+Signals are implemented in `src/GUI/Core/signal.odin`.
 
 Widgets share a common signal interface, allowing applications to connect to widget events without depending on the widget's concrete type.
 
@@ -594,7 +614,7 @@ The available signals are documented in [`docs/widgets.md`](widgets.md).
 
 ## 8. Widget Extensibility
 
-CalcUI supports custom widget behaviour through its kind registry, implemented in `src/GUI/kinds.odin`.
+CalcUI supports custom widget behaviour through its kind registry, implemented in `src/GUI/Core/kinds.odin`.
 
 Built-in widgets may use dedicated dispatch paths in the core. The kind registry provides an extension mechanism for registering widget-specific behaviour without adding more cases to shared rendering, layout, and input code.
 
@@ -614,7 +634,7 @@ Widget_Kind :: struct {
 }
 ```
 
-The callbacks provide widget-specific drawing, layout, click, keyboard, and per-frame update behaviour. The style and theme name provide default presentation information.
+The callbacks provide widget-specific drawing, layout, click, keyboard, and per-frame update behaviour (`update` before layout, `post_update` after it). The style and theme name provide default presentation information.
 
 A widget kind is registered through `kind_register`:
 
@@ -637,11 +657,12 @@ The core consults the kind registry at the relevant dispatch points.
 
 | Operation | Location | Callback |
 |---|---|---|
-| Drawing | `src/GUI/draw_build.odin` | `kind.draw` |
-| Layout | `src/GUI/layout.odin` | `kind.layout` |
-| Click handling | `src/GUI/input.odin` | `kind.click` |
-| Keyboard handling | `src/GUI/input.odin` | `kind.key` |
-| Per-frame update | Widget update dispatch | `kind.update` |
+| Drawing | `src/GUI/Core/draw_build.odin` | `kind.draw` |
+| Layout | `src/GUI/Core/layout.odin` | `kind.layout` |
+| Click handling | `src/GUI/Core/input.odin` | `kind.click` |
+| Keyboard handling | `src/GUI/Core/input.odin` | `kind.key` |
+| Per-frame state update | `src/GUI/Core/update.odin`, before layout | `kind.update` |
+| Per-frame interaction update | `src/GUI/Core/update.odin`, after layout | `kind.post_update` |
 
 Custom widget implementations must invalidate the appropriate state whenever they modify data that affects layout, rendering, or hit testing.
 
@@ -731,10 +752,10 @@ The tests construct a GUI instance, perform operations, and inspect the resultin
 
 ### 10.1 Test Helpers
 
-`src/GUI/tests.odin` contains shared test helpers:
+`src/Tests/test_helpers.odin` contains shared test helpers:
 
 ```odin
-test_gui :: proc(t: ^testing.T) -> ^GUI
+test_gui :: proc(t: ^testing.T) -> ^GUI.GUI
 ```
 
 `test_gui_destroy` tears down the test GUI and ensures allocated resources are released.
@@ -745,31 +766,39 @@ The mock backend records texture uploads, allowing tests to verify atlas behavio
 
 | File | Coverage |
 |---|---|
-| `widget_test.odin` | Widget behaviour. |
-| `widget_field_test.odin` | Widget fields and properties. |
-| `widget_collection_test.odin` | Collection widgets. |
-| `draw_call_test.odin` | Draw-list and command batching. |
-| `atlas_test.odin` | Atlas allocation and uploads. |
-| `contract_test.odin` | Core/backend contract behaviour. |
-| `scene_test.odin` | Scene loading and themes. |
-| `scene_registry_test.odin` | Scene constructor registration. |
+| `allocation_test.odin` | Allocation-free hot paths. |
+| `animation_test.odin` | Tween system: easing, values, and tween lifecycle. |
+| `animation_integration_test.odin` | Frame animation ordering and invalidation. |
+| `class_test.odin` | Reference custom widget through the public API. |
+| `draw_shape_test.odin` | Rounded shapes in the draw list. |
+| `font_test.odin` | Glyph positioning, atlas caching, and pixel alignment. |
+| `frame_lifecycle_test.odin` | Update and post-update ordering, including destruction from a hook. |
+| `layout_solver_test.odin` | Layout constraints, box growth and shrink, and absolute children. |
+| `measure_intrinsic_test.odin` | Intrinsic measurement of containers. |
+| `measure_width_test.odin` | Height-for-width measurement. |
+| `scroll_content_test.odin` | Scroll viewport, content size, and offset. |
+| `scroll_wheel_test.odin` | Wheel consumption by scrollable widgets. |
+| `text_undo_test.odin` | Text undo, redo, and caret blink. |
+| `widget_node_graph_test.odin` | Node graph interaction and view. |
 
 ### 10.3 Benchmarks
 
-`src/GUI/bench_test.odin` contains benchmarks for:
+`src/Tests/bench_test.odin` contains benchmarks for:
 
-- Draw-list construction.
-- Style processing.
+- Draw-list construction, including text and rounded boxes.
+- Frame construction.
+- Style and colour processing.
 - Layout.
 - Atlas operations.
+- Virtualized list and data-table drawing.
 
 Benchmarks report measurements through the test output.
 
-Run the GUI tests and checks with:
+Run the tests and checks with:
 
 ```sh
-odin test src/GUI
-odin check src/GUI -no-entry-point
+odin check src/Tests -no-entry-point
+odin test src/Tests
 ```
 
 Odin tests may run concurrently, which can introduce measurement noise.
@@ -777,5 +806,5 @@ Odin tests may run concurrently, which can introduce measurement noise.
 For more consistent benchmark results, use:
 
 ```sh
-odin test src/GUI -o:speed -define:ODIN_TEST_THREADS=1
+odin test src/Tests -o:speed -define:ODIN_TEST_THREADS=1
 ```

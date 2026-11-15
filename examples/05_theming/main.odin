@@ -6,23 +6,25 @@
 package main
 
 import "core:log"
-import common "../common"
+import App "../../src/App"
 import GUI "../../src/GUI"
+
+BODY_SIZE :: 16
 
 g: ^GUI.GUI
 
 main :: proc() {
-	common.Run(
+	App.Run(
 		"CalcUI - Theming",
 		640,
 		320,
-		proc(app: ^common.App) {
+		proc(app: ^App.App) {
 			g = app.gui
 			GUI.Widget_Get(g, g.root).style.box.bg_color = GUI.RGBA(0.07, 0.08, 0.10, 1)
 
 			theme := GUI.Theme_Make()
 			theme.family = app.family
-			theme.size = common.BODY_SIZE
+			theme.size = BODY_SIZE
 
 			//* The style of a button: a rounded box with a border.
 			GUI.Theme_Set_Type(

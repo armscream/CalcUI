@@ -46,10 +46,11 @@ renderer_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 
 renderer_destroy :: proc(ctx: rawptr) {
 	st := cast(^Renderer_State)ctx
-	for list in st.textures {
+	for &list in st.textures {
 		for tex in list {
 			if tex != nil {sdl.DestroyTexture(tex)}
 		}
+		delete(list)
 	}
 	clear(&st.textures)
 	delete(st.textures)
