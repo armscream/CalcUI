@@ -1,6 +1,15 @@
 package Core
 //* == Undo stack ==
 
+Undo_Kind :: enum u8 {
+	Programmatic,
+	Typing,
+	Backspace,
+	Delete,
+	Replace,
+	Paste,
+}
+
 //* One reversible text change, including caret positions.
 Undo_Record :: struct {
 	before:      string,
@@ -8,12 +17,15 @@ Undo_Record :: struct {
 	widget:      Widget_ID,
 	caret:       int,
 	caret_after: int,
+	kind:        Undo_Kind,
 }
 
 Undo_Stack :: struct {
-	records: [dynamic]Undo_Record,
-	at:      int, // Next record to redo.
-	limit:   int,
+	records:    [dynamic]Undo_Record,
+	at:         int, // Next record to redo.
+	limit:      int,
+	group_kind: Undo_Kind,
+	group_open: bool,
 }
 
 UNDO_LIMIT :: 100
@@ -26,6 +38,14 @@ undo_record_free :: proc(record: ^Undo_Record) {
 	record.after = ""
 }
 
+undo_kind_coalesces :: proc(kind: Undo_Kind) -> bool {
+	#partial switch kind {
+	case .Typing, .Backspace, .Delete:
+		return true
+	}
+	return false
+}
+
 //* Adds a change, discarding any redo history.
 undo_push :: proc(stack: ^Undo_Stack, record: Undo_Record) {
 	if stack.at < len(stack.records) {
@@ -36,6 +56,8 @@ undo_push :: proc(stack: ^Undo_Stack, record: Undo_Record) {
 	}
 	append(&stack.records, record)
 	stack.at = len(stack.records)
+	stack.group_kind = .Programmatic
+	stack.group_open = false
 
 	if stack.limit > 0 && len(stack.records) > stack.limit {
 		undo_record_free(&stack.records[0])
@@ -56,6 +78,8 @@ undo_can_redo :: proc(stack: ^Undo_Stack) -> bool {
 undo_step :: proc(stack: ^Undo_Stack) -> (Undo_Record, bool) {
 	if !undo_can_undo(stack) {return {}, false}
 	stack.at -= 1
+	stack.group_kind = .Programmatic
+	stack.group_open = false
 	return stack.records[stack.at], true
 }
 
@@ -64,6 +88,8 @@ undo_redo :: proc(stack: ^Undo_Stack) -> (Undo_Record, bool) {
 	if !undo_can_redo(stack) {return {}, false}
 	record := stack.records[stack.at]
 	stack.at += 1
+	stack.group_kind = .Programmatic
+	stack.group_open = false
 	return record, true
 }
 
@@ -73,6 +99,8 @@ undo_clear :: proc(stack: ^Undo_Stack) {
 	delete(stack.records)
 	stack.records = nil
 	stack.at = 0
+	stack.group_kind = .Programmatic
+	stack.group_open = false
 }
 
 //* == Per-widget stacks ==
@@ -98,6 +126,13 @@ undo_stack_find :: proc(g: ^GUI, id: Widget_ID) -> ^Undo_Stack {
 	stack, ok := g.undo_stacks[id]
 	if !ok {return nil}
 	return stack
+}
+
+undo_group_break :: proc(g: ^GUI, id: Widget_ID) {
+	stack := undo_stack_find(g, id)
+	if stack == nil {return}
+	stack.group_kind = .Programmatic
+	stack.group_open = false
 }
 
 //* Frees and removes a widget's undo stack.

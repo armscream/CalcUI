@@ -56,12 +56,13 @@ import "core:strings"
 
 //* == Node properties ==
 //* Properties shared by all widget types.
-SCENE_PROPERTIES_COMMON :: [12]string {
+SCENE_PROPERTIES_COMMON :: [13]string {
 	"anchors",
 	"offsets",
 	"min_size",
 	"custom_min_size",
 	"visible",
+	"interactive",
 	"font_size",
 	"font",
 	"colour",
@@ -72,7 +73,7 @@ SCENE_PROPERTIES_COMMON :: [12]string {
 }
 
 //* Widget types that accept their own text property.
-SCENE_TYPES_WITH_TEXT :: [17]Widget_Type {
+SCENE_TYPES_WITH_TEXT :: [18]Widget_Type {
 	.Button,
 	.Label,
 	.TextBox,
@@ -90,6 +91,21 @@ SCENE_TYPES_WITH_TEXT :: [17]Widget_Type {
 	.SearchField,
 	.Tooltip,
 	.EmojiPicker,
+	.NodeGraph,
+}
+
+//* Properties used only by a nine-patch rectangle.
+SCENE_PROPERTIES_NINE_PATCH :: [6]string {
+	"patch",
+	"source",
+	"tint",
+	"horizontal_edge",
+	"vertical_edge",
+	"centre_mode",
+}
+
+SCENE_PROPERTIES_TEXTURE :: [1]string {
+	"texture",
 }
 
 //* Creates a widget for a scene node.
@@ -122,6 +138,7 @@ Scene_Node :: struct {
 	//* The name of the family of the fonts of the GUI that the text of
 	//* the node is set in.
 	font:                string,
+	texture:             string,
 	anchors:             [4]f32,
 	offsets:             [4]f32,
 	colour:              [4]f32,
@@ -132,7 +149,15 @@ Scene_Node :: struct {
 	custom_min_size:     [2]f32,
 	border_width:        f32,
 	font_size:           f32,
+	//* The persistent configuration of a nine-patch rectangle.
+	nine_patch_patch:           [4]f32,
+	nine_patch_source:          [4]f32,
+	nine_patch_tint:            [4]f32,
+	nine_patch_horizontal_edge: Nine_Patch_Edge_Mode,
+	nine_patch_vertical_edge:   Nine_Patch_Edge_Mode,
+	nine_patch_centre_mode:     Nine_Patch_Centre_Mode,
 	visible:             bool,
+	interactive:         bool,
 	has_anchors:         bool,
 	has_offsets:         bool,
 	has_colour:          bool,
@@ -144,7 +169,15 @@ Scene_Node :: struct {
 	has_custom_min_size: bool,
 	has_font_size:       bool,
 	has_font:            bool,
+	has_texture:         bool,
 	has_visible:         bool,
+	has_interactive:     bool,
+	has_nine_patch_patch:           bool,
+	has_nine_patch_source:          bool,
+	has_nine_patch_tint:            bool,
+	has_nine_patch_horizontal_edge: bool,
+	has_nine_patch_vertical_edge:   bool,
+	has_nine_patch_centre_mode:     bool,
 	//* The line of the file the node begins on. The first line of the
 	//* file is line 1.
 	line:                int,
@@ -180,6 +213,7 @@ Scene_Doc_Destroy :: proc(doc: ^Scene_Doc) {
 			delete(node.parent, allocator)
 			delete(node.text, allocator)
 			delete(node.font, allocator)
+			delete(node.texture, allocator)
 			if node.parent != "" {delete(node.path, allocator)}
 			for &property in node.properties {
 				delete(property.key, allocator)
@@ -968,7 +1002,10 @@ scene_constructor_node_graph :: proc(
 	name: string,
 	text: string,
 ) -> Widget_ID {
-	return Make_Node_Graph(g, parent, Node_Graph_Opts{Base_Opts = Base_Opts{name = name}})
+	id := Make_Node_Graph(g, parent, Node_Graph_Opts{Base_Opts = Base_Opts{name = name}})
+	//* The text of a node graph is its serialized graph.
+	if text != "" {node_graph_load(g, id, text)}
+	return id
 }
 
 scene_constructor_canvas :: proc(
@@ -1272,16 +1309,46 @@ scene_read_line :: proc(
 	case "font":
 		scene_replace_string(&node.font, value, allocator)
 		node.has_font = true
+	case "texture":
+		scene_replace_string(&node.texture, value, allocator)
+		node.has_texture = true
 	case "visible":
 		flag, ok := scene_bool(value)
 		if ok {
 			node.visible = flag
 			node.has_visible = true
 		}
+	case "interactive":
+		flag, ok := scene_bool(value)
+		if ok {
+			node.interactive = flag
+			node.has_interactive = true
+		}
 	case "min_size":
 		node.has_min_size = scene_read_numbers(value, node.min_size[:], 2)
 	case "custom_min_size":
 		node.has_custom_min_size = scene_read_numbers(value, node.custom_min_size[:], 2)
+	case "patch":
+		node.has_nine_patch_patch = scene_read_numbers(value, node.nine_patch_patch[:], 4)
+	case "source":
+		node.has_nine_patch_source = scene_read_numbers(value, node.nine_patch_source[:], 4)
+	case "tint":
+		node.has_nine_patch_tint = scene_read_numbers(value, node.nine_patch_tint[:], 4)
+	case "horizontal_edge":
+		if mode, ok := scene_nine_patch_edge_mode(value); ok {
+			node.nine_patch_horizontal_edge = mode
+			node.has_nine_patch_horizontal_edge = true
+		}
+	case "vertical_edge":
+		if mode, ok := scene_nine_patch_edge_mode(value); ok {
+			node.nine_patch_vertical_edge = mode
+			node.has_nine_patch_vertical_edge = true
+		}
+	case "centre_mode":
+		if mode, ok := scene_nine_patch_centre_mode(value); ok {
+			node.nine_patch_centre_mode = mode
+			node.has_nine_patch_centre_mode = true
+		}
 	}
 }
 
@@ -1409,6 +1476,41 @@ scene_bool :: proc(value: string) -> (bool, bool) {
 	return false, false
 }
 
+//* Returns the body of a quoted value, or the value itself when it is not
+//* quoted. The result points into the input.
+scene_mode_value :: proc(value: string) -> string {
+	trimmed := strings.trim_space(value)
+	if len(trimmed) >= 2 && trimmed[0] == '"' {
+		end := scene_quote_end(trimmed[1:])
+		if end >= 0 {return trimmed[1:1 + end]}
+	}
+	return trimmed
+}
+
+//* Parses an edge rendering mode.
+scene_nine_patch_edge_mode :: proc(value: string) -> (Nine_Patch_Edge_Mode, bool) {
+	switch scene_mode_value(value) {
+	case "stretch":
+		return .Stretch, true
+	case "tile":
+		return .Tile, true
+	}
+	return .Stretch, false
+}
+
+//* Parses a centre rendering mode.
+scene_nine_patch_centre_mode :: proc(value: string) -> (Nine_Patch_Centre_Mode, bool) {
+	switch scene_mode_value(value) {
+	case "stretch":
+		return .Stretch, true
+	case "tile":
+		return .Tile, true
+	case "disabled":
+		return .Disabled, true
+	}
+	return .Stretch, false
+}
+
 //* Returns whether a character is whitespace.
 scene_is_space :: proc(c: u8) -> bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
@@ -1423,6 +1525,8 @@ scene_property_count :: proc(key: string) -> int {
 		return 4
 	case "min_size", "custom_min_size":
 		return 2
+	case "patch", "source", "tint":
+		return 4
 	}
 	return 0
 }
@@ -1441,7 +1545,24 @@ scene_property_attribute :: proc(key: string) -> bool {
 scene_property_known :: proc(key: string) -> bool {
 	if scene_property_attribute(key) {return true}
 	if key == "text" {return true}
+	if scene_property_nine_patch(key) {return true}
+	if scene_property_texture(key) {return true}
 	return scene_property_common(key)
+}
+
+scene_property_texture :: proc(key: string) -> bool {
+	for property in SCENE_PROPERTIES_TEXTURE {
+		if property == key {return true}
+	}
+	return false
+}
+
+//* Returns whether a property belongs to a nine-patch rectangle.
+scene_property_nine_patch :: proc(key: string) -> bool {
+	for property in SCENE_PROPERTIES_NINE_PATCH {
+		if property == key {return true}
+	}
+	return false
 }
 
 //* Returns whether a property applies to every widget type.
@@ -1464,6 +1585,10 @@ scene_type_shows_text :: proc(widget_type: Widget_Type) -> bool {
 scene_property_used :: proc(widget_type: Widget_Type, key: string) -> bool {
 	if scene_property_attribute(key) {return true}
 	if key == "text" {return scene_type_shows_text(widget_type)}
+	if scene_property_nine_patch(key) {return widget_type == .NinePatchRect}
+	if scene_property_texture(key) {
+		return widget_type == .TextureRect || widget_type == .NinePatchRect
+	}
 	return scene_property_common(key)
 }
 
@@ -1630,7 +1755,7 @@ scene_check_value :: proc(
 				property.key,
 			)
 		}
-	case "visible":
+	case "visible", "interactive":
 		if _, ok := scene_bool(property.value); !ok {
 			scene_report_add(
 				report,
@@ -1639,6 +1764,42 @@ scene_check_value :: proc(
 				node.name,
 				property.key,
 				"the value of %q is not true or false",
+				property.key,
+			)
+		}
+	case "horizontal_edge", "vertical_edge":
+		if _, ok := scene_nine_patch_edge_mode(property.value); !ok {
+			scene_report_add(
+				report,
+				.Warning,
+				property.line,
+				node.name,
+				property.key,
+				"the value of %q is not stretch or tile",
+				property.key,
+			)
+		}
+	case "centre_mode":
+		if _, ok := scene_nine_patch_centre_mode(property.value); !ok {
+			scene_report_add(
+				report,
+				.Warning,
+				property.line,
+				node.name,
+				property.key,
+				"the value of %q is not stretch, tile or disabled",
+				property.key,
+			)
+		}
+	case "texture":
+		if scene_mode_value(property.value) == "" {
+			scene_report_add(
+				report,
+				.Warning,
+				property.line,
+				node.name,
+				property.key,
+				"the value of %q is empty",
 				property.key,
 			)
 		}
@@ -1893,6 +2054,9 @@ scene_place :: proc(
 	if node.has_visible && !node.visible {
 		Widget_Set_Visible(g, id, false)
 	}
+	if node.has_interactive {
+		Widget_Set_Interactive(g, id, node.interactive)
+	}
 	//* The family of the fonts of the text is looked up here: a name
 	//* that is not a family of the GUI is an error, and the widget
 	//* takes the font of the theme.
@@ -1905,8 +2069,77 @@ scene_place :: proc(
 			d.colour = Colour{node.bg[0], node.bg[1], node.bg[2], node.bg[3]}
 		}
 	}
+	if widget_type == .TextureRect {
+		#partial switch &d in w.data {
+		case Texture_Rect_Data:
+			scene_apply_texture(g, node, report, &d.texture, &d.texture_path)
+		}
+	}
+	if widget_type == .NinePatchRect {
+		#partial switch &d in w.data {
+		case Nine_Patch_Data:
+			scene_apply_texture(g, node, report, &d.texture, &d.texture_path)
+			if node.has_nine_patch_patch {
+				d.patch = node.nine_patch_patch
+			}
+			if node.has_nine_patch_source {
+				d.source = Rect {
+					x = node.nine_patch_source[0],
+					y = node.nine_patch_source[1],
+					w = node.nine_patch_source[2],
+					h = node.nine_patch_source[3],
+				}
+			}
+			if node.has_nine_patch_tint {
+				d.tint = Colour {
+					r = node.nine_patch_tint[0],
+					g = node.nine_patch_tint[1],
+					b = node.nine_patch_tint[2],
+					a = node.nine_patch_tint[3],
+				}
+			}
+			if node.has_nine_patch_horizontal_edge {
+				d.horizontal_edge = node.nine_patch_horizontal_edge
+			}
+			if node.has_nine_patch_vertical_edge {
+				d.vertical_edge = node.nine_patch_vertical_edge
+			}
+			if node.has_nine_patch_centre_mode {
+				d.centre_mode = node.nine_patch_centre_mode
+			}
+		}
+	}
 
 	return id
+}
+
+scene_apply_texture :: proc(
+	g: ^GUI,
+	node: Scene_Node,
+	report: ^Scene_Report,
+	texture: ^Texture,
+	texture_path: ^string,
+) {
+	if !node.has_texture {return}
+
+	allocator := virt.arena_allocator(&g.arena)
+	texture_path^ = strings.clone(node.texture, allocator)
+	if node.texture == "" {return}
+
+	loaded, ok := Texture_Load_File(g, node.texture)
+	if !ok {
+		scene_report_add(
+			report,
+			.Error,
+			node.line,
+			node.name,
+			"texture",
+			"the texture %q could not be loaded",
+			node.texture,
+		)
+		return
+	}
+	texture^ = loaded
 }
 
 //* Resolves a node's font family. Missing families are reported;

@@ -93,7 +93,7 @@ CalcUI includes a broad collection of built-in widgets and interface components.
 | Selection | Combo boxes, color picker, date picker, time picker, emoji picker |
 | Menus & Overlays | Command palette, context menus, tooltips, popups, toast notifications |
 | Data | Data tables, virtual lists, charts |
-| Visualization | Canvas, node graphs, vector drawing |
+| Visualization | Canvas, node graph editor, vector drawing |
 | File & Content | File viewer |
 | Layout | Dockspaces, floating and detachable panels |
 
@@ -293,6 +293,7 @@ The "examples" directory contains standalone applications demonstrating CalcUI's
 | `06_scene` | Complete UI Scene loading from string. |
 | `07_custom_widget` | Demo of a custom widget. |
 | `08_custom_backend` | Demo with a custom renderer. |
+| `09_node_graph` | Node graph editor with typed ports, reroutes, a docking inspector, undo, save/load, a broad node library and the headless Blueprint runtime. |
 
 
 # Building
@@ -332,11 +333,14 @@ This checks the GUI, window and backend packages, runs GUI tests, builds the exa
 
 GitHub Actions runs these checks on Windows, Linux and macOS.
 
+The suite also carries the benchmarks of layout, drawing, styling, text, the atlas and the virtualized widgets. They print one line each and hold themselves to budgets, so a change that makes a scene slower fails the tests. See [`docs/benchmarks.md`](docs/benchmarks.md) for what each one measures and for the results of the reference run.
+
 ## Project Structure
 
 | Directory | Description |
 |---|---|
 | `src/GUI` | Public facade (`api.odin`), plus the `Core`, `Widgets` and `Animation` packages: widget tree, layout, rendering, text, atlas and themes. |
+| `src/NodeGraph` | Renderer-independent node graph model, geometry, styles, port policies, reroutes and serialization. |
 | `src/Backend` | SDL3 renderer and SDL3 GPU backends. |
 | `src/Window` | Window management, events, popups, cursor and clipboard. |
 | `examples` | Example applications. |
@@ -352,7 +356,9 @@ GitHub Actions runs these checks on Windows, Linux and macOS.
 | [`docs/widgets.md`](docs/widgets.md) | Widget behaviour and available options. |
 | [`docs/extending.md`](docs/extending.md) | Creating custom widgets. |
 | [`docs/scene-format.md`](docs/scene-format.md) | Scene format and loading. |   
+| [`docs/node-graph.md`](docs/node-graph.md) | Node graph model, editing and serialization. |
 | [`docs/architecture.md`](docs/architecture.md) | Calcui architectural overview. |   
+| [`docs/benchmarks.md`](docs/benchmarks.md) | What the benchmarks measure, how to run them and the reference results. |
 
 
 

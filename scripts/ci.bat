@@ -28,6 +28,15 @@ if errorlevel 1 (
 )
 
 echo.
+echo == Checking src\NodeGraph
+odin check src\NodeGraph -no-entry-point
+if errorlevel 1 (
+    echo src\NodeGraph did not check.
+    set FAILED=src\NodeGraph
+    goto fail
+)
+
+echo.
 echo == Checking src\Tests
 odin check src\Tests -no-entry-point
 if errorlevel 1 (
@@ -39,10 +48,30 @@ if errorlevel 1 (
 echo.
 echo == Testing src\Tests
 set CALCUI_BENCH_BUDGET=0
+set CALCUI_BENCH_OUTPUT=docs\other\internalbenchmarks.md
+set CALCUI_BENCH_BUILD=minimal
 odin test src\Tests -define:ODIN_TEST_THREADS=1
 if errorlevel 1 (
     echo The tests of src\Tests did not pass.
     set FAILED=the tests of src\Tests
+    goto fail
+)
+
+echo.
+echo == Testing examples\09_node_graph\blueprint
+odin test examples\09_node_graph\blueprint -define:ODIN_TEST_THREADS=1
+if errorlevel 1 (
+    echo The blueprint tests did not pass.
+    set FAILED=the blueprint tests
+    goto fail
+)
+
+echo.
+echo == Checking examples\09_node_graph\features
+odin check examples\09_node_graph\features -no-entry-point
+if errorlevel 1 (
+    echo The node graph feature packages did not check.
+    set FAILED=the node graph feature packages
     goto fail
 )
 
@@ -92,10 +121,29 @@ for %%A in ("%BIN%\shot.png") do if %%~zA LSS 1 (
     goto fail
 )
 
+echo.
+echo == Rendering the node graph picture
+odin run tools\shot_node_graph -- "%BIN%\shot_node_graph.png"
+if errorlevel 1 (
+    echo The node graph picture was not written.
+    set FAILED=the node graph picture
+    goto fail
+)
+if not exist "%BIN%\shot_node_graph.png" (
+    echo The node graph picture was not written.
+    set FAILED=the node graph picture
+    goto fail
+)
+for %%A in ("%BIN%\shot_node_graph.png") do if %%~zA LSS 1 (
+    echo The node graph picture is empty.
+    set FAILED=the node graph picture
+    goto fail
+)
+
 popd
 echo.
-echo Passed: src\GUI, src\Tests, the examples, src\Window,
-echo src\Backend and the picture in bin\shot.png.
+echo Passed: src\NodeGraph, src\GUI, src\Tests, the blueprint tests,
+echo the examples, src\Window, src\Backend and both pictures.
 endlocal
 exit /b 0
 

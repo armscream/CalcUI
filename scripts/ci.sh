@@ -32,12 +32,27 @@ echo "== Checking src/GUI"
 odin check src/GUI -no-entry-point
 
 echo
+echo "== Checking src/NodeGraph"
+odin check src/NodeGraph -no-entry-point
+
+echo
 echo "== Checking src/Tests"
 odin check src/Tests -no-entry-point
 
 echo
 echo "== Testing src/Tests"
-CALCUI_BENCH_BUDGET=0 odin test src/Tests -define:ODIN_TEST_THREADS=1
+CALCUI_BENCH_BUDGET=0 \
+CALCUI_BENCH_OUTPUT=docs/other/internalbenchmarks.md \
+CALCUI_BENCH_BUILD=minimal \
+odin test src/Tests -define:ODIN_TEST_THREADS=1
+
+echo
+echo "== Testing examples/09_node_graph/blueprint"
+odin test examples/09_node_graph/blueprint -define:ODIN_TEST_THREADS=1
+
+echo
+echo "== Checking examples/09_node_graph/features"
+odin check examples/09_node_graph/features -no-entry-point
 
 echo
 echo "== Building the examples"
@@ -68,5 +83,14 @@ if [ ! -s "$BIN/shot.png" ]; then
 fi
 
 echo
-echo "Passed: src/GUI, src/Tests, the examples, src/Window,"
-echo "src/Backend and the picture in bin/shot.png."
+echo "== Rendering the node graph picture"
+SDL_VIDEODRIVER=dummy odin run tools/shot_node_graph -- "$BIN/shot_node_graph.png"
+
+if [ ! -s "$BIN/shot_node_graph.png" ]; then
+    echo "The node graph picture was not written." >&2
+    exit 1
+fi
+
+echo
+echo "Passed: src/NodeGraph, src/GUI, src/Tests, the blueprint tests,"
+echo "the examples, src/Window, src/Backend and both pictures."

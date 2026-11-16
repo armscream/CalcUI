@@ -130,7 +130,6 @@ Widget_Set_Style :: proc(g: ^GUI, id: Widget_ID, style: Style) {
 //* Returns the text-style fields that affect measurement.
 text_style_size_of :: proc(ts: Text_Style) -> Text_Style {
 	return Text_Style{
-		set = ts.set,
 		family = ts.family,
 		size = ts.size,
 		wrap = ts.wrap,

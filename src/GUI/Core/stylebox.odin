@@ -45,6 +45,11 @@ StyleBox :: struct {
 	shadow_size:   f32,
 	shadow_offset: Vec2,
 
+	//* The radius of the blur of everything behind the box. Zero draws
+	//* the background as it is. A backend that cannot read its own
+	//* target ignores it and draws the tint alone.
+	backdrop_blur: f32,
+
 	//* Whether the corners are smoothed.
 	anti_aliasing: bool,
 }
@@ -155,5 +160,6 @@ stylebox_plain :: proc(box: StyleBox) -> StyleBox {
 	out.shadow_size = 0
 	out.shadow_offset = Vec2{}
 	out.expand_margin = [4]f32{}
+	out.backdrop_blur = 0
 	return out
 }

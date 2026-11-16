@@ -113,6 +113,13 @@ scene_save_node :: proc(
 	w := Widget_Get(g, id)
 	if w == nil {return}
 
+	//* Internal helpers such as a graph creation menu are not part of
+	//* the scene, but anything under them still is.
+	if w.skip_scene_save {
+		scene_save_children(builder, saver, w, parent_name, depth)
+		return
+	}
+
 	//* Skip widgets the loader cannot construct, but preserve their children.
 	if !scene_save_can_be_made(g, w) {
 		log.warnf(
@@ -232,13 +239,26 @@ scene_save_properties :: proc(builder: ^strings.Builder, g: ^GUI, w: ^Widget, de
 	scene_save_write_numbers(builder, offsets[:])
 	strings.write_byte(builder, '\n')
 
-	text := scene_save_text_of(w)
-	if text != "" {
-		scene_save_line(builder, depth, "text")
-		strings.write_byte(builder, '"')
-		scene_save_write_escaped(builder, text)
-		strings.write_byte(builder, '"')
-		strings.write_byte(builder, '\n')
+	if w.type == .NodeGraph {
+		//* A node graph carries its whole model in the text property.
+		graph_text := node_graph_save(g, w.id)
+		if graph_text != "" {
+			scene_save_line(builder, depth, "text")
+			strings.write_byte(builder, '"')
+			scene_save_write_escaped(builder, graph_text)
+			strings.write_byte(builder, '"')
+			strings.write_byte(builder, '\n')
+		}
+		delete(graph_text)
+	} else {
+		text := scene_save_text_of(w)
+		if text != "" {
+			scene_save_line(builder, depth, "text")
+			strings.write_byte(builder, '"')
+			scene_save_write_escaped(builder, text)
+			strings.write_byte(builder, '"')
+			strings.write_byte(builder, '\n')
+		}
 	}
 
 	fields := style_fields_of(&w.style)
@@ -253,6 +273,58 @@ scene_save_properties :: proc(builder: ^strings.Builder, g: ^GUI, w: ^Widget, de
 		scene_save_line(builder, depth, "bg")
 		scene_save_write_colour(builder, w.style.box.bg_color)
 		strings.write_byte(builder, '\n')
+	}
+
+	if w.type == .TextureRect {
+		#partial switch d in w.data {
+		case Texture_Rect_Data:
+			scene_save_write_texture(builder, depth, d.texture_path)
+		}
+	}
+
+	if w.type == .NinePatchRect {
+		#partial switch d in w.data {
+		case Nine_Patch_Data:
+			scene_save_write_texture(builder, depth, d.texture_path)
+
+			patch := d.patch
+			scene_save_line(builder, depth, "patch")
+			scene_save_write_numbers(builder, patch[:])
+			strings.write_byte(builder, '\n')
+
+			if d.source != (Rect{}) {
+				source := [4]f32{d.source.x, d.source.y, d.source.w, d.source.h}
+				scene_save_line(builder, depth, "source")
+				scene_save_write_numbers(builder, source[:])
+				strings.write_byte(builder, '\n')
+			}
+
+			scene_save_line(builder, depth, "tint")
+			scene_save_write_colour(builder, d.tint)
+			strings.write_byte(builder, '\n')
+
+			if d.horizontal_edge != .Stretch {
+				scene_save_line(builder, depth, "horizontal_edge")
+				scene_save_write_nine_patch_edge(builder, d.horizontal_edge)
+				strings.write_byte(builder, '\n')
+			}
+			if d.vertical_edge != .Stretch {
+				scene_save_line(builder, depth, "vertical_edge")
+				scene_save_write_nine_patch_edge(builder, d.vertical_edge)
+				strings.write_byte(builder, '\n')
+			}
+			if d.centre_mode != .Stretch {
+				scene_save_line(builder, depth, "centre_mode")
+				switch d.centre_mode {
+				case .Disabled:
+					strings.write_string(builder, "\"disabled\"")
+				case .Tile:
+					strings.write_string(builder, "\"tile\"")
+				case .Stretch:
+				}
+				strings.write_byte(builder, '\n')
+			}
+		}
 	}
 
 	//* The scene format uses one border colour for all sides.
@@ -301,6 +373,12 @@ scene_save_properties :: proc(builder: ^strings.Builder, g: ^GUI, w: ^Widget, de
 	if !(.Visible in w.state) {
 		scene_save_line(builder, depth, "visible")
 		strings.write_string(builder, "false")
+		strings.write_byte(builder, '\n')
+	}
+
+	if w.interactive != widget_type_interactive(w.type) {
+		scene_save_line(builder, depth, "interactive")
+		strings.write_string(builder, w.interactive ? "true" : "false")
 		strings.write_byte(builder, '\n')
 	}
 
@@ -402,10 +480,32 @@ scene_save_write_number :: proc(builder: ^strings.Builder, value: f32) {
 	strings.write_string(builder, text)
 }
 
+scene_save_write_texture :: proc(builder: ^strings.Builder, depth: int, path: string) {
+	if path == "" {return}
+	scene_save_line(builder, depth, "texture")
+	strings.write_byte(builder, '"')
+	scene_save_write_escaped(builder, path)
+	strings.write_byte(builder, '"')
+	strings.write_byte(builder, '\n')
+}
+
 //* Writes a colour as four float values.
 scene_save_write_colour :: proc(builder: ^strings.Builder, colour: Colour) {
 	values := [4]f32{colour.r, colour.g, colour.b, colour.a}
 	scene_save_write_numbers(builder, values[:])
+}
+
+//* Writes an edge rendering mode as a quoted scene value.
+scene_save_write_nine_patch_edge :: proc(
+	builder: ^strings.Builder,
+	mode: Nine_Patch_Edge_Mode,
+) {
+	switch mode {
+	case .Stretch:
+		strings.write_string(builder, "\"stretch\"")
+	case .Tile:
+		strings.write_string(builder, "\"tile\"")
+	}
 }
 
 //* Escapes text for the scene format. The caller writes the quotes.

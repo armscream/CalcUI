@@ -50,3 +50,11 @@ jobs:
       - name: Run CI checks
         shell: bash
         run: ./scripts/ci.sh
+
+      - name: Keep the benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: internal-benchmarks-${{ matrix.os }}
+          path: docs/other/internalbenchmarks.md
+          if-no-files-found: ignore

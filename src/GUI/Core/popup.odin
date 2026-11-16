@@ -1,6 +1,7 @@
 //* The windows that come up over the rest of the UI: a menu, palette, dialog etc.
 // events propagate to popups first.
 package Core
+import "core:slice"
 import "core:strings"
 //* A popup that is open, and prev focused widget.
 Popup_Entry :: struct {
@@ -249,26 +250,53 @@ command_palette_data :: proc(g: ^GUI, id: Widget_ID) -> ^Command_Palette_Data {
 	return nil
 }
 
-palette_command_matches :: proc(command: Palette_Command, filter: string) -> bool {
-	return filter == "" ||
-		overlay_contains_fold(command.label, filter) ||
-		overlay_contains_fold(command.keywords, filter)
+palette_match_less :: proc(a, b: Palette_Match) -> bool {
+	if a.score != b.score { return a.score > b.score }
+	return a.index < b.index
+}
+
+command_palette_matches_build :: proc(d: ^Command_Palette_Data) {
+	clear(&d.matches)
+	for command, index in d.commands {
+		score, matched := palette_command_score(command, d.text)
+		if matched {
+			append(&d.matches, Palette_Match{index = index, score = score})
+		}
+	}
+	//* The insertion index breaks the ties, so the order is the one the
+	//* commands were added in when their scores are equal.
+	slice.stable_sort_by(d.matches[:], palette_match_less)
+	d.matches_dirty = false
+}
+
+command_palette_matches :: proc(d: ^Command_Palette_Data) -> []Palette_Match {
+	if d == nil { return nil }
+	if d.matches_dirty { command_palette_matches_build(d) }
+	return d.matches[:]
 }
 
 Command_Palette_Count :: proc(g: ^GUI, id: Widget_ID) -> int {
 	d := command_palette_data(g, id)
 	if d == nil { return 0 }
-	count := 0
-	for command in d.commands {
-		if palette_command_matches(command, d.text) { count += 1 }
-	}
-	return count
+	return len(command_palette_matches(d))
+}
+
+//* The command at a row of the ranked matches, or -1 when the row is out of
+//* range. The rows are the ones the palette draws and selects.
+Command_Palette_Match_Index :: proc(g: ^GUI, id: Widget_ID, row: int) -> int {
+	d := command_palette_data(g, id)
+	if d == nil { return -1 }
+	matches := command_palette_matches(d)
+	if row < 0 || row >= len(matches) { return -1 }
+	return matches[row].index
 }
 
 command_palette_reset :: proc(g: ^GUI, id: Widget_ID) {
 	d := command_palette_data(g, id)
 	if d == nil { return }
+	d.matches_dirty = true
 	d.selected = Command_Palette_Count(g, id) > 0 ? 0 : -1
+	d.scroll = 0
 }
 
 //* Adds enabled program commands without replacing existing entries.
@@ -292,6 +320,7 @@ command_palette_sync :: proc(g: ^GUI, id: Widget_ID) {
 			})
 		}
 	}
+	d.matches_dirty = true
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
@@ -307,6 +336,8 @@ Command_Palette_Open :: proc(g: ^GUI, id: Widget_ID) {
 		delete(d.text)
 		d.text = strings.clone("")
 		d.selected = -1
+		d.scroll = 0
+		d.matches_dirty = true
 	}
 	popup_open_core(g, id)
 }

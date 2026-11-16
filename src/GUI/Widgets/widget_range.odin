@@ -48,29 +48,31 @@ draw_slider :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	#partial switch d in w.data {
 	case Slider_Data:
 		vertical := w.type == .VSlider
-		track := content
-		if vertical {
-			track.w = 6
-			track.x = content.x + (content.w - 6) * 0.5
-		} else {
-			track.h = 6
-			track.y = content.y + (content.h - 6) * 0.5
+		track := slider_track(content, vertical)
+		track_colour := RGBA(0.16, 0.17, 0.21, 1)
+		if colour := theme_color(g, w, "track_color"); colour.a > 0 {
+			track_colour = colour
 		}
-		draw_rect(g, track, RGBA(0.16, 0.17, 0.21, 1), 3)
-
-		span := d.max - d.min
-		factor := f32(0)
-		if span > 0 {factor = (d.value - d.min) / span}
-		factor = clamp(factor, 0, 1)
-
-		knob := Rect{w = 14, h = 14}
-		if vertical {
-			knob.x = track.x - 4
-			knob.y = track.y + track.h - factor * track.h - knob.h * 0.5
-		} else {
-			knob.x = track.x + factor * track.w - knob.w * 0.5
-			knob.y = track.y - 4
+		fill_colour := RGBA(0.20, 0.62, 1.0, 1)
+		if colour := theme_color(g, w, "fill_color"); colour.a > 0 {
+			fill_colour = colour
 		}
+		draw_rect(g, track, track_colour, 3)
+
+		factor := slider_factor(d)
+
+		if factor > 0 {
+			filled := track
+			if vertical {
+				filled.y = track.y + track.h * (1 - factor)
+				filled.h = track.h * factor
+			} else {
+				filled.w = track.w * factor
+			}
+			draw_rect(g, filled, fill_colour, 3)
+		}
+
+		knob := slider_knob(track, factor, vertical)
 		draw_rect(g, knob, resolved_text_colour(g, id, w), 7)
 	}
 }
@@ -242,7 +244,15 @@ progress_bar_set_value :: proc(g: ^GUI, id: Widget_ID, new_value: f32) {
 draw_progress_bar :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	#partial switch d in w.data {
 	case Progress_Bar_Data:
-		draw_rect(g, content, RGBA(0.16, 0.17, 0.21, 1), 4)
+		track_colour := RGBA(0.16, 0.17, 0.21, 1)
+		if colour := theme_color(g, w, "track_color"); colour.a > 0 {
+			track_colour = colour
+		}
+		fill_colour := RGBA(0.20, 0.62, 1.0, 1)
+		if colour := theme_color(g, w, "fill_color"); colour.a > 0 {
+			fill_colour = colour
+		}
+		draw_rect(g, content, track_colour, 4)
 		if d.max > 0 {
 			filled := Rect{
 				x = content.x,
@@ -250,7 +260,7 @@ draw_progress_bar :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 				w = content.w * clamp(d.value / d.max, 0, 1),
 				h = content.h,
 			}
-			draw_rect(g, filled, RGBA(0.20, 0.62, 1.0, 1), 4)
+			draw_rect(g, filled, fill_colour, 4)
 		}
 	}
 }

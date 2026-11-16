@@ -28,6 +28,16 @@ Make_Float_Panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> i
 	return len(g.floats) - 1
 }
 
+Widget_Close_Panel :: proc(g: ^GUI, id: Widget_ID) -> bool {
+	if g == nil || id == INVALID_WIDGET_ID {return false}
+	index := float_of(g, id)
+	if index != FLOAT_NONE {
+		unfloat_panel(g, index)
+	}
+	Widget_Set_Visible(g, id, false)
+	return Widget_Alive(g, id)
+}
+
 //* Takes a floating panel out of the list and gives its widget back.
 //* Returns the widget, which is still on its own.
 unfloat_panel :: proc(g: ^GUI, index: int) -> Widget_ID {

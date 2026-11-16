@@ -90,6 +90,7 @@ Text_Box_Data :: struct {
 	scroll_chars: int,
 	//* How far the text is scrolled down, in logical units.
 	scroll_y:    f32,
+	geometry:    Text_Box_Geometry,
 }
 
 //* The number of characters a box of one line shows when the program
@@ -312,11 +313,7 @@ text_box_line_range :: proc(g: ^GUI, f: ^Font, text: string) -> (start, end: int
 	return
 }
 
-//* == The lines of a box ==
 
-//* The style of the text of a box. A box of one line takes no line
-//* break, and a box of more than one line breaks its text at the
-//* boundaries of the words.
 text_box_text_style :: proc(g: ^GUI, w: ^Widget, multiline: bool) -> Text_Style {
 	ts := resolved_style(g, w).text
 	ts.transform = .None
@@ -361,47 +358,130 @@ Text_Box_Cluster :: struct {
 	offset: int,
 	x:      f32,
 	width:  f32,
+	rtl:    bool,
 }
 
-text_box_clusters :: proc(g: ^GUI, line: Text_Line, scale: f32) -> []Text_Box_Cluster {
-	//* The clusters live for the frame, and the number of them is not
-	//* known before the glyphs are walked, so they are kept in the frame
-	//* arena rather than on the heap. The arena is given back once a
-	//* frame, so a walk costs a bump of a pointer.
-	allocator := virt.arena_allocator(&g.frame_arena)
-	out := make([dynamic]Text_Box_Cluster, 0, len(line.glyphs), allocator)
+text_box_cluster_after :: proc(c: Text_Box_Cluster) -> f32 {
+	if c.rtl {return c.x - c.width}
+	return c.x + c.width
+}
+
+Text_Box_Geometry :: struct {
+	frame:        u64,
+	text:         rawptr,
+	text_len:     int,
+	font:         Font_ID,
+	scale:        f32,
+	width:        f32,
+	multiline:    bool,
+	lines:        []Text_Line,
+	clusters:     []Text_Box_Cluster,
+	line_offsets: []int,
+}
+
+text_box_clusters_append :: proc(
+	out: []Text_Box_Cluster,
+	start: int,
+	glyphs: []runa.Paragraph_Glyph,
+	scale: f32,
+) -> (int, bool) {
 	pen: f32 = 0
+	n := start
 	i := 0
 	ordered := true
 	last := -1
-	for i < len(line.glyphs) {
-		cluster := int(line.glyphs[i].cluster)
-		level := line.glyphs[i].level
+	for i < len(glyphs) {
+		cluster := int(glyphs[i].cluster)
+		level := glyphs[i].level
 		lo_x := pen
 		j := i
-		for j < len(line.glyphs) && int(line.glyphs[j].cluster) == cluster {
-			pen += line.glyphs[j].x_advance / scale
+		for j < len(glyphs) && int(glyphs[j].cluster) == cluster {
+			pen += glyphs[j].x_advance / scale
 			j += 1
 		}
 		hi_x := pen
 		rtl := (level & 1) == 1
-		append(
-			&out,
-			Text_Box_Cluster {
-				offset = cluster,
-				x = rtl ? hi_x : lo_x,
-				width = hi_x - lo_x,
-			},
-		)
+		out[n] = Text_Box_Cluster {
+			offset = cluster,
+			x      = rtl ? hi_x : lo_x,
+			width  = hi_x - lo_x,
+			rtl    = rtl,
+		}
 		if cluster < last {ordered = false}
 		last = cluster
+		n += 1
 		i = j
 	}
-	//* The glyphs of a line are in the order they are seen, and the text
-	//* of a right-to-left line goes the other way. A line that is already
-	//* in the order of its text, which is the common case, is left alone.
-	if !ordered {sort_text_box_clusters(out[:])}
-	return out[:]
+	return n, ordered
+}
+
+text_box_clusters :: proc(g: ^GUI, line: Text_Line, scale: f32) -> []Text_Box_Cluster {
+	allocator := virt.arena_allocator(&g.frame_arena)
+	out := make([]Text_Box_Cluster, len(line.glyphs), allocator)
+	n, ordered := text_box_clusters_append(out, 0, line.glyphs, scale)
+	out = out[:n]
+	if !ordered {sort_text_box_clusters(out)}
+	return out
+}
+
+text_box_geometry :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	w: ^Widget,
+	width: f32,
+) -> ^Text_Box_Geometry {
+	d := text_box_data(g, id)
+	if d == nil {return nil}
+	font_id := Font_Of(g, w)
+	f := font_get(g, font_id)
+	if f == nil {return nil}
+	multiline := text_box_is_multiline(d)
+	key_width := multiline ? width : 0
+	geom := &d.geometry
+	if geom.frame == g.frame_count &&
+	   geom.text == raw_data(d.text) &&
+	   geom.text_len == len(d.text) &&
+	   geom.font == font_id &&
+	   geom.scale == f.scale &&
+	   geom.width == key_width &&
+	   geom.multiline == multiline {
+		return geom
+	}
+
+	lines := text_box_lines(g, w, d.text, multiline, key_width)
+	geom^ = Text_Box_Geometry {
+		frame     = g.frame_count,
+		text      = raw_data(d.text),
+		text_len  = len(d.text),
+		font      = font_id,
+		scale     = f.scale,
+		width     = key_width,
+		multiline = multiline,
+		lines     = lines,
+	}
+
+	allocator := virt.arena_allocator(&g.frame_arena)
+	total := 0
+	for line in lines {total += len(line.glyphs)}
+	clusters := make([]Text_Box_Cluster, total, allocator)
+	line_offsets := make([]int, len(lines) + 1, allocator)
+	n := 0
+	for line, index in lines {
+		line_offsets[index] = n
+		start := n
+		count, ordered := text_box_clusters_append(clusters, n, line.glyphs, f.scale)
+		n = count
+		if !ordered {sort_text_box_clusters(clusters[start:n])}
+	}
+	line_offsets[len(lines)] = n
+	geom.clusters = clusters[:n]
+	geom.line_offsets = line_offsets
+	return geom
+}
+
+text_box_line_clusters :: proc(geom: ^Text_Box_Geometry, index: int) -> []Text_Box_Cluster {
+	if geom == nil || index < 0 || index + 1 >= len(geom.line_offsets) {return nil}
+	return geom.clusters[geom.line_offsets[index]:geom.line_offsets[index + 1]]
 }
 
 sort_text_box_clusters :: proc(clusters: []Text_Box_Cluster) {
@@ -420,10 +500,49 @@ sort_text_box_clusters :: proc(clusters: []Text_Box_Cluster) {
 //* stands at the offset, or the last one when the offset is at the end
 //* of the text.
 text_box_cluster_of :: proc(clusters: []Text_Box_Cluster, offset: int) -> int {
-	for i in 0 ..< len(clusters) {
-		if clusters[i].offset >= offset {return i}
+	lo := 0
+	hi := len(clusters)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if clusters[mid].offset < offset {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
 	}
-	return len(clusters)
+	return lo
+}
+
+text_box_clusters_caret_x :: proc(clusters: []Text_Box_Cluster, offset: int) -> f32 {
+	i := text_box_cluster_of(clusters, offset)
+	if i < len(clusters) && clusters[i].offset == offset {
+		return clusters[i].x
+	}
+	if i > 0 {return text_box_cluster_after(clusters[i - 1])}
+	return 0
+}
+
+text_box_clusters_offset_at :: proc(
+	clusters: []Text_Box_Cluster,
+	x: f32,
+	fallback: int,
+	line_end: int,
+) -> int {
+	if len(clusters) == 0 {return fallback}
+	best := clusters[0].offset
+	nearest := abs(clusters[0].x - x)
+	for i in 1 ..< len(clusters) {
+		dist := abs(clusters[i].x - x)
+		if dist < nearest {
+			nearest = dist
+			best = clusters[i].offset
+		}
+	}
+	if dist := abs(text_box_cluster_after(clusters[len(clusters) - 1]) - x);
+	   dist < nearest {
+		return line_end
+	}
+	return best
 }
 
 //* The byte offset of the n-th character of the text. The characters of
@@ -674,14 +793,14 @@ measure_text_box_at_width :: proc(
 		//* text: the lines are the ones the text is broken into at the
 		//* width the box is given.
 		ts := text_box_text_style(g, w, true)
-		lines := wrap_text_lines(g, f, ts, d.text, max(width, 0))
-		height = max(height, text_box_content_height(lines[:], ts.spacing))
+		geom := text_box_geometry(g, id, w, max(width, 0))
+		if geom != nil {
+			height = max(height, text_box_content_height(geom.lines, ts.spacing))
+		}
 	}
 
 	return Vec2{0, height + pad[1] + pad[3]}
 }
-
-//* == The click on a box ==
 
 focus_click :: proc(g: ^GUI, id: Widget_ID, p: Vec2, clicks: int = 1) {
 	w := Widget_Get(g, id)
@@ -696,32 +815,30 @@ focus_click :: proc(g: ^GUI, id: Widget_ID, p: Vec2, clicks: int = 1) {
 text_box_offset_at_local :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, local: Vec2) -> int {
 	d := text_box_data(g, id)
 	if d == nil {return 0}
-	f := font_get(g, Font_Of(g, w))
-	if f == nil {return 0}
 	content := content_rect(g, w)
 	multiline := text_box_is_multiline(d)
-	lines := text_box_lines(g, w, d.text, multiline, content.w)
-	if len(lines) == 0 {return 0}
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil || len(geom.lines) == 0 {return 0}
 
 	//* The place of the pointer in the content of the box.
 	x := local.x - (content.x - w.rect.x)
 	y := local.y - (content.y - w.rect.y)
 
 	if !multiline {
-		line := lines[0]
-		clusters := text_box_clusters(g, line, f.scale)
+		clusters := text_box_line_clusters(geom, 0)
 		win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
-		return text_box_line_offset_at(line, f.scale, x + win.x, len(d.text))
+		return text_box_clusters_offset_at(clusters, x + win.x, 0, len(d.text))
 	}
 
 	//* A box of more than one line: the line under the pointer, and the
 	//* place in that line.
 	ts := text_box_text_style(g, w, true)
-	index := text_box_line_at_y(lines, ts.spacing, y + d.scroll_y)
-	line := lines[index]
+	index := text_box_line_at_y(geom.lines, ts.spacing, y + d.scroll_y)
+	line := geom.lines[index]
 	line_start := line.start
 	line_end := min(line.end, len(d.text))
-	offset := text_box_line_offset_at(line, f.scale, x, line_end)
+	clusters := text_box_line_clusters(geom, index)
+	offset := text_box_clusters_offset_at(clusters, x, line_start, line_end)
 	return clamp(offset, line_start, line_end)
 }
 
@@ -750,6 +867,7 @@ text_box_line_caret_x :: proc(line: Text_Line, scale: f32, offset: int) -> f32 {
 //* A click in the box: the caret goes where the pointer is, and a
 //* double click takes the word under it.
 text_box_click_at :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, p: Vec2, clicks: int) {
+	undo_group_break(g, id)
 	#partial switch &d in w.data {
 	case Text_Box_Data:
 		offset := text_box_offset_at_local(g, id, w, text_box_local(w, p))
@@ -775,6 +893,7 @@ text_box_pointer :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Pointer_Event) {
 		#partial switch e.kind {
 		case .Move:
 			if !d.selection.dragging {return}
+			undo_group_break(g, id)
 			offset := text_box_offset_at_local(g, id, w, e.local)
 			text_select_extend(d.text, &d.caret, &d.sel_start, &d.sel_end, &d.selection, offset)
 			text_box_scroll_to_caret(g, id)
@@ -803,19 +922,19 @@ text_box_scroll_wheel :: proc(
 		if f == nil {return}
 		content := content_rect(g, w)
 		ts := text_box_text_style(g, w, true)
-		lines := text_box_lines(g, w, d.text, true, content.w)
+		geom := text_box_geometry(g, id, w, content.w)
+		if geom == nil {return}
+		lines := geom.lines
 		height := text_box_content_height(lines, ts.spacing)
 		line_height := f.line_height
 		if len(lines) > 0 {line_height = lines[0].height}
 		delta := e.amount * line_height * TEXT_BOX_WHEEL_LINES
 		if !wheel_scroll(&d.scroll_y, delta, height, content.h) {return}
 	} else {
-		f := font_get(g, Font_Of(g, w))
-		if f == nil {return}
 		content := content_rect(g, w)
-		lines := text_box_lines(g, w, d.text, false, content.w)
-		if len(lines) == 0 {return}
-		clusters := text_box_clusters(g, lines[0], f.scale)
+		geom := text_box_geometry(g, id, w, content.w)
+		if geom == nil || len(geom.lines) == 0 {return}
+		clusters := text_box_line_clusters(geom, 0)
 		win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
 		before := d.scroll_chars
 		d.scroll_chars = clamp(
@@ -834,6 +953,7 @@ text_box_scroll_wheel :: proc(
 text_box_blur :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
+	undo_group_break(g, id)
 	text_input_ime_cancel(g, id)
 	#partial switch &d in w.data {
 	case Text_Box_Data:
@@ -863,11 +983,16 @@ text_box_text_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, text: string) {
 	if text == "" {return}
 	if text == "\r" || text == "\n" {return}
 	if !text_input_ime_commit(g, id, text) {
-		text_input_insert(g, id, text)
+		text_input_insert(g, id, text, .Typing)
 	}
 }
 
-text_input_insert :: proc(g: ^GUI, id: Widget_ID, text: string) {
+text_input_insert :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	text: string,
+	kind: Undo_Kind = .Programmatic,
+) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
 	changed := false
@@ -881,7 +1006,11 @@ text_input_insert :: proc(g: ^GUI, id: Widget_ID, text: string) {
 		if added == "" {return}
 		//* The text before the change is kept, so that the change can
 		//* be taken back.
-		snapshot = undo_snapshot(g, id)
+		change_kind := kind
+		if start < end && kind != .Paste {
+			change_kind = .Replace
+		}
+		snapshot = undo_snapshot_kind(g, id, change_kind)
 		new_text := strings.concatenate({d.text[:start], added, d.text[end:]})
 		delete(d.text)
 		d.text = new_text
@@ -909,6 +1038,7 @@ text_input_backspace :: proc(g: ^GUI, id: Widget_ID) {
 	case Text_Box_Data:
 		start := snap_offset(d.text, min(d.sel_start, d.sel_end))
 		end := snap_offset(d.text, max(d.sel_start, d.sel_end))
+		had_selection := start < end
 		if start == end {
 			if d.caret <= 0 {
 				d.sel_start = d.caret
@@ -925,7 +1055,7 @@ text_input_backspace :: proc(g: ^GUI, id: Widget_ID) {
 			d.sel_end = d.caret
 			return
 		}
-		snapshot = undo_snapshot(g, id)
+		snapshot = undo_snapshot_kind(g, id, had_selection ? .Replace : .Backspace)
 		new_text := strings.concatenate({d.text[:start], d.text[end:]})
 		delete(d.text)
 		d.text = new_text
@@ -982,6 +1112,7 @@ text_input_delete :: proc(g: ^GUI, id: Widget_ID) {
 	case Text_Box_Data:
 		start := snap_offset(d.text, min(d.sel_start, d.sel_end))
 		end := snap_offset(d.text, max(d.sel_start, d.sel_end))
+		had_selection := start < end
 		if start == end {
 			if d.caret >= len(d.text) {
 				d.sel_start = d.caret
@@ -998,7 +1129,7 @@ text_input_delete :: proc(g: ^GUI, id: Widget_ID) {
 			d.sel_end = d.caret
 			return
 		}
-		snapshot = undo_snapshot(g, id)
+		snapshot = undo_snapshot_kind(g, id, had_selection ? .Replace : .Delete)
 		new_text := strings.concatenate({d.text[:start], d.text[end:]})
 		delete(d.text)
 		d.text = new_text
@@ -1040,6 +1171,7 @@ text_input_move_word :: proc(g: ^GUI, id: Widget_ID, forward: bool, extend: bool
 text_input_move_to :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
+	undo_group_break(g, id)
 	#partial switch &d in w.data {
 	case Text_Box_Data:
 		text_select_move(d.text, &d.caret, &d.sel_start, &d.sel_end, offset, extend)
@@ -1051,6 +1183,7 @@ text_input_move_to :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) {
 text_input_set_caret :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
+	undo_group_break(g, id)
 	#partial switch &d in w.data {
 	case Text_Box_Data:
 		text_select_move(d.text, &d.caret, &d.sel_start, &d.sel_end, offset, extend)
@@ -1068,13 +1201,21 @@ text_input_line_edge :: proc(g: ^GUI, id: Widget_ID, forward: bool, extend: bool
 	#partial switch &d in w.data {
 	case Text_Box_Data:
 		if !text_box_is_multiline(&d) {
-			f := font_get(g, Font_Of(g, w))
-			start, end := text_box_line_range(g, f, d.text)
+			content := content_rect(g, w)
+			geom := text_box_geometry(g, id, w, content.w)
+			start := 0
+			end := len(d.text)
+			if geom != nil && len(geom.lines) > 0 {
+				start = geom.lines[0].start
+				end = min(geom.lines[0].end, len(d.text))
+			}
 			text_input_move_to(g, id, forward ? end : start, extend)
 			return
 		}
 		content := content_rect(g, w)
-		lines := text_box_lines(g, w, d.text, true, content.w)
+		geom := text_box_geometry(g, id, w, content.w)
+		if geom == nil {return}
+		lines := geom.lines
 		index := text_line_of(lines, d.text, d.caret)
 		if index < 0 || index >= len(lines) {return}
 		line_start := lines[index].start
@@ -1086,6 +1227,7 @@ text_input_line_edge :: proc(g: ^GUI, id: Widget_ID, forward: bool, extend: bool
 text_input_select_all :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil {return}
+	undo_group_break(g, id)
 	#partial switch &d in w.data {
 	case Text_Box_Data:
 		text_select_all(d.text, &d.caret, &d.sel_start, &d.sel_end)
@@ -1113,15 +1255,14 @@ text_input_cut :: proc(g: ^GUI, id: Widget_ID) {
 	}
 	text_input_copy(g, id)
 	text_input_delete(g, id)
+	undo_group_break(g, id)
 }
 
 text_input_paste :: proc(g: ^GUI, id: Widget_ID) {
 	text := clipboard_get(g)
 	if text == "" {return}
-	text_input_insert(g, id, text)
+	text_input_insert(g, id, text, .Paste)
 }
-
-//* == The scroll of the box ==
 
 //* Scrolls the box so that the caret is in the room of it. A box of one
 //* line scrolls sideways, and a box of more than one line scrolls down.
@@ -1130,14 +1271,12 @@ text_box_scroll_to_caret :: proc(g: ^GUI, id: Widget_ID) {
 	if w == nil {return}
 	d := text_box_data(g, id)
 	if d == nil {return}
-	f := font_get(g, Font_Of(g, w))
-	if f == nil {return}
 	content := content_rect(g, w)
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil {return}
 
 	if !text_box_is_multiline(d) {
-		lines := text_box_lines(g, w, d.text, false, content.w)
-		if len(lines) == 0 {return}
-		clusters := text_box_clusters(g, lines[0], f.scale)
+		clusters := text_box_line_clusters(geom, 0)
 		if len(clusters) == 0 {return}
 		index := text_box_cluster_of(clusters, d.caret)
 		win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
@@ -1152,7 +1291,7 @@ text_box_scroll_to_caret :: proc(g: ^GUI, id: Widget_ID) {
 	}
 
 	ts := text_box_text_style(g, w, true)
-	lines := text_box_lines(g, w, d.text, true, content.w)
+	lines := geom.lines
 	if len(lines) == 0 {return}
 	height := text_box_content_height(lines, ts.spacing)
 	if height <= content.h {
@@ -1172,29 +1311,25 @@ text_box_scroll_to_caret :: proc(g: ^GUI, id: Widget_ID) {
 	scroll_clamp(&d.scroll_y, height, content.h)
 }
 
-//* == The place of the caret ==
-
 //* The place on the screen of a character of the text of a box.
 text_input_offset_x :: proc(g: ^GUI, id: Widget_ID, content: Rect, offset: int) -> f32 {
 	w := Widget_Get(g, id)
 	if w == nil {return content.x}
 	d := text_box_data(g, id)
 	if d == nil {return content.x}
-	f := font_get(g, Font_Of(g, w))
-	if f == nil {return content.x}
 	multiline := text_box_is_multiline(d)
-	lines := text_box_lines(g, w, d.text, multiline, content.w)
-	if len(lines) == 0 {return content.x}
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil || len(geom.lines) == 0 {return content.x}
+	place := clamp(offset, 0, len(d.text))
 	if !multiline {
-		line := lines[0]
-		clusters := text_box_clusters(g, line, f.scale)
+		clusters := text_box_line_clusters(geom, 0)
 		win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
-		x := text_box_line_caret_x(line, f.scale, clamp(offset, 0, len(d.text)))
+		x := text_box_clusters_caret_x(clusters, place)
 		return content.x + x - win.x
 	}
-	index := text_line_of(lines, d.text, clamp(offset, 0, len(d.text)))
+	index := text_line_of(geom.lines, d.text, place)
 	if index < 0 {return content.x}
-	x := text_box_line_caret_x(lines[index], f.scale, clamp(offset, 0, len(d.text)))
+	x := text_box_clusters_caret_x(text_box_line_clusters(geom, index), place)
 	return content.x + x
 }
 
@@ -1212,12 +1347,12 @@ text_input_caret_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect {
 	if height <= 0 {return {}}
 
 	multiline := text_box_is_multiline(d)
-	lines := text_box_lines(g, w, d.text, multiline, content.w)
-	if len(lines) == 0 {return {}}
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil || len(geom.lines) == 0 {return {}}
 
 	if !multiline {
-		line := lines[0]
-		clusters := text_box_clusters(g, line, f.scale)
+		line := geom.lines[0]
+		clusters := text_box_line_clusters(geom, 0)
 		win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
 		block := line.height
 		if block <= 0 {block = height}
@@ -1228,25 +1363,24 @@ text_input_caret_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect {
 		case .Top:
 		}
 		return Rect {
-			x = text_input_offset_x(g, id, content, d.caret),
+			x = content.x + text_box_clusters_caret_x(clusters, clamp(d.caret, 0, len(d.text))) - win.x,
 			y = top,
 			w = 2,
 			h = block,
 		}
 	}
 
-	//* A box of more than one line: the caret stands on the line that
-	//* holds it.
 	ts := text_box_text_style(g, w, true)
-	index := text_line_of(lines, d.text, d.caret)
+	index := text_line_of(geom.lines, d.text, d.caret)
 	if index < 0 {return {}}
-	line := lines[index]
+	line := geom.lines[index]
 	y := content.y - d.scroll_y
-	for i in 0 ..< index {y += lines[i].height + ts.spacing}
+	for i in 0 ..< index {y += geom.lines[i].height + ts.spacing}
 	block := line.height
 	if block <= 0 {block = height}
+	place := clamp(d.caret, 0, len(d.text))
 	return Rect {
-		x = content.x + text_box_line_caret_x(line, f.scale, clamp(d.caret, 0, len(d.text))),
+		x = content.x + text_box_clusters_caret_x(text_box_line_clusters(geom, index), place),
 		y = y,
 		w = 2,
 		h = block,
@@ -1257,8 +1391,7 @@ text_input_caret_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect {
 //* that has a part of it.
 text_box_selection_rects :: proc(
 	g: ^GUI,
-	f: ^Font,
-	lines: []Text_Line,
+	geom: ^Text_Box_Geometry,
 	ts: Text_Style,
 	content: Rect,
 	text: string,
@@ -1267,15 +1400,16 @@ text_box_selection_rects :: proc(
 	allocator := virt.arena_allocator(&g.frame_arena)
 	out := make([dynamic]Rect, 0, 4, allocator)
 	y := content.y
-	for i in 0 ..< len(lines) {
-		line := lines[i]
+	for i in 0 ..< len(geom.lines) {
+		line := geom.lines[i]
 		line_start := line.start
 		line_end := min(line.end, len(text))
 		a := max(start, line_start)
 		b := min(end, line_end)
 		if a < b {
-			x0 := text_box_line_caret_x(line, f.scale, clamp(a, line_start, line_end))
-			x1 := text_box_line_caret_x(line, f.scale, clamp(b, line_start, line_end))
+			clusters := text_box_line_clusters(geom, i)
+			x0 := text_box_clusters_caret_x(clusters, clamp(a, line_start, line_end))
+			x1 := text_box_clusters_caret_x(clusters, clamp(b, line_start, line_end))
 			lo := content.x + min(x0, x1)
 			hi := content.x + max(x0, x1)
 			append(&out, Rect{x = lo, y = y, w = hi - lo, h = line.height})
@@ -1285,9 +1419,6 @@ text_box_selection_rects :: proc(
 	return out
 }
 
-//* The place of the text that is taken. A box of one line takes its text
-//* in one piece, and a box of more than one line takes it in a piece for
-//* every line of it.
 text_input_selection_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect {
 	w := Widget_Get(g, id)
 	if w == nil {return {}}
@@ -1296,17 +1427,14 @@ text_input_selection_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect
 	start := min(d.sel_start, d.sel_end)
 	end := max(d.sel_start, d.sel_end)
 	if start == end {return {}}
-	f := font_get(g, Font_Of(g, w))
-	if f == nil {return {}}
 	multiline := text_box_is_multiline(d)
-	lines := text_box_lines(g, w, d.text, multiline, content.w)
-	if len(lines) == 0 {return {}}
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil || len(geom.lines) == 0 {return {}}
 	if !multiline {
-		line := lines[0]
-		clusters := text_box_clusters(g, line, f.scale)
+		clusters := text_box_line_clusters(geom, 0)
 		win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
-		x0 := text_box_line_caret_x(line, f.scale, clamp(start, 0, len(d.text)))
-		x1 := text_box_line_caret_x(line, f.scale, clamp(end, 0, len(d.text)))
+		x0 := text_box_clusters_caret_x(clusters, clamp(start, 0, len(d.text)))
+		x1 := text_box_clusters_caret_x(clusters, clamp(end, 0, len(d.text)))
 		lo := content.x + min(x0, x1) - win.x
 		hi := content.x + max(x0, x1) - win.x
 		caret := text_input_caret_rect(g, id, content)
@@ -1314,7 +1442,7 @@ text_input_selection_rect :: proc(g: ^GUI, id: Widget_ID, content: Rect) -> Rect
 	}
 	ts := text_box_text_style(g, w, true)
 	box := Rect{x = content.x, y = content.y - d.scroll_y, w = content.w, h = content.h}
-	rects := text_box_selection_rects(g, f, lines, ts, box, d.text, start, end)
+	rects := text_box_selection_rects(g, geom, ts, box, d.text, start, end)
 	if len(rects) == 0 {return {}}
 	return rects[0]
 }
@@ -1366,6 +1494,7 @@ text_input_ime_editing :: proc(g: ^GUI, text: string, start, length: int) {
 	if id == INVALID_WIDGET_ID {return}
 	w := Widget_Get(g, id)
 	if w == nil {return}
+	undo_group_break(g, id)
 	#partial switch &d in w.data {
 	case Text_Box_Data:
 		begin := clamp(start, 0, len(d.text))
@@ -1404,9 +1533,7 @@ text_input_ime_commit :: proc(g: ^GUI, id: Widget_ID, text: string) -> bool {
 		end := clamp(begin + c.length, begin, len(d.text))
 		kept := utf8.rune_count_in_string(d.text[:begin]) + utf8.rune_count_in_string(d.text[end:])
 		added := text_rules_insert(g, d.rules, text_for_box(g, text, text_box_is_multiline(&d)), kept)
-		//* The text before the change is kept, so that the change can
-		//* be taken back.
-		snapshot := undo_snapshot(g, id)
+		snapshot := undo_snapshot_kind(g, id, .Typing)
 		new_text := strings.concatenate({d.text[:begin], added, d.text[end:]})
 		delete(d.text)
 		d.text = new_text
@@ -1447,35 +1574,32 @@ text_input_draw_ime :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	if !ok {return}
 	d := text_box_data(g, id)
 	if d == nil {return}
-	f := font_get(g, Font_Of(g, w))
-	if f == nil {return}
 	multiline := text_box_is_multiline(d)
 	ts := text_box_text_style(g, w, multiline)
-	lines := text_box_lines(g, w, d.text, multiline, content.w)
-	if len(lines) == 0 {return}
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil || len(geom.lines) == 0 {return}
 
 	//* The composition stands on the line that holds it.
 	index := 0
 	if multiline {
-		index = text_line_of(lines, d.text, clamp(c.start, 0, len(d.text)))
+		index = text_line_of(geom.lines, d.text, clamp(c.start, 0, len(d.text)))
 		if index < 0 {index = 0}
 	}
-	line := lines[index]
+	line := geom.lines[index]
+	clusters := text_box_line_clusters(geom, index)
 
-	//* The place of the composition in the box.
 	x := content.x
 	y := content.y
 	if !multiline {
-		clusters := text_box_clusters(g, line, f.scale)
 		win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
 		x -= win.x
 	} else {
 		y -= d.scroll_y
-		for i in 0 ..< index {y += lines[i].height + ts.spacing}
+		for i in 0 ..< index {y += geom.lines[i].height + ts.spacing}
 	}
 
-	x0 := text_box_line_caret_x(line, f.scale, clamp(c.start, 0, len(d.text)))
-	x1 := text_box_line_caret_x(line, f.scale, clamp(c.start + c.length, 0, len(d.text)))
+	x0 := text_box_clusters_caret_x(clusters, clamp(c.start, 0, len(d.text)))
+	x1 := text_box_clusters_caret_x(clusters, clamp(c.start + c.length, 0, len(d.text)))
 	lo := x + min(x0, x1)
 	hi := x + max(x0, x1)
 	baseline := y + line.baseline
@@ -1488,8 +1612,6 @@ text_input_draw_ime :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	)
 }
 
-//* == The drawing of a box ==
-
 draw_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	d := text_box_data(g, id)
 	if d == nil {return}
@@ -1498,14 +1620,15 @@ draw_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	multiline := text_box_is_multiline(d)
 	ts := text_box_text_style(g, w, multiline)
 	colour := resolved_text_colour(g, id, w)
-	lines := text_box_lines(g, w, d.text, multiline, content.w)
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil {return}
 
 	draw_push_clip(g.target, content)
 
 	if multiline {
-		text_box_draw_lines(g, id, w, d, f, ts, lines, content, colour)
+		text_box_draw_lines(g, id, w, d, f, ts, geom, content, colour)
 	} else {
-		text_box_draw_line(g, id, w, d, f, ts, lines, content, colour)
+		text_box_draw_line(g, id, w, d, f, ts, geom, content, colour)
 	}
 
 	text_input_draw_ime(g, id, w, content)
@@ -1513,8 +1636,6 @@ draw_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	draw_pop_clip(g.target)
 }
 
-//* The drawing of a box of one line: the text of it, the part of it that
-//* is taken, the caret, and the scroll bar at the bottom.
 text_box_draw_line :: proc(
 	g: ^GUI,
 	id: Widget_ID,
@@ -1522,22 +1643,18 @@ text_box_draw_line :: proc(
 	d: ^Text_Box_Data,
 	f: ^Font,
 	ts: Text_Style,
-	lines: []Text_Line,
+	geom: ^Text_Box_Geometry,
 	content: Rect,
 	colour: Colour,
 ) {
-	line := Text_Line{}
-	if len(lines) > 0 {line = lines[0]}
-	clusters := text_box_clusters(g, line, f.scale)
+	clusters := text_box_line_clusters(geom, 0)
 	win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
 	caret := text_input_caret_rect(g, id, content)
-
-	//* The text that is taken.
 	start := min(d.sel_start, d.sel_end)
 	end := max(d.sel_start, d.sel_end)
 	if start != end {
-		x0 := text_box_line_caret_x(line, f.scale, clamp(start, 0, len(d.text)))
-		x1 := text_box_line_caret_x(line, f.scale, clamp(end, 0, len(d.text)))
+		x0 := text_box_clusters_caret_x(clusters, clamp(start, 0, len(d.text)))
+		x1 := text_box_clusters_caret_x(clusters, clamp(end, 0, len(d.text)))
 		lo := content.x + min(x0, x1) - win.x
 		hi := content.x + max(x0, x1) - win.x
 		draw_quad(
@@ -1555,10 +1672,10 @@ text_box_draw_line :: proc(
 		//* The window shows no more characters than the program allows,
 		//* and the text past the end of it is cut away.
 		draw_push_clip(g.target, Rect{x = content.x, y = content.y, w = win.width, h = content.h})
-		draw_text(g, ts, d.text, box, colour)
+		draw_text_lines(g, f, ts, geom.lines, box, colour)
 		draw_pop_clip(g.target)
 	} else {
-		draw_text(g, ts, d.text, box, colour)
+		draw_text_lines(g, f, ts, geom.lines, box, colour)
 	}
 
 	//* The caret. It flashes while the box has the keyboard.
@@ -1574,9 +1691,6 @@ text_box_draw_line :: proc(
 	}
 }
 
-//* The drawing of a box of more than one line: the lines of the text,
-//* the part of it that is taken, the caret, and the scroll bar at the
-//* right of the box.
 text_box_draw_lines :: proc(
 	g: ^GUI,
 	id: Widget_ID,
@@ -1584,28 +1698,25 @@ text_box_draw_lines :: proc(
 	d: ^Text_Box_Data,
 	f: ^Font,
 	ts: Text_Style,
-	lines: []Text_Line,
+	geom: ^Text_Box_Geometry,
 	content: Rect,
 	colour: Colour,
 ) {
-	height := text_box_content_height(lines, ts.spacing)
+	height := text_box_content_height(geom.lines, ts.spacing)
 	scroll_clamp(&d.scroll_y, height, content.h)
 
-	//* The text that is taken.
 	start := min(d.sel_start, d.sel_end)
 	end := max(d.sel_start, d.sel_end)
 	if start != end {
 		box := Rect{x = content.x, y = content.y - d.scroll_y, w = content.w, h = content.h}
-		for rect in text_box_selection_rects(g, f, lines, ts, box, d.text, start, end) {
+		for rect in text_box_selection_rects(g, geom, ts, box, d.text, start, end) {
 			draw_quad(g.target, rect, g.atlas.white_uv, TEXT_SELECTION_COLOUR, g.atlas_texture)
 		}
 	}
 
-	//* The text itself, moved by the scroll of the box.
 	box := Rect{x = content.x, y = content.y - d.scroll_y, w = content.w, h = content.h}
-	draw_text(g, ts, d.text, box, colour)
+	draw_text_lines(g, f, ts, geom.lines, box, colour)
 
-	//* The caret. It flashes while the box has the keyboard.
 	if g.focused == id && caret_visible(g) {
 		caret := text_input_caret_rect(g, id, content)
 		if caret.h > 0 {
@@ -1613,16 +1724,10 @@ text_box_draw_lines :: proc(
 		}
 	}
 
-	//* The scroll bar at the right of the box.
 	if text_box_scrollbar_v(g, id) {
 		text_box_draw_scrollbar_v(g, w, content, d.scroll_y, height)
 	}
 }
-
-//* == The scroll bars of a box ==
-//* The toolkit has no scroll bar widget for the text boxes: the bar is
-//* drawn over the text, at the bottom of a box of one line, and at the
-//* right of a box of more than one line.
 
 text_box_scrollbar_colours :: proc(g: ^GUI, w: ^Widget) -> (track, thumb: Colour) {
 	track = theme_color(g, w, "scrollbar_track")
@@ -1640,12 +1745,10 @@ text_box_scrollbar_h :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	d := text_box_data(g, id)
 	if d == nil {return false}
 	if text_box_is_multiline(d) {return false}
-	f := font_get(g, Font_Of(g, w))
-	if f == nil {return false}
 	content := content_rect(g, w)
-	lines := text_box_lines(g, w, d.text, false, content.w)
-	if len(lines) == 0 {return false}
-	clusters := text_box_clusters(g, lines[0], f.scale)
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil || len(geom.lines) == 0 {return false}
+	clusters := text_box_line_clusters(geom, 0)
 	win := text_box_window(clusters, text_box_shown_chars(d), d.scroll_chars, content.w)
 	return win.count < len(clusters)
 }
@@ -1660,8 +1763,9 @@ text_box_scrollbar_v :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	if !text_box_is_multiline(d) {return false}
 	content := content_rect(g, w)
 	ts := text_box_text_style(g, w, true)
-	lines := text_box_lines(g, w, d.text, true, content.w)
-	height := text_box_content_height(lines, ts.spacing)
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil {return false}
+	height := text_box_content_height(geom.lines, ts.spacing)
 	return height > content.h
 }
 
@@ -1724,12 +1828,6 @@ text_box_draw_scrollbar_v :: proc(
 	)
 }
 
-//* == The keys of a box ==
-
-//* The keys of a text box. A box of one line submits its text when the
-//* enter key is pressed, and the tab key goes to the next widget. A box
-//* of more than one line takes the enter key as a new line, and the tab
-//* key indents the text.
 key_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Key_Down_Event) {
 	d := text_box_data(g, id)
 	if d == nil {return}
@@ -1790,9 +1888,7 @@ key_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Key_Down_Event) {
 		}
 	case .Enter:
 		if multiline {
-			//* The box has more than one line, so the enter key makes
-			//* a new line in it.
-			text_input_insert(g, id, "\n")
+			text_input_insert(g, id, "\n", .Typing)
 			Event_Handled(g)
 		} else {
 			signal_submitted(g, id, d.text)
@@ -1804,7 +1900,7 @@ key_text_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Key_Down_Event) {
 		if multiline {
 			//* The tab key indents the text: the box has more than one
 			//* line, so the focus stays where it is.
-			text_input_insert(g, id, TEXT_INDENT)
+			text_input_insert(g, id, TEXT_INDENT, .Typing)
 			Event_Handled(g)
 		}
 	}
@@ -1818,27 +1914,32 @@ text_box_move_line :: proc(g: ^GUI, id: Widget_ID, down: bool, extend: bool) {
 	if w == nil {return}
 	d := text_box_data(g, id)
 	if d == nil {return}
-	f := font_get(g, Font_Of(g, w))
-	if f == nil {return}
 	content := content_rect(g, w)
-	lines := text_box_lines(g, w, d.text, true, content.w)
-	if len(lines) == 0 {return}
+	geom := text_box_geometry(g, id, w, content.w)
+	if geom == nil || len(geom.lines) == 0 {return}
+	lines := geom.lines
 	index := text_line_of(lines, d.text, d.caret)
 	if index < 0 {return}
 	target := index + (down ? 1 : -1)
 	if target < 0 || target >= len(lines) {return}
-	x := text_box_line_caret_x(lines[index], f.scale, clamp(d.caret, 0, len(d.text)))
+	undo_group_break(g, id)
+	x := text_box_clusters_caret_x(
+		text_box_line_clusters(geom, index),
+		clamp(d.caret, 0, len(d.text)),
+	)
 	line_end := min(lines[target].end, len(d.text))
-	place := text_box_line_offset_at(lines[target], f.scale, x, line_end)
+	place := text_box_clusters_offset_at(
+		text_box_line_clusters(geom, target),
+		x,
+		lines[target].start,
+		line_end,
+	)
 	text_select_move(d.text, &d.caret, &d.sel_start, &d.sel_end, place, extend)
 	text_box_scroll_to_caret(g, id)
 	caret_reset(g)
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
-//* == The keys and the text of the tree ==
-
-//* The keys of the widget that has the focus.
 fire_key :: proc(g: ^GUI, id: Widget_ID, e: Key_Down_Event) {
 	if id == INVALID_WIDGET_ID {return}
 	w := Widget_Get(g, id)
@@ -1853,7 +1954,6 @@ fire_key :: proc(g: ^GUI, id: Widget_ID, e: Key_Down_Event) {
 	}
 }
 
-//* The text that is typed goes to the widget that has the focus.
 fire_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	if id == INVALID_WIDGET_ID {return}
 	w := Widget_Get(g, id)
@@ -1868,7 +1968,7 @@ fire_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	#partial switch d in w.data {
 	case Text_Box_Data:
 		if !text_input_ime_commit(g, id, text) {
-			text_input_insert(g, id, text)
+			text_input_insert(g, id, text, .Typing)
 		}
 	}
 }

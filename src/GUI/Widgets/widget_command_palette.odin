@@ -34,7 +34,7 @@ Make_Command_Palette :: proc(g: ^GUI, parent: Widget_ID, opts: Command_Palette_O
 
 	id := New_Widget(g, .CommandPalette, parent, base)
 	w := Widget_Get(g, id)
-	w.data = Command_Palette_Data{selected = -1, text = strings.clone("")}
+	w.data = Command_Palette_Data{selected = -1, text = strings.clone(""), matches_dirty = true}
 	w.focus_mode = .All
 	w.mouse_filter = .Ignore
 	w.focus_neighbour = {id, id, id, id}
@@ -76,6 +76,7 @@ Command_Palette_Add :: proc(
 	d := command_palette_data(g, id)
 	if d == nil { return }
 	append(&d.commands, Palette_Command{label = label, action = action, keywords = keywords})
+	d.matches_dirty = true
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
@@ -112,6 +113,40 @@ command_palette_move :: proc(g: ^GUI, id: Widget_ID, delta: int) {
 		selected += delta
 	}
 	d.selected = clamp(selected, 0, count - 1)
+	command_palette_scroll_to_selection(g, id)
+}
+
+command_palette_visible_rows :: proc(g: ^GUI, id: Widget_ID) -> int {
+	w := Widget_Get(g, id)
+	if w == nil {return 1}
+	content := content_rect(g, w)
+	return max(int((content.h - PALETTE_FIELD_HEIGHT) / PALETTE_ROW), 1)
+}
+
+command_palette_scroll_to_selection :: proc(g: ^GUI, id: Widget_ID) {
+	d := command_palette_data(g, id)
+	if d == nil || d.selected < 0 {return}
+	visible := command_palette_visible_rows(g, id)
+	if d.selected < d.scroll {
+		d.scroll = d.selected
+	} else if d.selected >= d.scroll + visible {
+		d.scroll = d.selected - visible + 1
+	}
+	d.scroll = clamp(d.scroll, 0, max(Command_Palette_Count(g, id) - visible, 0))
+}
+
+command_palette_row_at :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, pos: Vec2) -> int {
+	d := command_palette_data(g, id)
+	if d == nil || !d.visible {return -1}
+	content := content_rect(g, w)
+	if pos.x < content.x || pos.x >= content.x + content.w {return -1}
+	top := content.y + PALETTE_FIELD_HEIGHT
+	if pos.y < top || pos.y >= content.y + content.h {return -1}
+	row := int((pos.y - top) / PALETTE_ROW)
+	if row < 0 || row >= command_palette_visible_rows(g, id) {return -1}
+	index := d.scroll + row
+	if index < 0 || index >= Command_Palette_Count(g, id) {return -1}
+	return index
 }
 
 command_palette_run :: proc(g: ^GUI, id: Widget_ID) {
@@ -119,14 +154,11 @@ command_palette_run :: proc(g: ^GUI, id: Widget_ID) {
 	if d == nil { return }
 
 	action: proc(g: ^GUI, id: Widget_ID)
-	index := 0
-	for command in d.commands {
-		if !palette_command_matches(command, d.text) { continue }
-		if index == d.selected {
-			action = command.action
-			break
-		}
-		index += 1
+	matches := command_palette_matches(d)
+	if d.selected >= 0 && d.selected < len(matches) {
+		command := d.commands[matches[d.selected].index]
+		action = command.action
+		d.last_tag = command.tag
 	}
 
 	Command_Palette_Close(g, id)
@@ -183,25 +215,38 @@ update_command_palette :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, dt: f32) {
 
 click_command_palette :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	focus_set(g, id)
+	d := command_palette_data(g, id)
+	if d == nil || !d.visible {return}
+	row := command_palette_row_at(g, id, w, g.pointer)
+	if row < 0 {return}
+	d.selected = row
+	command_palette_run(g, id)
 }
 
 draw_command_palette :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
-	#partial switch d in w.data {
+	#partial switch &d in w.data {
 	case Command_Palette_Data:
 		if !d.visible { return }
 
-		rows := Command_Palette_Count(g, id)
+		matches := command_palette_matches(&d)
+		count := len(matches)
+		visible := command_palette_visible_rows(g, id)
+		d.scroll = clamp(d.scroll, 0, max(count - visible, 0))
+		shown := min(count, visible)
+
 		panel := Rect{
 			x = content.x,
 			y = content.y,
 			w = content.w,
-			h = PALETTE_FIELD_HEIGHT + f32(rows) * PALETTE_ROW,
+			h = PALETTE_FIELD_HEIGHT + f32(shown) * PALETTE_ROW,
 		}
 		draw_rect(g, panel, RGBA(0.11, 0.12, 0.15, 0.98), 8)
 
 		ink := resolved_text_colour(g, id, w)
 		row_style := resolved_style(g, w).text
 		row_style.valign = .Center
+		row_style.overrun = .Ellipsis
+		row_style.clip = true
 
 		field := Rect{x = content.x, y = content.y, w = content.w, h = PALETTE_FIELD_HEIGHT}
 		draw_rect(g, field, RGBA(0.16, 0.17, 0.21, 1), 6)
@@ -216,20 +261,39 @@ draw_command_palette :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) 
 			Rect{x = field.x + 12, y = field.y, w = field.w - 24, h = field.h}, colour)
 
 		y := field.y + field.h
-		index := 0
-		for command in d.commands {
-			if !palette_command_matches(command, d.text) { continue }
+		for match, rank in matches {
+			if rank < d.scroll { continue }
+			if rank >= d.scroll + shown {break}
+			command := d.commands[match.index]
 
 			row := Rect{x = content.x + 4, y = y, w = content.w - 8, h = PALETTE_ROW}
 			row_ink := ink
-			if index == d.selected {
+			if rank == d.selected {
 				draw_rect(g, row, RGBA(0.16, 0.42, 0.82, 1), 4)
 				row_ink = RGBA(1, 1, 1, 1)
 			}
-			draw_text(g, row_style, command.label,
-				Rect{x = row.x + 8, y = row.y, w = row.w - 16, h = row.h}, row_ink)
+
+			label_style := row_style
+			label_style.align = .Left
+			detail_x := row.x + row.w
+			label_w := row.w - 16
+			detail_w: f32 = 0
+			if command.detail != "" {
+				natural := Measure_Text(g, row_style, command.label, 0).x
+				label_w = min(natural + 20, row.w - 16)
+				detail_x = row.x + 8 + label_w + 12
+				detail_w = row.x + row.w - 8 - detail_x
+			}
+			draw_text(g, label_style, command.label,
+				Rect{x = row.x + 8, y = row.y, w = label_w, h = row.h}, row_ink)
+			if detail_w >= 48 {
+				detail_style := row_style
+				detail_style.align = .Left
+				draw_text(g, detail_style, command.detail,
+					Rect{x = detail_x, y = row.y, w = detail_w, h = row.h},
+					Scale_Colour(row_ink, 0.62))
+			}
 			y += PALETTE_ROW
-			index += 1
 		}
 	}
 }

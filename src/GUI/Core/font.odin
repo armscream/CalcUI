@@ -459,7 +459,14 @@ Font_Draw :: proc(g: ^GUI, id: Font_ID, text: string, rect: Rect, colour: Colour
 
 font_slot :: proc(g: ^GUI, f: ^Font, src: ^runa.Font, gid: runa.Glyph_ID, bucket: u8 = 0) -> (Glyph_Entry, bool) {
 	key := Glyph_Key{font = src, gid = gid, px_q = u32(f.px_size * 16), subpx = bucket & 3}
-	if entry, hit := g.glyphs[key]; hit { return entry, true }
+	if entry, hit := g.glyphs[key]; hit {
+		if entry.px_size[0] == 0 || entry.px_size[1] == 0 {return entry, true}
+		if atlas_region_valid(g.atlas, entry.region) {
+			atlas_touch(g.atlas, entry.region)
+			return entry, true
+		}
+		delete_key(&g.glyphs, key)
+	}
 
 	slot, err := runa.raster_glyph(src, gid, f.px_size, bucket & 3, &f.file.atlas)
 	if err != .None { return {}, false }
@@ -495,7 +502,7 @@ font_place_glyph :: proc(g: ^GUI, f: ^Font, entry: ^Glyph_Entry, slot: runa.Atla
 	if x + w > int(page.width) { return false }
 	if y + h > int(page.height) { return false }
 
-	region := atlas_alloc(g.atlas, w + GLYPH_GUTTER * 2, h + GLYPH_GUTTER * 2, true)
+	region := atlas_alloc(g.atlas, w + GLYPH_GUTTER * 2, h + GLYPH_GUTTER * 2, false)
 	if region.id < 0 { return false }
 
 	if slot.is_color {

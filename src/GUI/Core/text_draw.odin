@@ -69,7 +69,18 @@ draw_text :: proc(g: ^GUI, ts: Text_Style, text: string, rect: Rect, colour: Col
 		cut_text_overrun(g, f, ts, &lines, rect)
 	}
 
-	quads := glyph_quads(g, f, lines[:], ts, rect)
+	draw_text_lines(g, f, ts, lines[:], rect, colour)
+}
+
+draw_text_lines :: proc(
+	g: ^GUI,
+	f: ^Font,
+	ts: Text_Style,
+	lines: []Text_Line,
+	rect: Rect,
+	colour: Colour,
+) {
+	quads := glyph_quads(g, f, lines, ts, rect)
 	if len(quads) == 0 {return}
 
 	if ts.clip {draw_push_clip(g.target, rect)}

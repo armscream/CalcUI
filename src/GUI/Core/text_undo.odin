@@ -111,14 +111,10 @@ undo_text_set :: proc(g: ^GUI, id: Widget_ID, text: string, caret: int) {
 	caret_reset(g)
 }
 
-//* == The changes of a widget ==
 
-//* A copy of the text of a widget, taken before the text is changed. The
-//* copy belongs to the caller: it is given to the stack of the widget
-//* when the change is done, or given back when the change does not
-//* happen.
 Undo_Snapshot :: struct {
 	state: Undo_State,
+	kind:  Undo_Kind,
 	//* Whether there is a copy at all: the text of a widget may be
 	//* empty and still be worth remembering.
 	taken: bool,
@@ -126,11 +122,16 @@ Undo_Snapshot :: struct {
 
 //* Takes a copy of the text of a widget, before the text is changed.
 undo_snapshot :: proc(g: ^GUI, id: Widget_ID) -> Undo_Snapshot {
+	return undo_snapshot_kind(g, id, .Programmatic)
+}
+
+undo_snapshot_kind :: proc(g: ^GUI, id: Widget_ID, kind: Undo_Kind) -> Undo_Snapshot {
 	text, caret := undo_text_of(g, id)
 	copy_text, err := strings.clone(text)
 	if err != nil {return {}}
 	return Undo_Snapshot {
 		state = Undo_State{text = copy_text, caret = caret},
+		kind = kind,
 		taken = true,
 	}
 }
@@ -159,6 +160,30 @@ undo_commit :: proc(g: ^GUI, id: Widget_ID, snapshot: ^Undo_Snapshot) {
 		undo_snapshot_free(snapshot)
 		return
 	}
+
+	kind := snapshot.kind
+	if undo_kind_coalesces(kind) &&
+	   stack.group_open &&
+	   stack.group_kind == kind &&
+	   stack.at == len(stack.records) &&
+	   len(stack.records) > 0 {
+		previous := &stack.records[len(stack.records) - 1]
+		if snapshot.state.caret == previous.caret_after &&
+		   snapshot.state.text == previous.after {
+			after_copy, err := strings.clone(after_text)
+			if err != nil {
+				undo_snapshot_free(snapshot)
+				return
+			}
+			if len(previous.after) > 0 {delete(previous.after)}
+			previous.after = after_copy
+			previous.caret_after = after_caret
+			previous.kind = kind
+			undo_snapshot_free(snapshot)
+			return
+		}
+	}
+
 	after_copy, err := strings.clone(after_text)
 	if err != nil {
 		undo_snapshot_free(snapshot)
@@ -172,8 +197,11 @@ undo_commit :: proc(g: ^GUI, id: Widget_ID, snapshot: ^Undo_Snapshot) {
 			widget = id,
 			caret = snapshot.state.caret,
 			caret_after = after_caret,
+			kind = kind,
 		},
 	)
+	stack.group_kind = kind
+	stack.group_open = undo_kind_coalesces(kind)
 	//* The copy of the text belongs to the record now.
 	snapshot.state.text = ""
 	snapshot.taken = false
@@ -324,6 +352,7 @@ rich_text_editor_set_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 rich_text_editor_click :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, p: Vec2, clicks: int) {
 	state := rich_text_editor_state(g, id)
 	if state == nil {return}
+	undo_group_break(g, id)
 
 	offset := rich_text_editor_offset_at_local(g, id, w, text_box_local(w, p))
 	action := text_click_action(state.text, &state.selection, offset, clicks)
