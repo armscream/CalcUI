@@ -25,6 +25,7 @@ Base_Opts :: struct {
 	hidden:        bool,
 
 	//* The control features.
+	interactive:   bool,
 	mouse_filter:  Mouse_Filter,
 	focus_mode:    Focus_Mode,
 	tab_index:     int,
@@ -57,6 +58,7 @@ Base_Opts :: struct {
 	//* the container. The built-in containers honour it; a container of
 	//* a custom class that lays itself out decides what it means.
 	absolute:      bool,
+	grid_placement: Grid_Placement,
 	//* The direction the widget grows in: from the left to the right or
 	//* from the right to the left. A container that stacks its children
 	//* along the horizontal axis puts them in the other order when the
@@ -87,6 +89,7 @@ base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
 		use_theme = base.use_theme,
 		variation = base.variation,
 		hidden = base.hidden,
+		interactive = base.interactive,
 		mouse_filter = base.mouse_filter,
 		focus_mode = base.focus_mode,
 		tab_index = base.tab_index,
@@ -95,6 +98,7 @@ base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
 		stretch_ratio = base.stretch_ratio,
 		shrink_weight = base.shrink_weight,
 		absolute = base.absolute,
+		grid_placement = grid_placement_normalize(base.grid_placement),
 		layout_direction = base.layout_direction,
 		clip_contents = base.clip_contents,
 		tooltip = base.tooltip,

@@ -62,6 +62,7 @@ UI_Atlas :: struct {
 	free_slots: [dynamic]int,
 	dirty:   [dynamic]Atlas_Region,
 	frame:   u64,
+	retained_frame: u64,
 	white:   Atlas_Region,
 	white_uv: [4]f32,
 	scratch:  []u8,
@@ -244,6 +245,22 @@ atlas_region_uv_inside :: proc(a: ^UI_Atlas, region: Atlas_Region, x, y, w, h: i
 	}
 }
 
+//* The texture coordinates of a sub-rectangle of a region, in pixels.
+//* The values may be fractional, which the nine-patch layout needs when
+//* an edge is tiled and the last tile is only partly shown.
+atlas_region_uv_inside_f :: proc(
+	a: ^UI_Atlas,
+	region: Atlas_Region,
+	x, y, w, h: f32,
+) -> [4]f32 {
+	return [4]f32{
+		(f32(region.x) + x) / f32(a.width),
+		(f32(region.y) + y) / f32(a.height),
+		(f32(region.x) + x + w) / f32(a.width),
+		(f32(region.y) + y + h) / f32(a.height),
+	}
+}
+
 //* True when the region still names the space it was given. A region
 //* that was given back, or whose slot was used again, does not.
 atlas_region_valid :: proc(a: ^UI_Atlas, region: Atlas_Region) -> bool {
@@ -254,12 +271,14 @@ atlas_region_valid :: proc(a: ^UI_Atlas, region: Atlas_Region) -> bool {
 }
 
 //* Throws out the region that was used longest ago. Only the regions
-//* that are not pinned can go.
+//* that are not pinned can go, and a region that the retained draw
+//* lists name stays: the lists would draw stale texture coordinates.
 atlas_evict :: proc(a: ^UI_Atlas) -> bool {
 	oldest := -1
 	oldest_used := u64(0)
 	for &alloc, i in a.allocs {
 		if alloc.freed || alloc.pinned { continue }
+		if alloc.used == a.retained_frame { continue }
 		if oldest < 0 || alloc.used < oldest_used {
 			oldest_used = alloc.used
 			oldest = i
@@ -425,6 +444,11 @@ atlas_touch :: proc(a: ^UI_Atlas, region: Atlas_Region) {
 //* The next frame: the regions that were not used are the first to go.
 atlas_next_frame :: proc(a: ^UI_Atlas) {
 	a.frame += 1
+}
+
+atlas_build_begin :: proc(a: ^UI_Atlas) {
+	if a == nil {return}
+	a.retained_frame = a.frame
 }
 
 atlas_live_count :: proc(a: ^UI_Atlas) -> int {

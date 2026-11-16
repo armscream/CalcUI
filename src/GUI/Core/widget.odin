@@ -561,6 +561,13 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	case Context_Menu_Data:
 		delete(d.items)
 	case Command_Palette_Data:
+		if d.commands_owned {
+			for &command in d.commands {
+				if len(command.label) > 0 {delete(command.label)}
+				if len(command.keywords) > 0 {delete(command.keywords)}
+				if len(command.detail) > 0 {delete(command.detail)}
+			}
+		}
 		delete(d.text)
 		delete(d.commands)
 	case Segmented_Data:
@@ -592,11 +599,7 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 			delete(d.chart.labels)
 		}
 	case Node_Graph_Data:
-		if d.graph != nil {
-			for &node in d.graph.nodes { delete(node.ports) }
-			delete(d.graph.nodes)
-			delete(d.graph.wires)
-		}
+		if d.graph != nil {node_graph_free_storage(d.graph)}
 	case Rich_Text_Editor_Data:
 		if d.state != nil {
 			delete(d.state.text)

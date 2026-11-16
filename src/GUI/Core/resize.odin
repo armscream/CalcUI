@@ -332,6 +332,13 @@ resize_float :: proc(g: ^GUI, index: int, dl_in, dt_in, dr_in, db_in: f32) {
 //* The grip under the pointer, and the cursor that goes with it. The
 //* cursor is what tells the user that the edge can be pulled.
 update_resize_hover :: proc(g: ^GUI) {
+	old_hover := g.resize_hover
+	old_edges := g.resize_hover_edges
+	defer {
+		if g.resize_hover != old_hover || g.resize_hover_edges != old_edges {
+			draw_invalidate(g)
+		}
+	}
 	g.resize_hover = INVALID_WIDGET_ID
 	g.resize_hover_edges = Resize_Edges{}
 	g.cursor = .Default

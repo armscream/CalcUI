@@ -33,6 +33,12 @@ DIRTY_FROM_MEASURE :: Dirty_Flags{.Measure, .Arrange, .Hit}
 //* another place.
 DIRTY_FROM_ARRANGE :: Dirty_Flags{.Arrange, .Hit}
 
+draw_invalidate :: proc(g: ^GUI) {
+	if g == nil {return}
+	g.draw_epoch += 1
+	g.draw_valid = false
+}
+
 //* Marks a widget as out of date. The flags say what is stale about
 	//* it. The ancestors are marked as well: a parent lays its children
 	//* out, and a child that changed changes the place of its brothers.
@@ -53,6 +59,7 @@ invalidate_widget :: proc(g: ^GUI, w: ^Widget, flags: Dirty_Flags) {
 	w.dirty += all
 	w.subtree_dirty += all
 	propagate_up(g, w, all)
+	draw_invalidate(g)
 }
 
 invalidate_subtree :: proc(g: ^GUI, id: Widget_ID, flags: Dirty_Flags) {
@@ -62,6 +69,7 @@ invalidate_subtree :: proc(g: ^GUI, id: Widget_ID, flags: Dirty_Flags) {
 	all := dirty_with(flags)
 	mark_subtree(g, w, all)
 	propagate_up(g, w, all)
+	draw_invalidate(g)
 }
 
 //* The flags with the ones that come with them: a measured size that
@@ -122,6 +130,7 @@ invalidate_all :: proc(g: ^GUI, flags: Dirty_Flags) {
 		w.dirty += all
 		w.subtree_dirty += all
 	}
+	draw_invalidate(g)
 }
 
 //* Marks the whole tree as out of date, and asks for the layout to be

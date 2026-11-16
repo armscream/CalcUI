@@ -57,6 +57,7 @@ Handle_Events :: proc(g: ^GUI) {
 	events := g.events
 	g.events = [dynamic]Event{}
 	defer delete(events)
+	if len(events) > 0 {g.frame_requested = true}
 	old_hot := g.hot
 	old_active := g.active
 	old_focused := g.focused
@@ -103,6 +104,7 @@ handle_mouse_move :: proc(g: ^GUI, e: Mouse_Move_Event) {
 	g.pointer = e.pos
 	g.global_pointer = e.global
 	g.pointer_known = true
+	draw_invalidate(g)
 
 	if g.resize.active {
 		resize_update(g, e.global)
@@ -397,17 +399,19 @@ slider_move_to :: proc(g: ^GUI, id: Widget_ID, p: Vec2) {
 	if w == nil { return }
 	style := resolved_style(g, w)
 	content := content_rect_with(w.rect, style.box.content_margin)
+	vertical := w.type == .VSlider
+	track := slider_track(content, vertical)
 	#partial switch d in w.data {
 	case Slider_Data:
 		span := d.max - d.min
 		if span <= 0 { return }
 		factor := f32(0)
-		if w.type == .VSlider {
-			if content.h <= 0 { return }
-			factor = 1 - (p.y - content.y) / content.h
+		if vertical {
+			if track.h <= 0 { return }
+			factor = 1 - (p.y - track.y) / track.h
 		} else {
-			if content.w <= 0 { return }
-			factor = (p.x - content.x) / content.w
+			if track.w <= 0 { return }
+			factor = (p.x - track.x) / track.w
 		}
 		slider_set_value(g, id, d.min + clamp(factor, 0, 1) * span)
 	}
@@ -480,6 +484,7 @@ begin_drag :: proc(g: ^GUI, id: Widget_ID, p: Vec2, grab: Vec2, global: Vec2) ->
 	g.drag.swap = false
 	g.drag.float_index = float_of(g, id)
 	g.drag.plan = Dock_Plan{}
+	draw_invalidate(g)
 	return true
 }
 
@@ -534,6 +539,7 @@ drag_refresh :: proc(g: ^GUI, global: Vec2) {
 	g.drag.swap = .Ctrl in g.mods
 	g.drag.plan = dock_plan(g, g.drag.widget, container, zone, g.drag.swap, local)
 	g.drag.kind = g.drag.plan.kind
+	draw_invalidate(g)
 }
 
 drag_end :: proc(g: ^GUI, global: Vec2) {
@@ -561,6 +567,7 @@ drag_cancel :: proc(g: ^GUI) {
 		invalidate(g, g.drag.widget, Dirty_Flags{.Arrange, .Hit})
 	}
 	g.drag = drag_state_none()
+	draw_invalidate(g)
 }
 
 drag_state_none :: proc() -> Drag_State {

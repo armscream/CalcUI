@@ -11,6 +11,7 @@ Inspector :: struct {
 
 inspector_enable :: proc(g: ^GUI, enabled: bool) {
 	g.inspector.enabled = enabled
+	draw_invalidate(g)
 }
 
 inspector_is_enabled :: proc(g: ^GUI) -> bool {
@@ -19,6 +20,7 @@ inspector_is_enabled :: proc(g: ^GUI) -> bool {
 
 inspector_inspect :: proc(g: ^GUI, inspecting: bool) {
 	g.inspector.inspecting = inspecting
+	draw_invalidate(g)
 }
 
 draw_inspector :: proc(g: ^GUI) {

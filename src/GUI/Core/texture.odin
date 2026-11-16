@@ -82,6 +82,7 @@ Texture_Load_File :: proc(g: ^GUI, path: string) -> (Texture, bool) {
 texture_free :: proc(g: ^GUI, texture: Texture) {
 	if texture.region.id < 0 {return}
 	atlas_free(g.atlas, texture.region)
+	draw_invalidate(g)
 }
 
 texture_logical_size :: proc(g: ^GUI, texture: Texture) -> Vec2 {

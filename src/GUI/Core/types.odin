@@ -161,6 +161,13 @@ Clip_Contents :: enum {
 	Off,
 }
 
+//* How the application loop produces frames: every pass, or only when the
+//* GUI says that the tree, an animation, the caret or an upload needs one.
+Frame_Mode :: enum {
+	Continuous,
+	Event_Driven,
+}
+
 //* Layout behavior along one axis.
 Size_Flag :: enum u8 {
 	//* Use the available space, including a share of remaining space.
@@ -334,10 +341,28 @@ anchor_of :: proc(preset: Anchor_Preset, custom: Anchor) -> Anchor {
 	return Anchor{0, 0, 1, 1}
 }
 
+Style_Transition :: struct {
+	duration: f32,
+	easing:   Easing,
+}
+
+Style_Transition_State :: struct {
+	from:        Style,
+	target:      Style,
+	state:       Style_State,
+	elapsed:     f32,
+	duration:    f32,
+	easing:      Easing,
+	active:      bool,
+	initialized: bool,
+	epoch:       int,
+}
+
 Style :: struct {
-	set:  bit_set[Style_Field],
-	box:  StyleBox,
-	text: Text_Style,
+	set:        bit_set[Style_Field],
+	box:        StyleBox,
+	text:       Text_Style,
+	transition: Style_Transition,
 }
 
 Style_Cache :: struct {
@@ -346,6 +371,7 @@ Style_Cache :: struct {
 	theme_state:     Style,
 	style_of_widget: Style,
 	default_style:   Style,
+	transition:      Style_Transition_State,
 	use_theme:       bool,
 	variation:       string,
 	epoch:           int,
@@ -361,6 +387,7 @@ Style_Field :: enum {
 	Shadow,
 	Expand_Margin,
 	Text,
+	Transition,
 }
 
 Text_Style :: struct {
@@ -424,6 +451,7 @@ Theme_Type :: struct {
 	icons:      map[string]Texture_ID,
 	text:       Text_Style,
 	states:     State_Styles,
+	transition: Style_Transition,
 }
 
 Variation :: struct {
@@ -539,6 +567,7 @@ Widget :: struct {
 	name:             string,
 	parent:           Widget_ID,
 	freeing:          bool,
+	skip_scene_save:  bool,
 	first_child:      Widget_ID,
 	last_child:       Widget_ID,
 	prev_sibling:     Widget_ID,
@@ -553,6 +582,7 @@ Widget :: struct {
 	weight:           f32,
 	separation:       f32,
 	draggable:        bool,
+	grid_placement:   Grid_Placement,
 
 	//* Framework-measured minimum size and assigned geometry.
 	min_size:         Vec2,
@@ -572,6 +602,7 @@ Widget :: struct {
 	//* Program-controlled visibility and enabled state; interaction state is framework-controlled.
 	state:            Widget_State,
 	data:             Widget_Data,
+	interactive:      bool,
 
 	//* Input and focus navigation.
 	mouse_filter:     Mouse_Filter,
@@ -632,6 +663,7 @@ Widget_Opts :: struct {
 	text:               string,
 	text_rules:         Text_Rules,
 	on_click:           proc(g: ^GUI, id: Widget_ID),
+	interactive:        bool,
 	mouse_filter:       Mouse_Filter,
 	focus_mode:         Focus_Mode,
 	tab_index:          int,
@@ -640,6 +672,7 @@ Widget_Opts :: struct {
 	stretch_ratio:      f32,
 	shrink_weight:      f32,
 	absolute:           bool,
+	grid_placement:     Grid_Placement,
 	layout_direction:   Layout_Direction,
 	clip_contents:      Clip_Contents,
 	opacity:            f32,
@@ -750,6 +783,12 @@ GUI :: struct {
 	atlas_failures:            int,
 	dirty:                     Dirty_Flags,
 	full_layout:               bool,
+	frame_mode:                Frame_Mode,
+	frame_requested:           bool,
+	frame_count:               u64,
+	draw_valid:                bool,
+	draw_epoch:                u64,
+	draw_builds:               u64,
 	measured_count:            int,
 	arranged_count:            int,
 	style_epoch:               int,

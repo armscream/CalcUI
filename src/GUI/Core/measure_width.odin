@@ -300,39 +300,42 @@ measure_grid_children_width :: proc(g: ^GUI, w: ^Widget, content_w: f32) {
 
 	base, count := children_begin_flow(g, w)
 	defer children_end(g, base)
+	children := g.children_scratch[base:base + count]
 	if count == 0 {return}
 
-	rows := (count + columns - 1) / columns
-	track_base := floats_begin(g, columns + rows)
-	defer floats_end(g, track_base)
+	d := grid_data(g, w.id)
+	if d == nil {return}
+
+	placements, _ := grid_place_children(g, w, count, columns)
+	column_sizes := grid_measure_columns(
+		g,
+		w,
+		children,
+		placements,
+		columns,
+		d.column_tracks,
+		h_separation,
+	)
+	grid_resolve_tracks(
+		column_sizes,
+		d.column_tracks,
+		columns,
+		inner_w,
+		h_separation,
+		len(d.column_tracks) > 0,
+	)
 
 	for i in 0 ..< count {
-		c := Widget_Get(g, g.children_scratch[base + i])
+		child := g.children_scratch[base + i]
+		c := Widget_Get(g, child)
 		if c == nil {continue}
-		col := track_base + i % columns
-		if g.float_scratch[col] < c.min_size.x {g.float_scratch[col] = c.min_size.x}
-	}
-
-	total_w := f32(0)
-	for col in 0 ..< columns {total_w += g.float_scratch[track_base + col]}
-	available := inner_w - total_w - h_separation * f32(columns - 1)
-	if available < 0 {available = 0}
-	grow := 0
-	for col in 0 ..< columns {
-		if g.float_scratch[track_base + col] <= 0 {grow += 1}
-	}
-	if grow > 0 {
-		for col in 0 ..< columns {
-			if g.float_scratch[track_base + col] <= 0 {
-				g.float_scratch[track_base + col] += available / f32(grow)
-			}
-		}
-	}
-
-	for i in 0 ..< count {
-		c := Widget_Get(g, g.children_scratch[base + i])
-		if c == nil {continue}
-		cell_w := g.float_scratch[track_base + i % columns]
+		placement := placements[i]
+		cell_w := grid_track_span_total(
+			column_sizes,
+			placement.column,
+			placement.column_span,
+			h_separation,
+		)
 		measure_widget_at_width(g, c, child_width_of(c, cell_w))
 	}
 }

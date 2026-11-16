@@ -266,7 +266,7 @@ Widget_Access_Info :: proc(g: ^GUI, id: Widget_ID) -> Access_Info {
 	if !(.Enabled in w.state) { info.states += Access_States{.Disabled} }
 	if !(.Visible in w.state) { info.states += Access_States{.Hidden} }
 	if g.focused == id { info.states += Access_States{.Focused} }
-	if g.active == id { info.states += Access_States{.Pressed} }
+	if g.active == id && w.interactive { info.states += Access_States{.Pressed} }
 	if kind := widget_kind(g, w); kind.access != nil {
 		kind.access(g, id, w, &info)
 	}

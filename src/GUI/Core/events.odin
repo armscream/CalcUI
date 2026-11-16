@@ -71,6 +71,9 @@ Resized_Event :: struct {
 	size: Vec2,
 }
 
+//* The window was uncovered or restored and has to be painted again.
+Exposed_Event :: struct {}
+
 Quit_Event :: struct {}
 
 Event :: union {
@@ -83,5 +86,6 @@ Event :: union {
 	Text_Input_Event,
 	Ime_Editing_Event,
 	Resized_Event,
+	Exposed_Event,
 	Quit_Event,
 }

@@ -328,6 +328,20 @@ Widget_Set_Enabled :: proc(g: ^GUI, id: Widget_ID, enabled: bool) {
 	invalidate(g, id, Dirty_Flags{.Visual, .Hit})
 }
 
+Widget_Set_Interactive :: proc(g: ^GUI, id: Widget_ID, interactive: bool) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	if w.interactive == interactive { return }
+	w.interactive = interactive
+	if interactive {
+		if g.hot == id { w.state += Widget_State{.Hovered} }
+		if g.active == id { w.state += Widget_State{.Pressed} }
+	} else {
+		w.state -= Widget_State{.Hovered, .Pressed}
+	}
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
 //* Sets the widget's name, used by panel title bars and tabs.
 Widget_Set_Name :: proc(g: ^GUI, id: Widget_ID, name: string) {
 	w := Widget_Get(g, id)
@@ -554,10 +568,61 @@ Widget_Set_Grid_Columns :: proc(g: ^GUI, id: Widget_ID, columns: int) {
 	case Grid_Data:
 		changed = d.columns != columns
 		d.columns = columns
+		if len(d.column_tracks) > 0 {
+			d.column_tracks = nil
+			changed = true
+		}
 	}
 	if changed {
-		invalidate(g, id, Dirty_Flags{.Arrange, .Hit})
+		invalidate(g, id, Dirty_Flags{.Measure, .Arrange, .Hit})
 	}
+}
+
+Widget_Set_Grid_Column_Tracks :: proc(g: ^GUI, id: Widget_ID, tracks: []Grid_Track) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	#partial switch &d in w.data {
+	case Grid_Data:
+		d.column_tracks = grid_tracks_clone(g, tracks)
+		invalidate(g, id, Dirty_Flags{.Measure, .Arrange, .Hit})
+	}
+}
+
+Widget_Set_Grid_Row_Tracks :: proc(g: ^GUI, id: Widget_ID, tracks: []Grid_Track) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	#partial switch &d in w.data {
+	case Grid_Data:
+		d.row_tracks = grid_tracks_clone(g, tracks)
+		invalidate(g, id, Dirty_Flags{.Measure, .Arrange, .Hit})
+	}
+}
+
+Widget_Set_Grid_Placement :: proc(g: ^GUI, id: Widget_ID, placement: Grid_Placement) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	next := grid_placement_normalize(placement)
+	if w.grid_placement == next { return }
+	w.grid_placement = next
+	invalidate(g, id, DIRTY_FROM_MEASURE)
+}
+
+Widget_Set_Grid_Position :: proc(g: ^GUI, id: Widget_ID, row, column: int) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	placement := grid_placement_normalize(w.grid_placement)
+	placement.row = row
+	placement.column = column
+	Widget_Set_Grid_Placement(g, id, placement)
+}
+
+Widget_Set_Grid_Span :: proc(g: ^GUI, id: Widget_ID, row_span, column_span: int) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	placement := grid_placement_normalize(w.grid_placement)
+	if row_span > 0 {placement.row_span = row_span}
+	if column_span > 0 {placement.column_span = column_span}
+	Widget_Set_Grid_Placement(g, id, placement)
 }
 
 //* Sets the space a margin container leaves around its child.

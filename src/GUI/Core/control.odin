@@ -26,6 +26,9 @@ collect_hits_with :: proc(
 		if Widget_Get(g, child) == nil { continue }
 		collect_hits_with(g, child, p, out, skip_disabled)
 	}
+	if kind := widget_kind(g, w); kind.hit_test != nil && !kind.hit_test(g, id, w, p) {
+		return
+	}
 	append(out, id)
 }
 
@@ -114,6 +117,7 @@ focus_set :: proc(g: ^GUI, id: Widget_ID) {
 	}
 	signal_focus_entered(g, id)
 	access_focus_changed(g, id)
+	draw_invalidate(g)
 }
 
 focus_clear :: proc(g: ^GUI) {
@@ -123,6 +127,7 @@ focus_clear :: proc(g: ^GUI) {
 	signal_focus_exited(g, old)
 	text_box_blur(g, old)
 	access_focus_changed(g, INVALID_WIDGET_ID)
+	draw_invalidate(g)
 }
 
 focus_release :: proc(g: ^GUI) {
@@ -310,12 +315,12 @@ widget_states_sync :: proc(
 		if id == INVALID_WIDGET_ID { continue }
 		w := Widget_Get(g, id)
 		if w == nil { continue }
-		if g.hot == id {
+		if w.interactive && g.hot == id {
 			w.state += Widget_State{.Hovered}
 		} else {
 			w.state -= Widget_State{.Hovered}
 		}
-		if g.active == id {
+		if w.interactive && g.active == id {
 			w.state += Widget_State{.Pressed}
 		} else {
 			w.state -= Widget_State{.Pressed}
@@ -325,6 +330,9 @@ widget_states_sync :: proc(
 		} else {
 			w.state -= Widget_State{.Focused}
 		}
+	}
+	if old_hot != hot || old_active != active || old_focused != focused {
+		draw_invalidate(g)
 	}
 }
 

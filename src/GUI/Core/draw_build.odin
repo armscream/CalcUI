@@ -4,6 +4,10 @@ package Core
 import "core:math"
 
 build_draw_list :: proc(g: ^GUI) {
+	if g == nil {return}
+	epoch := g.draw_epoch
+	g.draw_builds += 1
+	atlas_build_begin(g.atlas)
 	g.target = &g.draw
 	g.draw.scale = g.scale
 	draw_list_clear(g.target, g.viewport)
@@ -26,6 +30,7 @@ build_draw_list :: proc(g: ^GUI) {
 		draw_widget(g, f.widget)
 	}
 	g.target = &g.draw
+	g.draw_valid = g.draw_epoch == epoch
 }
 
 draw_widget :: proc(g: ^GUI, id: Widget_ID) {
@@ -43,13 +48,16 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 	g.target.opacity = previous_opacity * clamp(w.opacity, 0, 1)
 	defer g.target.opacity = previous_opacity
 
+	if shadow_visible(&style.box) {
+		draw_shadow(g, w.rect, &style.box)
+	}
+
 	clipped := w.clip_contents
 	if clipped {draw_push_clip(g.target, w.rect)}
 
 	bg := resolved_bg(g, id, w)
-	radius := stylebox_radius(&style.box)
 	if bg.a > 0 {
-		draw_rect(g, w.rect, bg, radius)
+		draw_rect_radii(g, w.rect, bg, stylebox_radii(&style.box))
 	}
 	if stylebox_has_border(&style.box) {
 		draw_border(g, w, style^)
@@ -93,7 +101,7 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 		draw_resize_grip(g, id, g.resize_hover_edges)
 	}
 
-	if g.focused == id && (.Enabled in w.state) {
+	if g.focused == id && (.Enabled in w.state) && kind.focus_ring {
 		draw_focus_ring(g, w)
 	}
 
@@ -426,20 +434,37 @@ draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
 	r := w.rect
 	widths := style.box.border_width
 	colours := style.box.border_color
-
-	//* A border of one width and one colour follows the rounded corners
-	//* of the box. The ring is built on the CPU, so it does not depend on
-	//* the shape attribute: the SDL3 renderer has no such attribute, and
-	//* the GPU shader has no per-side border colours either. A border
-	//* whose sides differ keeps the four rectangles below, which is the
-	//* deliberate fallback of both backends.
 	box := style.box
-	radius := stylebox_radius(&box)
-	if radius > 0 && border_is_uniform(widths, colours) {
-		draw_round_border(g, r, widths[0], colours[0], radius)
-		return
-	}
+	if !stylebox_has_border(&box) {return}
 
+	radii := stylebox_radii(&box)
+	if border_colour_is_uniform(colours) {
+		radius := max_corner_radius(radii)
+		if radius > 0 && g.backend.supports_shapes {
+			draw_quad_shape_full(
+				g.target,
+				r,
+				g.atlas.white_uv,
+				colours[0],
+				g.atlas_texture,
+				.Border,
+				radius,
+				{r.w * 0.5, r.h * 0.5},
+				0,
+				clamp_corner_radii(radii, r.w, r.h),
+				widths,
+			)
+			return
+		}
+		if radius > 0 {
+			draw_round_border_radii(g, r, widths, colours[0], radii)
+			return
+		}
+	}
+	draw_border_rects(g, r, widths, colours)
+}
+
+draw_border_rects :: proc(g: ^GUI, r: Rect, widths: [4]f32, colours: [4]Colour) {
 	if widths[0] > 0 && colours[0].a > 0 {
 		draw_quad(
 			g.target,
@@ -478,12 +503,9 @@ draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
 	}
 }
 
-//* True when every side of the border has the same width and the same
-//* visible colour, so the four sides can be joined into one ring.
-border_is_uniform :: proc(widths: [4]f32, colours: [4]Colour) -> bool {
-	if !(widths[0] > 0) || !(colours[0].a > 0) {return false}
+border_colour_is_uniform :: proc(colours: [4]Colour) -> bool {
+	if !(colours[0].a > 0) {return false}
 	for i in 1 ..< 4 {
-		if widths[i] != widths[0] {return false}
 		if colours[i] != colours[0] {return false}
 	}
 	return true
@@ -491,137 +513,244 @@ border_is_uniform :: proc(widths: [4]f32, colours: [4]Colour) -> bool {
 
 BORDER_CORNER_SEGMENTS :: 4
 
-//* Draws a border that follows the rounded corners of the box: four
-//* straight strips and four arcs, each arc cut into convex pieces. The
-//* geometry is clipped and scaled by `draw_polygon`, like any other
-//* polygon of the draw list, so clipping stays correct.
 draw_round_border :: proc(g: ^GUI, r: Rect, width: f32, colour: Colour, radius: f32) {
-	if r.w <= 0 || r.h <= 0 {return}
+	draw_round_border_radii(
+		g,
+		r,
+		{width, width, width, width},
+		colour,
+		{radius, radius, radius, radius},
+	)
+}
 
-	//* A border that is as thick as the box is a filled box, and so is a
-	//* corner radius that the box is too small to hold.
-	t := min(width, min(r.w, r.h) * 0.5)
-	rad := min(radius, min(r.w, r.h) * 0.5)
-	if !(t > 0) {return}
-	if rad <= 0 || r.w - t * 2 <= 0 || r.h - t * 2 <= 0 {
-		draw_round_polygon(g, r, colour, rad)
+draw_round_border_radii :: proc(
+	g: ^GUI,
+	r: Rect,
+	widths: [4]f32,
+	colour: Colour,
+	radii: [4]f32,
+) {
+	if r.w <= 0 || r.h <= 0 {return}
+	if widths[0] <= 0 && widths[1] <= 0 && widths[2] <= 0 && widths[3] <= 0 {return}
+
+	w := [4]f32 {
+		max(widths[0], 0),
+		max(widths[1], 0),
+		max(widths[2], 0),
+		max(widths[3], 0),
+	}
+	outer_radii := clamp_corner_radii(radii, r.w, r.h)
+	if radii_are_zero(outer_radii) {
+		draw_border_rects(g, r, widths, {colour, colour, colour, colour})
 		return
 	}
 
-	//* The straight strips between the corners. A strip of zero length
-	//* is left out by `draw_quad`.
-	draw_quad(
-		g.target,
-		Rect{x = r.x + rad, y = r.y, w = r.w - rad * 2, h = t},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
-	draw_quad(
-		g.target,
-		Rect{x = r.x + rad, y = r.y + r.h - t, w = r.w - rad * 2, h = t},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
-	draw_quad(
-		g.target,
-		Rect{x = r.x, y = r.y + rad, w = t, h = r.h - rad * 2},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
-	draw_quad(
-		g.target,
-		Rect{x = r.x + r.w - t, y = r.y + rad, w = t, h = r.h - rad * 2},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
+	inner := Rect {
+		x = r.x + w[0],
+		y = r.y + w[1],
+		w = r.w - w[0] - w[2],
+		h = r.h - w[1] - w[3],
+	}
+	if inner.w <= 0 || inner.h <= 0 {
+		draw_round_polygon_radii(g, r, colour, outer_radii)
+		return
+	}
 
-	//* The corners: an outer arc joined to the inner arc of the same
-	//* centre and the radius the border leaves. Each piece is a convex
-	//* trapezoid, so a fan of triangles draws it exactly.
-	inner := max(rad - t, 0)
+	inner_radii := [4]f32 {
+		max(outer_radii[0] - max(w[0], w[1]), 0),
+		max(outer_radii[1] - max(w[1], w[2]), 0),
+		max(outer_radii[2] - max(w[2], w[3]), 0),
+		max(outer_radii[3] - max(w[3], w[0]), 0),
+	}
+	inner_radii = clamp_corner_radii(inner_radii, inner.w, inner.h)
+
+	outer_points: [4 * (BORDER_CORNER_SEGMENTS + 1)][2]f32
+	inner_points: [4 * (BORDER_CORNER_SEGMENTS + 1)][2]f32
+	round_rect_loop(r, outer_radii, BORDER_CORNER_SEGMENTS, outer_points[:])
+	round_rect_loop(inner, inner_radii, BORDER_CORNER_SEGMENTS, inner_points[:])
+
+	n := len(outer_points)
+	for i in 0 ..< n {
+		j := (i + 1) % n
+		piece := [4][2]f32{outer_points[i], outer_points[j], inner_points[j], inner_points[i]}
+		if polygon_area2(piece) <= 0.0001 {continue}
+		draw_polygon(g.target, piece[:], colour, g.atlas_texture)
+	}
+}
+
+round_rect_loop :: proc(r: Rect, radii: [4]f32, segments: int, points: [][2]f32) {
 	centres := [4][2]f32 {
-		{r.x + rad, r.y + rad},
-		{r.x + r.w - rad, r.y + rad},
-		{r.x + r.w - rad, r.y + r.h - rad},
-		{r.x + rad, r.y + r.h - rad},
+		{r.x + radii[0], r.y + radii[0]},
+		{r.x + r.w - radii[1], r.y + radii[1]},
+		{r.x + r.w - radii[2], r.y + r.h - radii[2]},
+		{r.x + radii[3], r.y + r.h - radii[3]},
 	}
 	starts := [4]f32{180, 270, 0, 90}
+	n := 0
 	for c in 0 ..< 4 {
-		for s in 0 ..< BORDER_CORNER_SEGMENTS {
-			a0 := (starts[c] + 90 * f32(s) / f32(BORDER_CORNER_SEGMENTS)) * math.PI / 180
-			a1 := (starts[c] + 90 * f32(s + 1) / f32(BORDER_CORNER_SEGMENTS)) * math.PI / 180
-			piece := [4][2]f32 {
-				{
-					centres[c][0] + rad * math.cos(a0),
-					centres[c][1] + rad * math.sin(a0),
-				},
-				{
-					centres[c][0] + rad * math.cos(a1),
-					centres[c][1] + rad * math.sin(a1),
-				},
-				{
-					centres[c][0] + inner * math.cos(a1),
-					centres[c][1] + inner * math.sin(a1),
-				},
-				{
-					centres[c][0] + inner * math.cos(a0),
-					centres[c][1] + inner * math.sin(a0),
-				},
+		for t in 0 ..= segments {
+			a := (starts[c] + 90 * f32(t) / f32(segments)) * math.PI / 180
+			points[n] = [2]f32 {
+				centres[c][0] + radii[c] * math.cos(a),
+				centres[c][1] + radii[c] * math.sin(a),
 			}
-			draw_polygon(g.target, piece[:], colour, g.atlas_texture)
+			n += 1
+		}
+	}
+}
+
+polygon_area2 :: proc(points: [4][2]f32) -> f32 {
+	area := f32(0)
+	for i in 0 ..< 4 {
+		j := (i + 1) % 4
+		area += points[i][0] * points[j][1] - points[j][0] * points[i][1]
+	}
+	return abs(area)
+}
+
+SHADOW_LAYERS :: 6
+
+shadow_visible :: proc(box: ^StyleBox) -> bool {
+	if box == nil {return false}
+	if box.shadow_color.a <= 0 {return false}
+	return box.shadow_size > 0 || box.shadow_offset != (Vec2{})
+}
+
+draw_shadow :: proc(g: ^GUI, r: Rect, box: ^StyleBox) {
+	if !shadow_visible(box) {return}
+	base := Rect {
+		x = r.x + box.shadow_offset.x,
+		y = r.y + box.shadow_offset.y,
+		w = r.w,
+		h = r.h,
+	}
+	if base.w <= 0 || base.h <= 0 {return}
+	radii := stylebox_radii(box)
+	radius := max_corner_radius(radii)
+	blur := max(box.shadow_size, 0)
+	if g.backend.supports_shapes {
+		draw_shadow_sdf(g, base, radius, radii, blur, box.shadow_color)
+	} else {
+		draw_shadow_layers(g, base, radii, blur, box.shadow_color)
+	}
+}
+
+draw_shadow_sdf :: proc(
+	g: ^GUI,
+	base: Rect,
+	radius: f32,
+	radii: [4]f32,
+	blur: f32,
+	colour: Colour,
+) {
+	outer := Rect {
+		x = base.x - blur,
+		y = base.y - blur,
+		w = base.w + blur * 2,
+		h = base.h + blur * 2,
+	}
+	draw_quad_shape_full(
+		g.target,
+		outer,
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+		.Shadow,
+		radius,
+		{base.w * 0.5, base.h * 0.5},
+		blur,
+		clamp_corner_radii(radii, base.w, base.h),
+		{},
+	)
+}
+
+draw_shadow_layers :: proc(g: ^GUI, base: Rect, radii: [4]f32, blur: f32, colour: Colour) {
+	if blur <= 0 {
+		if !radii_are_zero(radii) {
+			draw_round_polygon_radii(g, base, colour, radii)
+		} else {
+			draw_quad(g.target, base, g.atlas.white_uv, colour, g.atlas_texture)
+		}
+		return
+	}
+
+	for i in 0 ..< SHADOW_LAYERS {
+		k := f32(i + 1)
+		prev := colour.a * (k - 1) / f32(SHADOW_LAYERS)
+		cur := colour.a * k / f32(SHADOW_LAYERS)
+		alpha := (cur - prev) / max(1 - prev, 0.0001)
+		grow := blur * (1 - f32(i) / f32(SHADOW_LAYERS - 1))
+		r := Rect {
+			x = base.x - grow,
+			y = base.y - grow,
+			w = base.w + grow * 2,
+			h = base.h + grow * 2,
+		}
+		if r.w <= 0 || r.h <= 0 {continue}
+		c := colour
+		c.a = alpha
+		grown := [4]f32{}
+		for corner in 0 ..< 4 {
+			if radii[corner] > 0 {
+				grown[corner] = radii[corner] + grow
+			}
+		}
+		if !radii_are_zero(grown) {
+			draw_round_polygon_radii(g, r, c, grown)
+		} else {
+			draw_quad(g.target, r, g.atlas.white_uv, c, g.atlas_texture)
 		}
 	}
 }
 
 draw_rect :: proc(g: ^GUI, r: Rect, colour: Colour, radius: f32) {
+	draw_rect_radii(g, r, colour, {radius, radius, radius, radius})
+}
+
+draw_rect_radii :: proc(g: ^GUI, r: Rect, colour: Colour, radii: [4]f32) {
 	if colour.a <= 0 {return}
 	if r.w <= 0 || r.h <= 0 {return}
-	if radius <= 0 {
+	clamped := clamp_corner_radii(radii, r.w, r.h)
+	if radii_are_zero(clamped) {
 		draw_quad(g.target, r, g.atlas.white_uv, colour, g.atlas_texture)
 		return
 	}
 	if g.backend.supports_shapes {
-		draw_quad_shape(g.target, r, g.atlas.white_uv, colour, g.atlas_texture, .Solid, radius)
+		draw_quad_shape_full(
+			g.target,
+			r,
+			g.atlas.white_uv,
+			colour,
+			g.atlas_texture,
+			.Solid,
+			max_corner_radius(clamped),
+			{r.w * 0.5, r.h * 0.5},
+			0,
+			clamped,
+			{},
+		)
 		return
 	}
-	draw_round_polygon(g, r, colour, radius)
+	draw_round_polygon_radii(g, r, colour, clamped)
 }
 
 CORNER_SEGMENTS :: 5
 
 draw_round_polygon :: proc(g: ^GUI, r: Rect, colour: Colour, radius: f32) {
-	rad := min(radius, min(r.w, r.h) * 0.5)
-	if rad <= 0 {
+	draw_round_polygon_radii(g, r, colour, {radius, radius, radius, radius})
+}
+
+draw_round_polygon_radii :: proc(g: ^GUI, r: Rect, colour: Colour, radii: [4]f32) {
+	if r.w <= 0 || r.h <= 0 {return}
+	clamped := clamp_corner_radii(radii, r.w, r.h)
+	if radii_are_zero(clamped) {
 		draw_quad(g.target, r, g.atlas.white_uv, colour, g.atlas_texture)
 		return
 	}
 
-	centres := [4][2]f32 {
-		{r.x + rad, r.y + rad},
-		{r.x + r.w - rad, r.y + rad},
-		{r.x + r.w - rad, r.y + r.h - rad},
-		{r.x + rad, r.y + r.h - rad},
-	}
-	starts := [4]f32{180, 270, 0, 90}
-
-	points: [CORNER_SEGMENTS * 4 + 4][2]f32
-	n := 0
-	for c in 0 ..< 4 {
-		for t in 0 ..= CORNER_SEGMENTS {
-			a := (starts[c] + 90 * f32(t) / f32(CORNER_SEGMENTS)) * math.PI / 180
-			points[n] = [2]f32 {
-				centres[c][0] + rad * math.cos(a),
-				centres[c][1] + rad * math.sin(a),
-			}
-			n += 1
-		}
-	}
-
-	draw_polygon(g.target, points[:n], colour, g.atlas_texture)
+	points: [4 * (CORNER_SEGMENTS + 1)][2]f32
+	round_rect_loop(r, clamped, CORNER_SEGMENTS, points[:])
+	draw_polygon(g.target, points[:], colour, g.atlas_texture)
 }
 
 

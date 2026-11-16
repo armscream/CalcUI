@@ -338,6 +338,7 @@ font_invalidate :: proc(g: ^GUI) {
 	}
 
 	measure_cache_clear(g)
+	draw_invalidate(g)
 }
 
 font_layout :: proc(g: ^GUI, f: ^Font, str: string, opts: runa.Paragraph_Opts) -> []runa.Line {

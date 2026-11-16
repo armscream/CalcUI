@@ -33,6 +33,7 @@ Interfaces can be built programmatically or described in scene files, allowing c
 
 - Retained-mode architecture – Persistent widget tree with independent widget identities and state.
 - Incremental layout engine – Dirty-driven measurement and arrangement. Only affected layout branches are recalculated.
+- Dirty-driven frame scheduling - Continuous or event-driven rendering; idle applications wait for input instead of rebuilding unchanged draw lists.
 - Declarative UI – Define interfaces through serialized scene files instead of constructing every widget in code.
 - Scene serialization – Save and load widget trees, including their hierarchy and configuration.
 - Renderer-agnostic core – Integrate with different rendering backends.

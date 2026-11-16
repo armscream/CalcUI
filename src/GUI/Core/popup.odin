@@ -215,6 +215,13 @@ popup_close_outside :: proc(g: ^GUI, global: Vec2) {
 		if rect_contains(rect, global.x, global.y) { return }
 		if popup_owner_hit(g, id, global) { return }
 		popup_close_one(g, id)
+	case .CommandPalette:
+		//* A palette owned by a widget is a floating menu for that widget.
+		d := command_palette_data(g, id)
+		if d == nil || d.owner == INVALID_WIDGET_ID { return }
+		rect := popup_rect(g, id)
+		if rect_contains(rect, global.x, global.y) { return }
+		popup_close_one(g, id)
 	}
 }
 
@@ -291,7 +298,9 @@ command_palette_sync :: proc(g: ^GUI, id: Widget_ID) {
 Command_Palette_Open :: proc(g: ^GUI, id: Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
-	command_palette_sync(g, id)
+	if d := command_palette_data(g, id); d == nil || d.owner == INVALID_WIDGET_ID {
+		command_palette_sync(g, id)
+	}
 	#partial switch &d in w.data {
 	case Command_Palette_Data:
 		d.visible = true

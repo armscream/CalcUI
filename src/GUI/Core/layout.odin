@@ -718,6 +718,7 @@ grid_metrics :: proc(
 	#partial switch d in w.data {
 	case Grid_Data:
 		columns = d.columns
+		if len(d.column_tracks) > 0 {columns = len(d.column_tracks)}
 		margin = d.margin
 		h_separation = d.h_separation
 		v_separation = d.v_separation
@@ -730,61 +731,502 @@ grid_metrics :: proc(
 	return
 }
 
+grid_tracks_clone :: proc(g: ^GUI, tracks: []Grid_Track) -> []Grid_Track {
+	if g == nil || len(tracks) == 0 {return nil}
+	result := make([]Grid_Track, len(tracks), virt.arena_allocator(&g.arena))
+	copy(result, tracks)
+	return result
+}
+
+grid_track_at :: proc(tracks: []Grid_Track, index: int) -> Grid_Track {
+	if index >= 0 && index < len(tracks) {return tracks[index]}
+	return {}
+}
+
+grid_track_weight :: proc(track: Grid_Track) -> f32 {
+	if track.weight != track.weight || track.weight <= 0 {return 1}
+	return track.weight
+}
+
+grid_track_minimum :: proc(track: Grid_Track) -> f32 {
+	if track.min_size != track.min_size || track.min_size < 0 {return 0}
+	return track.min_size
+}
+
+grid_track_maximum :: proc(track: Grid_Track) -> f32 {
+	if track.max_size != track.max_size || track.max_size <= 0 {return 0}
+	return track.max_size
+}
+
+grid_track_clamp :: proc(size: f32, track: Grid_Track) -> f32 {
+	result := size
+	minimum := grid_track_minimum(track)
+	if result < minimum {result = minimum}
+	maximum := grid_track_maximum(track)
+	if maximum > 0 && result > maximum {result = maximum}
+	return result
+}
+
+grid_sizes :: proc(g: ^GUI, sizes: ^[]f32, count: int) -> []f32 {
+	if count > len(sizes^) {
+		sizes^ = make([]f32, count, virt.arena_allocator(&g.arena))
+	}
+	result := sizes^[:count]
+	for i in 0 ..< count {result[i] = 0}
+	return result
+}
+
+grid_placements_for :: proc(g: ^GUI, d: ^Grid_Data, count: int) -> []Grid_Placement {
+	if d == nil {return nil}
+	if count > len(d.placements) {
+		d.placements = make([]Grid_Placement, count, virt.arena_allocator(&g.arena))
+	}
+	d.placement_count = count
+	return d.placements[:count]
+}
+
+grid_placement_overlaps :: proc(
+	a_row, a_column, a_row_span, a_column_span: int,
+	b_row, b_column, b_row_span, b_column_span: int,
+) -> bool {
+	return a_row < b_row + b_row_span &&
+	       b_row < a_row + a_row_span &&
+	       a_column < b_column + b_column_span &&
+	       b_column < a_column + a_column_span
+}
+
+grid_slot_free :: proc(
+	placements: []Grid_Placement,
+	placed, row, column, row_span, column_span: int,
+) -> bool {
+	for i in 0 ..< placed {
+		p := placements[i]
+		if grid_placement_overlaps(
+			row,
+			column,
+			row_span,
+			column_span,
+			p.row,
+			p.column,
+			p.row_span,
+			p.column_span,
+		) {return false}
+	}
+	return true
+}
+
+grid_place_children :: proc(
+	g: ^GUI,
+	w: ^Widget,
+	count, columns: int,
+) -> (
+	placements: []Grid_Placement,
+	rows: int,
+) {
+	d := grid_data(g, w.id)
+	placements = grid_placements_for(g, d, count)
+	if count == 0 || columns <= 0 {return}
+	rows = 0
+
+	cursor_row := 0
+	cursor_column := 0
+	placed := 0
+	for child := w.first_child; child != INVALID_WIDGET_ID; {
+		c := Widget_Get(g, child)
+		if c == nil {break}
+		next := c.next_sibling
+		if c.absolute {
+			child = next
+			continue
+		}
+		if placed >= count {break}
+
+		placement := grid_placement_normalize(c.grid_placement)
+		column_span := clamp(placement.column_span, 1, columns)
+		row_span := max(placement.row_span, 1)
+		row := placement.row
+		column := placement.column
+
+		switch {
+		case row >= 0 && column >= 0:
+			column = clamp(column, 0, columns - column_span)
+		case column >= 0:
+			column = clamp(column, 0, columns - column_span)
+			if row < 0 {row = 0}
+			for !grid_slot_free(placements, placed, row, column, row_span, column_span) {
+				row += 1
+			}
+		case row >= 0:
+			column = 0
+			for column + column_span <= columns {
+				if grid_slot_free(placements, placed, row, column, row_span, column_span) {break}
+				column += 1
+			}
+			if column + column_span > columns {column = 0}
+		case:
+			for {
+				if cursor_column + column_span > columns {
+					cursor_row += 1
+					cursor_column = 0
+				}
+				if grid_slot_free(
+					placements,
+					placed,
+					cursor_row,
+					cursor_column,
+					row_span,
+					column_span,
+				) {break}
+				cursor_column += 1
+			}
+			row = cursor_row
+			column = cursor_column
+		}
+
+		if row < 0 {row = 0}
+		placements[placed] = Grid_Placement {
+			row         = row,
+			column      = column,
+			row_span    = row_span,
+			column_span = column_span,
+		}
+		placed += 1
+		if row + row_span > rows {rows = row + row_span}
+
+		if placement.row < 0 && placement.column < 0 {
+			cursor_column = column + column_span
+			if cursor_column >= columns {
+				cursor_row = row + 1
+				cursor_column = 0
+			} else {
+				cursor_row = row
+			}
+		}
+		child = next
+	}
+	return placements[:placed], rows
+}
+
+grid_track_base :: proc(sizes: []f32, tracks: []Grid_Track, count: int) {
+	for i in 0 ..< count {
+		track := grid_track_at(tracks, i)
+		size := f32(0)
+		switch track.kind {
+		case .Fixed:
+			size = max(track.size, 0)
+		case .Auto, .Flexible:
+		}
+		sizes[i] = grid_track_clamp(size, track)
+	}
+}
+
+grid_track_grow_to :: proc(sizes: []f32, tracks: []Grid_Track, index: int, size: f32) {
+	track := grid_track_at(tracks, index)
+	if track.kind == .Fixed {return}
+	if size > sizes[index] {sizes[index] = size}
+	sizes[index] = grid_track_clamp(sizes[index], track)
+}
+
+grid_track_span_total :: proc(
+	sizes: []f32,
+	start, span: int,
+	separation: f32,
+) -> f32 {
+	total := f32(0)
+	for i in 0 ..< span {total += sizes[start + i]}
+	if span > 1 {total += separation * f32(span - 1)}
+	return total
+}
+
+grid_track_fill_span :: proc(
+	sizes: []f32,
+	tracks: []Grid_Track,
+	start, span: int,
+	separation: f32,
+	needed: f32,
+) {
+	for _ in 0 ..< span {
+		gap := needed - grid_track_span_total(sizes, start, span, separation)
+		if gap <= 0 {return}
+
+		growable := 0
+		for i in 0 ..< span {
+			track := grid_track_at(tracks, start + i)
+			if track.kind == .Fixed {continue}
+			maximum := grid_track_maximum(track)
+			if maximum > 0 && sizes[start + i] >= maximum {continue}
+			growable += 1
+		}
+		if growable == 0 {return}
+
+		share := gap / f32(growable)
+		added := f32(0)
+		for i in 0 ..< span {
+			track := grid_track_at(tracks, start + i)
+			if track.kind == .Fixed {continue}
+			maximum := grid_track_maximum(track)
+			if maximum > 0 && sizes[start + i] >= maximum {continue}
+			room := share
+			if maximum > 0 && sizes[start + i] + room > maximum {
+				room = maximum - sizes[start + i]
+			}
+			if room > 0 {
+				sizes[start + i] += room
+				added += room
+			}
+		}
+		if added <= 0 {return}
+	}
+}
+
+grid_measure_tracks :: proc(
+	g: ^GUI,
+	children: []Widget_ID,
+	placements: []Grid_Placement,
+	sizes: []f32,
+	tracks: []Grid_Track,
+	count: int,
+	separation: f32,
+	horizontal: bool,
+) {
+	grid_track_base(sizes, tracks, count)
+	for child, i in children {
+		c := Widget_Get(g, child)
+		if c == nil {continue}
+		placement := placements[i]
+		span := horizontal ? placement.column_span : placement.row_span
+		if span != 1 {continue}
+		size := preferred_size_of(c)
+		index := horizontal ? placement.column : placement.row
+		grid_track_grow_to(sizes, tracks, index, horizontal ? size.x : size.y)
+	}
+	for child, i in children {
+		c := Widget_Get(g, child)
+		if c == nil {continue}
+		placement := placements[i]
+		span := horizontal ? placement.column_span : placement.row_span
+		if span <= 1 {continue}
+		size := preferred_size_of(c)
+		start := horizontal ? placement.column : placement.row
+		grid_track_fill_span(
+			sizes,
+			tracks,
+			start,
+			span,
+			separation,
+			horizontal ? size.x : size.y,
+		)
+	}
+}
+
+grid_tracks_total :: proc(sizes: []f32, count: int, separation: f32) -> f32 {
+	total := f32(0)
+	for i in 0 ..< count {total += sizes[i]}
+	if count > 1 {total += separation * f32(count - 1)}
+	return total
+}
+
+grid_track_grow_empty :: proc(
+	sizes: []f32,
+	tracks: []Grid_Track,
+	count: int,
+	extra: f32,
+) {
+	empty := 0
+	for i in 0 ..< count {
+		if sizes[i] > 0 {continue}
+		track := grid_track_at(tracks, i)
+		maximum := grid_track_maximum(track)
+		if maximum > 0 && sizes[i] >= maximum {continue}
+		empty += 1
+	}
+	if empty == 0 {return}
+
+	share := extra / f32(empty)
+	for i in 0 ..< count {
+		if sizes[i] > 0 {continue}
+		track := grid_track_at(tracks, i)
+		sizes[i] = grid_track_clamp(sizes[i] + share, track)
+	}
+}
+
+grid_track_grow_flexible :: proc(
+	sizes: []f32,
+	tracks: []Grid_Track,
+	count: int,
+	extra: f32,
+) {
+	remaining := extra
+	for _ in 0 ..= count {
+		total_weight := f32(0)
+		for i in 0 ..< count {
+			track := grid_track_at(tracks, i)
+			if track.kind != .Flexible {continue}
+			maximum := grid_track_maximum(track)
+			if maximum > 0 && sizes[i] >= maximum {continue}
+			total_weight += grid_track_weight(track)
+		}
+		if total_weight <= 0 {return}
+
+		added := f32(0)
+		for i in 0 ..< count {
+			track := grid_track_at(tracks, i)
+			if track.kind != .Flexible {continue}
+			maximum := grid_track_maximum(track)
+			if maximum > 0 && sizes[i] >= maximum {continue}
+			room := remaining * grid_track_weight(track) / total_weight
+			if maximum > 0 && sizes[i] + room > maximum {
+				room = maximum - sizes[i]
+			}
+			if room > 0 {
+				sizes[i] += room
+				added += room
+			}
+		}
+		remaining -= added
+		if remaining <= 0.0001 {return}
+		if added <= 0 {return}
+	}
+}
+
+grid_track_shrink_flexible :: proc(
+	sizes: []f32,
+	tracks: []Grid_Track,
+	count: int,
+	deficit: f32,
+) {
+	remaining := deficit
+	for _ in 0 ..= count {
+		total_weight := f32(0)
+		for i in 0 ..< count {
+			track := grid_track_at(tracks, i)
+			if track.kind != .Flexible {continue}
+			if sizes[i] <= grid_track_minimum(track) {continue}
+			total_weight += grid_track_weight(track)
+		}
+		if total_weight <= 0 {return}
+
+		taken := f32(0)
+		for i in 0 ..< count {
+			track := grid_track_at(tracks, i)
+			if track.kind != .Flexible {continue}
+			minimum := grid_track_minimum(track)
+			if sizes[i] <= minimum {continue}
+			room := remaining * grid_track_weight(track) / total_weight
+			if sizes[i] - room < minimum {room = sizes[i] - minimum}
+			if room > 0 {
+				sizes[i] -= room
+				taken += room
+			}
+		}
+		remaining -= taken
+		if remaining <= 0.0001 {return}
+		if taken <= 0 {return}
+	}
+}
+
+grid_resolve_tracks :: proc(
+	sizes: []f32,
+	tracks: []Grid_Track,
+	count: int,
+	space, separation: f32,
+	explicit_tracks: bool,
+) {
+	total := grid_tracks_total(sizes, count, separation)
+	extra := space - total
+	if extra > 0 {
+		if explicit_tracks {
+			grid_track_grow_flexible(sizes, tracks, count, extra)
+		} else {
+			grid_track_grow_empty(sizes, tracks, count, extra)
+		}
+	} else if extra < 0 && explicit_tracks {
+		grid_track_shrink_flexible(sizes, tracks, count, -extra)
+	}
+}
+
+grid_axis_offset :: proc(sizes: []f32, index: int, separation: f32) -> f32 {
+	offset := f32(0)
+	for i in 0 ..< index {offset += sizes[i] + separation}
+	return offset
+}
+
+grid_measure_columns :: proc(
+	g: ^GUI,
+	w: ^Widget,
+	children: []Widget_ID,
+	placements: []Grid_Placement,
+	columns: int,
+	tracks: []Grid_Track,
+	separation: f32,
+) -> []f32 {
+	d := grid_data(g, w.id)
+	if d == nil {return nil}
+	sizes := grid_sizes(g, &d.column_sizes, columns)
+	grid_measure_tracks(g, children, placements, sizes, tracks, columns, separation, true)
+	return sizes
+}
+
+grid_measure_rows :: proc(
+	g: ^GUI,
+	w: ^Widget,
+	children: []Widget_ID,
+	placements: []Grid_Placement,
+	rows: int,
+	tracks: []Grid_Track,
+	separation: f32,
+) -> []f32 {
+	d := grid_data(g, w.id)
+	if d == nil {return nil}
+	sizes := grid_sizes(g, &d.row_sizes, rows)
+	grid_measure_tracks(g, children, placements, sizes, tracks, rows, separation, false)
+	return sizes
+}
+
+
 //* The size a grid asks for: the widest child of every column, the
 //* tallest child of every row, the separations between the tracks and
 //* the margin of the grid.
 container_grid_size :: proc(g: ^GUI, w: ^Widget) -> Vec2 {
 	columns, h_separation, v_separation, margin := grid_metrics(g, w)
-
-	count := 0
-	for child := w.first_child; child != INVALID_WIDGET_ID; {
-		c := Widget_Get(g, child)
-		if c == nil {break}
-		next := c.next_sibling
-		if !c.absolute {count += 1}
-		child = next
-	}
-
 	margin_x := margin[0] + margin[2]
 	margin_y := margin[1] + margin[3]
-	if count == 0 {
+
+	base, count := children_begin_flow(g, w)
+	defer children_end(g, base)
+	children := g.children_scratch[base:base + count]
+
+	d := grid_data(g, w.id)
+	if d == nil {return Vec2{margin_x, margin_y}}
+	if count == 0 && len(d.column_tracks) == 0 && len(d.row_tracks) == 0 {
 		return Vec2{margin_x, margin_y}
 	}
 
-	rows := (count + columns - 1) / columns
-	track_base := floats_begin(g, columns + rows)
-	defer floats_end(g, track_base)
+	placements, rows := grid_place_children(g, w, count, columns)
+	if rows < len(d.row_tracks) {rows = len(d.row_tracks)}
 
-	i := 0
-	for child := w.first_child; child != INVALID_WIDGET_ID; {
-		c := Widget_Get(g, child)
-		if c == nil {break}
-		next := c.next_sibling
-		if !c.absolute {
-			s := preferred_size_of(c)
-			col := track_base + i % columns
-			row := track_base + columns + i / columns
-			if g.float_scratch[col] < s.x {g.float_scratch[col] = s.x}
-			if g.float_scratch[row] < s.y {g.float_scratch[row] = s.y}
-			i += 1
-		}
-		child = next
-	}
+	column_sizes := grid_measure_columns(
+		g,
+		w,
+		children,
+		placements,
+		columns,
+		d.column_tracks,
+		h_separation,
+	)
+	row_sizes := grid_measure_rows(
+		g,
+		w,
+		children,
+		placements,
+		rows,
+		d.row_tracks,
+		v_separation,
+	)
 
-	size := Vec2{x = margin_x, y = margin_y}
-	for col in 0 ..< columns {
-		size.x += g.float_scratch[track_base + col]
-	}
-	if columns > 1 {
-		size.x += h_separation * f32(columns - 1)
-	}
-	for row in 0 ..< rows {
-		size.y += g.float_scratch[track_base + columns + row]
-	}
-	if rows > 1 {
-		size.y += v_separation * f32(rows - 1)
-	}
-	return size
+	width := grid_tracks_total(column_sizes, columns, h_separation)
+	height := grid_tracks_total(row_sizes, rows, v_separation)
+	return Vec2{width + margin_x, height + margin_y}
 }
 
 //* Adds the sizes of the children to the size a container asks for. Each
@@ -1400,7 +1842,11 @@ layout_tabs :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 }
 
 //* A Grid puts its children in rows and columns. The number of columns
-//* is in the data of the widget; a count of 0 means one column.
+//* is in the data of the widget; a count of 0 means one column. Explicit
+//* column tracks take the place of the count.
+//*
+//* A child may name a row and a column, and it may span more than one of
+//* them. A child that names neither follows the one before it.
 //*
 //* The room that is left over is shared among the columns that have no
 //* width of their own, and not among the children: the flags of a child
@@ -1417,7 +1863,6 @@ layout_tabs :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 	columns, h_separation, v_separation, margin := grid_metrics(g, w)
 
-	//* The margin of the grid is taken off the room of the grid.
 	inner := Rect {
 		x = rect.x + margin[0],
 		y = rect.y + margin[1],
@@ -1427,79 +1872,116 @@ layout_grid :: proc(g: ^GUI, w: ^Widget, rect: Rect) {
 
 	base, count := children_begin_flow(g, w)
 	defer children_end(g, base)
-	if count == 0 {
+	children := g.children_scratch[base:base + count]
+
+	d := grid_data(g, w.id)
+	if d == nil {
+		layout_absolute_children(g, w, inner)
+		return
+	}
+	if count == 0 && len(d.column_tracks) == 0 && len(d.row_tracks) == 0 {
 		grid_cells(g, w.id, 0)
 		layout_absolute_children(g, w, inner)
 		return
 	}
+	placements, rows := grid_place_children(g, w, count, columns)
+	if rows < len(d.row_tracks) {rows = len(d.row_tracks)}
 
-	//* The width of every column and the height of every row: the
-	//* biggest child of the column decides. The numbers live in the
-	//* float scratch of the GUI, one stack for the two of them.
-	rows := (count + columns - 1) / columns
-	track_base := floats_begin(g, columns + rows)
-	defer floats_end(g, track_base)
+	column_sizes := grid_measure_columns(
+		g,
+		w,
+		children,
+		placements,
+		columns,
+		d.column_tracks,
+		h_separation,
+	)
+	grid_resolve_tracks(
+		column_sizes,
+		d.column_tracks,
+		columns,
+		inner.w,
+		h_separation,
+		len(d.column_tracks) > 0,
+	)
 
 	for i in 0 ..< count {
-		c := Widget_Get(g, g.children_scratch[base + i])
-		if c == nil {continue}
-		col := track_base + i % columns
-		if g.float_scratch[col] < c.min_size.x {g.float_scratch[col] = c.min_size.x}
+		child := g.children_scratch[base + i]
+		c := Widget_Get(g, child)
+		if c == nil || !w.width_dependent {continue}
+		placement := placements[i]
+		cell_w := grid_track_span_total(
+			column_sizes,
+			placement.column,
+			placement.column_span,
+			h_separation,
+		)
+		measure_widget_at_width(g, c, child_width_of(c, cell_w))
 	}
 
-	total_w := f32(0)
-	for col in 0 ..< columns {total_w += g.float_scratch[track_base + col]}
-	available := inner.w - total_w - h_separation * f32(columns - 1)
-	if available < 0 {available = 0}
-	grow := 0
-	for col in 0 ..< columns {
-		if g.float_scratch[track_base + col] <= 0 {grow += 1}
-	}
-	if grow > 0 {
-		for col in 0 ..< columns {
-			if g.float_scratch[track_base + col] <= 0 {
-				g.float_scratch[track_base + col] += available / f32(grow)
-			}
-		}
-	}
+	row_sizes := grid_measure_rows(
+		g,
+		w,
+		children,
+		placements,
+		rows,
+		d.row_tracks,
+		v_separation,
+	)
+	grid_resolve_tracks(
+		row_sizes,
+		d.row_tracks,
+		rows,
+		inner.h,
+		v_separation,
+		len(d.row_tracks) > 0,
+	)
 
-	//* A cell has its width now, so a child whose height depends on its
-	//* width is measured at the width of the column. The height of every
-	//* row is the tallest child in it.
-	for i in 0 ..< count {
-		c := Widget_Get(g, g.children_scratch[base + i])
-		if c == nil {continue}
-		cell_w := g.float_scratch[track_base + i % columns]
-		if w.width_dependent {
-			measure_widget_at_width(g, c, child_width_of(c, cell_w))
-		}
-		row := track_base + columns + i / columns
-		if g.float_scratch[row] < c.min_size.y {g.float_scratch[row] = c.min_size.y}
-	}
-
-	//* The room of every cell of the grid, the ones that have a child
-	//* in them and the ones that have not.
 	cells := grid_cells(g, w.id, columns * rows)
-
-	x := inner.x
-	for col in 0 ..< columns {
-		col_w := g.float_scratch[track_base + col]
+	rtl := layout_direction_of(g, w.id) == .RTL
+	for column in 0 ..< columns {
+		column_w := column_sizes[column]
+		offset := grid_axis_offset(column_sizes, column, h_separation)
+		x := rtl ? inner.x + inner.w - offset - column_w : inner.x + offset
 		y := inner.y
 		for row in 0 ..< rows {
-			i := row * columns + col
-			row_h := g.float_scratch[track_base + columns + row]
-			cell := Rect{x = x, y = y, w = col_w, h = row_h}
-			cells[i] = cell
-			if i < count {
-				child := g.children_scratch[base + i]
-				c := Widget_Get(g, child)
-				if c != nil {
-					layout_node(g, child, cell, w.clip)
-				}
+			row_h := row_sizes[row]
+			cells[row * columns + column] = Rect {
+				x = x,
+				y = y,
+				w = column_w,
+				h = row_h,
 			}
 			y += row_h + v_separation
 		}
-		x += col_w + h_separation
+	}
+
+	for i in 0 ..< count {
+		child := g.children_scratch[base + i]
+		c := Widget_Get(g, child)
+		if c == nil {continue}
+		placement := placements[i]
+		offset_x := grid_axis_offset(column_sizes, placement.column, h_separation)
+		width := grid_track_span_total(
+			column_sizes,
+			placement.column,
+			placement.column_span,
+			h_separation,
+		)
+		offset_y := grid_axis_offset(row_sizes, placement.row, v_separation)
+		height := grid_track_span_total(
+			row_sizes,
+			placement.row,
+			placement.row_span,
+			v_separation,
+		)
+		cell := Rect {
+			x = rtl ? inner.x + inner.w - offset_x - width : inner.x + offset_x,
+			y = inner.y + offset_y,
+			w = width,
+			h = height,
+		}
+		layout_node(g, child, cell, w.clip)
 	}
 
 	layout_absolute_children(g, w, inner)
@@ -1880,6 +2362,44 @@ TOGGLE_TRACK_WIDTH  :: 34
 
 SCROLL_BAR_WIDTH :: 10
 SCROLL_BAR_GRABBER_MIN :: 24
+
+SLIDER_KNOB_SIZE :: 14
+SLIDER_TRACK_THICKNESS :: 6
+
+slider_track :: proc(content: Rect, vertical: bool) -> Rect {
+	half := f32(SLIDER_KNOB_SIZE) * 0.5
+	track := content
+	if vertical {
+		track.x = content.x + (content.w - SLIDER_TRACK_THICKNESS) * 0.5
+		track.w = SLIDER_TRACK_THICKNESS
+		track.y = content.y + half
+		track.h = max(content.h - SLIDER_KNOB_SIZE, 0)
+	} else {
+		track.y = content.y + (content.h - SLIDER_TRACK_THICKNESS) * 0.5
+		track.h = SLIDER_TRACK_THICKNESS
+		track.x = content.x + half
+		track.w = max(content.w - SLIDER_KNOB_SIZE, 0)
+	}
+	return track
+}
+
+slider_factor :: proc(d: Slider_Data) -> f32 {
+	span := d.max - d.min
+	if span <= 0 { return 0 }
+	return clamp((d.value - d.min) / span, 0, 1)
+}
+
+slider_knob :: proc(track: Rect, factor: f32, vertical: bool) -> Rect {
+	knob := Rect{w = SLIDER_KNOB_SIZE, h = SLIDER_KNOB_SIZE}
+	if vertical {
+		knob.x = track.x + (track.w - knob.w) * 0.5
+		knob.y = track.y + track.h - factor * track.h - knob.h * 0.5
+	} else {
+		knob.x = track.x + factor * track.w - knob.w * 0.5
+		knob.y = track.y + (track.h - knob.h) * 0.5
+	}
+	return knob
+}
 
 grid_data :: proc(g: ^GUI, id: Widget_ID) -> ^Grid_Data {
 	w := Widget_Get(g, id)

@@ -218,76 +218,108 @@ Poll_Events :: proc(w: ^Window, out: ^[dynamic]GUI.Event) {
 	report_size(w, out)
 
 	for sdl.PollEvent(&ev) {
-		#partial switch ev.type {
-		case .MOUSE_MOTION:
-			pos := GUI.Vec2{ev.motion.x, ev.motion.y}
-			append(
-				out,
-				GUI.Mouse_Move_Event {
-					pos = pos,
-					global = event_global(w^, ev.motion.windowID, pos),
-				},
-			)
-		case .MOUSE_BUTTON_DOWN:
-			_ = sdl.CaptureMouse(true)
-			pos := GUI.Vec2{ev.button.x, ev.button.y}
-			append(
-				out,
-				GUI.Mouse_Down_Event {
-					pos = pos,
-					global = event_global(w^, ev.button.windowID, pos),
-					button = translate_button(ev.button.button),
-					clicks = int(ev.button.clicks),
-				},
-			)
-		case .MOUSE_BUTTON_UP:
-			_ = sdl.CaptureMouse(false)
-			pos := GUI.Vec2{ev.button.x, ev.button.y}
-			append(
-				out,
-				GUI.Mouse_Up_Event {
-					pos = pos,
-					global = event_global(w^, ev.button.windowID, pos),
-					button = translate_button(ev.button.button),
-				},
-			)
-		case .MOUSE_WHEEL:
-			append(out, GUI.Wheel_Event{amount = ev.wheel.y})
-		case .KEY_DOWN:
-			append(
-				out,
-				GUI.Key_Down_Event {
-					key = translate_key(ev.key.key),
-					mods = translate_mods(ev.key.mod),
-					repeat = ev.key.repeat,
-				},
-			)
-		case .KEY_UP:
-			append(
-				out,
-				GUI.Key_Up_Event {
-					key = translate_key(ev.key.key),
-					mods = translate_mods(ev.key.mod),
-				},
-			)
-		case .TEXT_INPUT:
-			text, _ := strings.clone_from_cstring(ev.text.text)
-			append(out, GUI.Text_Input_Event{text = text})
-		case .TEXT_EDITING:
-			text, _ := strings.clone_from_cstring(ev.edit.text)
-			append(
-				out,
-				GUI.Ime_Editing_Event {
-					text = text,
-					start = int(ev.edit.start),
-					length = int(ev.edit.length),
-				},
-			)
-		case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED:
-			report_size(w, out)
-		case .QUIT:
+		append_sdl_event(w, ev, out)
+	}
+}
+
+//* Waits for an event, so a program that draws only when something happens
+//* does not spin. A negative timeout waits until an event comes. The event
+//* that wakes it and the ones already queued are put in `out`.
+Wait_Events :: proc(w: ^Window, out: ^[dynamic]GUI.Event, timeout_ms: i32 = -1) {
+	if len(out) > 0 { return }
+
+	report_size(w, out)
+	if len(out) > 0 { return }
+
+	ev: sdl.Event
+	waited :=
+		timeout_ms < 0 ? sdl.WaitEvent(&ev) : sdl.WaitEventTimeout(&ev, timeout_ms)
+	if !waited { return }
+
+	append_sdl_event(w, ev, out)
+	for sdl.PollEvent(&ev) {
+		append_sdl_event(w, ev, out)
+	}
+}
+
+append_sdl_event :: proc(w: ^Window, ev: sdl.Event, out: ^[dynamic]GUI.Event) {
+	#partial switch ev.type {
+	case .MOUSE_MOTION:
+		pos := GUI.Vec2{ev.motion.x, ev.motion.y}
+		append(
+			out,
+			GUI.Mouse_Move_Event {
+				pos = pos,
+				global = event_global(w^, ev.motion.windowID, pos),
+			},
+		)
+	case .MOUSE_BUTTON_DOWN:
+		_ = sdl.CaptureMouse(true)
+		pos := GUI.Vec2{ev.button.x, ev.button.y}
+		append(
+			out,
+			GUI.Mouse_Down_Event {
+				pos = pos,
+				global = event_global(w^, ev.button.windowID, pos),
+				button = translate_button(ev.button.button),
+				clicks = int(ev.button.clicks),
+			},
+		)
+	case .MOUSE_BUTTON_UP:
+		_ = sdl.CaptureMouse(false)
+		pos := GUI.Vec2{ev.button.x, ev.button.y}
+		append(
+			out,
+			GUI.Mouse_Up_Event {
+				pos = pos,
+				global = event_global(w^, ev.button.windowID, pos),
+				button = translate_button(ev.button.button),
+			},
+		)
+	case .MOUSE_WHEEL:
+		append(out, GUI.Wheel_Event{amount = ev.wheel.y})
+	case .KEY_DOWN:
+		append(
+			out,
+			GUI.Key_Down_Event {
+				key = translate_key(ev.key.key),
+				mods = translate_mods(ev.key.mod),
+				repeat = ev.key.repeat,
+			},
+		)
+	case .KEY_UP:
+		append(
+			out,
+			GUI.Key_Up_Event {
+				key = translate_key(ev.key.key),
+				mods = translate_mods(ev.key.mod),
+			},
+		)
+	case .TEXT_INPUT:
+		text, _ := strings.clone_from_cstring(ev.text.text)
+		append(out, GUI.Text_Input_Event{text = text})
+	case .TEXT_EDITING:
+		text, _ := strings.clone_from_cstring(ev.edit.text)
+		append(
+			out,
+			GUI.Ime_Editing_Event {
+				text = text,
+				start = int(ev.edit.start),
+				length = int(ev.edit.length),
+			},
+		)
+	case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED:
+		report_size(w, out)
+	case .WINDOW_EXPOSED:
+		append(out, GUI.Exposed_Event{})
+	case .WINDOW_CLOSE_REQUESTED:
+		//* A floating panel is a window of its own, so the quit is taken
+		//* from the window the program owns and not from any of them.
+		if ev.window.windowID == sdl.GetWindowID(w.handle) {
 			append(out, GUI.Quit_Event{})
 		}
+	case .QUIT:
+		append(out, GUI.Quit_Event{})
 	}
 }
 

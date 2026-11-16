@@ -189,6 +189,7 @@ The main window and floating panels are therefore rendered as separate targets.
 
 ```odin
 Frame :: proc(g: ^GUI) {
+    Core.Frame_Begin(g)
     virt.arena_free_all(&g.frame_arena)
     g.dt = Core.frame_time(g)
     Core.caret_tick(g)
@@ -198,7 +199,9 @@ Frame :: proc(g: ^GUI) {
     Widgets.menu_buttons_reposition(g)
     Core.update_resize_hover(g)
     Core.widget_post_update_pass(g)
-    Core.build_draw_list(g)
+    if Core.draw_needs_rebuild(g) {
+        Core.build_draw_list(g)
+    }
     Core.atlas_flush(g.atlas, g.backend, g.atlas_texture)
     Core.atlas_next_frame(g.atlas)
     Core.report_atlas_failures(g)
@@ -207,14 +210,14 @@ Frame :: proc(g: ^GUI) {
 
 The frame proceeds through the following stages:
 
-1. **Reset frame memory** - Reclaim temporary allocations from the previous frame.
+1. **Begin the frame** - Answer the request that made the frame run, advance the frame count, and reclaim temporary allocations from the previous frame.
 2. **Update frame time** - Calculate `g.dt`, the elapsed time used by time-dependent widgets.
 3. **Run the state update** - Call `kind.update` for the visible widgets, before layout. State and data changes made here are measured and arranged in the same frame.
 4. **Run the animations** - Step every tween, apply the value of a property tween to its widget, and invalidate only the systems that property affects. Size and position changes are therefore seen by the layout pass of the same frame.
 5. **Run layout** - Measure and arrange widgets whose layout state has been invalidated.
 6. **Update menus and resize hover** - Reposition open menus and determine resize interactions using the current widget geometry.
 7. **Run the post update** - Call `kind.post_update` for the visible widgets after layout and before drawing. Interaction code that reads rectangles or the pointer belongs here.
-8. **Build draw lists** - Generate the main window's draw list and separate lists for floating panels.
+8. **Build draw lists** - Rebuild the main window's list and the separate lists for floating panels when the retained lists are out of date, then keep them for later frames.
 9. **Flush the atlas** - Upload modified texture regions to the backend, advance atlas frame bookkeeping, and report atlas failures.
 
 Both update passes gather the visible widgets into a snapshot of handles before any hook runs, and look every handle up again before calling its hook. A widget may therefore be destroyed from a hook without leaving the pass with a stale pointer.
@@ -223,32 +226,53 @@ The frame function builds rendering data but does not itself present it.
 
 The application loop handles events, runs the frame, synchronizes platform state, and submits the resulting draw lists.
 
-The shared example loop is in `examples/common/bootstrap.odin`:
+The shared application loop is in `src/App/app.odin`:
 
 ```odin
 GUI.Handle_Events(app.gui)
-GUI.Frame(app.gui)
 
-plat.Sync_Popups(&app.window, app.gui.floats[:])
-plat.Set_Cursor(&app.window, app.gui.cursor)
-plat.Sync_Clipboard(app.gui)
+if GUI.GUI_Needs_Frame(app.gui) {
+    GUI.Frame(app.gui)
 
-app.backend.submit(app.backend.ctx, &app.gui.draw)
+    plat.Sync_Popups(&app.window, app.gui.floats[:])
+    plat.Set_Cursor(&app.window, app.gui.cursor)
+    plat.Sync_Clipboard(app.gui)
 
-for i in 0 ..< len(app.gui.floats) {
-    if i >= len(app.window.popups) {
-        break
+    app.backend.submit(app.backend.ctx, &app.gui.draw)
+
+    for i in 0 ..< len(app.gui.floats) {
+        if i >= len(app.window.popups) {
+            break
+        }
+
+        app.backend.submit_target(
+            app.backend.ctx,
+            &app.gui.floats[i].draw,
+            cast(rawptr)app.window.popups[i],
+        )
     }
-
-    app.backend.submit_target(
-        app.backend.ctx,
-        &app.gui.floats[i].draw,
-        cast(rawptr)app.window.popups[i],
-    )
+} else {
+    plat.Wait_Events(&app.window, &app.gui.events)
 }
 ```
 
 This keeps application-level event processing and presentation separate from the GUI core's frame construction.
+
+### Frame scheduling
+
+`Frame` builds a frame, but the application loop decides whether a frame is worth building. `GUI_Needs_Frame` reports true when the GUI is in continuous mode, a frame was requested, the retained draw lists are out of date, the tree is dirty, an animation or style transition is running, the caret is flashing, or the atlas has uploads waiting.
+
+`GUI_Set_Frame_Mode` selects `.Continuous` or `.Event_Driven`. Continuous mode draws on every pass of the loop. Event-driven mode lets an idle application wait for input in the window layer instead of rebuilding an unchanged draw list.
+
+`GUI_Request_Frame` asks for a frame explicitly when a program changes state that the setters did not see. Input events, window resizes and window exposure ask for a frame by themselves.
+
+### Draw-list retention
+
+The draw lists are retained between frames. `g.draw_valid` says whether the list in `g.draw` still describes the tree, and `g.draw_epoch` counts the invalidations that take it away. `draw_invalidate` is called by every kind of widget invalidation, by pointer movement, by focus and hover changes, by drag and resize updates, by font and texture changes, and by `GUI_Request_Frame`. A build records the epoch when it starts; an invalidation that arrives during the walk leaves the list invalid for the next frame instead of keeping geometry that is already stale.
+
+`draw_needs_rebuild` is the gate used by `Frame`. An unchanged frame skips the tree walk and the geometry generation, and the application loop submits the retained list again. Continuous mode therefore keeps presenting every pass while the core only rebuilds when something changed. The inspector is the exception: it reports the numbers of the frame that is running, so it always asks for a build.
+
+Atlas regions named by a retained list must stay alive. `atlas_build_begin` records the atlas frame of the build in `retained_frame`, `atlas_touch` stamps every image drawn during the walk with that frame, and `atlas_evict` skips regions whose stamp matches `retained_frame`. Glyphs are pinned in the atlas and are not evicted at all.
 
 ## 5. Rendering Architecture
 
@@ -313,15 +337,18 @@ A vertex contains:
 
 ```odin
 Draw_Vertex :: struct {
-    pos:    [2]f32,
-    uv:     [2]f32,
-    colour: Colour,
-    shape:  [4]f32,
-    local:  [2]f32,
+    pos:      [2]f32,
+    uv:       [2]f32,
+    colour:   Colour,
+    shape:    [4]f32,
+    local:    [2]f32,
+    softness: f32,
+    corners:  [4]f32,
+    border:   [4]f32,
 }
 ```
 
-The vertex stores its position, texture coordinates, colour, shape parameters, and local quad coordinates.
+The vertex stores its position, texture coordinates, colour, shape parameters, per-corner radii, per-side border widths, shadow softness, and local quad coordinates.
 
 A draw command describes a range of indices and the texture used to render them:
 
@@ -771,6 +798,7 @@ The mock backend records texture uploads, allowing tests to verify atlas behavio
 | `animation_integration_test.odin` | Frame animation ordering and invalidation. |
 | `class_test.odin` | Reference custom widget through the public API. |
 | `draw_shape_test.odin` | Rounded shapes in the draw list. |
+| `draw_reuse_test.odin` | Draw-list retention, rebuild triggers, and atlas region protection. |
 | `font_test.odin` | Glyph positioning, atlas caching, and pixel alignment. |
 | `frame_lifecycle_test.odin` | Update and post-update ordering, including destruction from a hook. |
 | `layout_solver_test.odin` | Layout constraints, box growth and shrink, and absolute children. |

@@ -208,6 +208,9 @@ kind_merge :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if base.pointer == nil { base.pointer = over.pointer }
 	if base.text_input == nil { base.text_input = over.text_input }
 	if !base.uses_arrow_keys { base.uses_arrow_keys = over.uses_arrow_keys }
+	if !base.interactive { base.interactive = over.interactive }
+	if base.hit_test == nil { base.hit_test = over.hit_test }
+	if !base.focus_ring { base.focus_ring = over.focus_ring }
 	if !base.owns_children { base.owns_children = over.owns_children }
 	if base.style.set == (bit_set[Style_Field]{}) { base.style = over.style }
 	if base.theme_name == "" { base.theme_name = over.theme_name }
@@ -233,6 +236,9 @@ kind_override :: proc(base: ^Widget_Kind, over: Widget_Kind) {
 	if over.pointer != nil { base.pointer = over.pointer }
 	if over.text_input != nil { base.text_input = over.text_input }
 	if over.uses_arrow_keys { base.uses_arrow_keys = true }
+	if over.interactive { base.interactive = true }
+	if over.hit_test != nil { base.hit_test = over.hit_test }
+	if over.focus_ring { base.focus_ring = true }
 	if over.owns_children { base.owns_children = true }
 	if over.style != (Style{}) { base.style = over.style }
 	if over.theme_name != "" { base.theme_name = over.theme_name }

@@ -27,7 +27,7 @@ import virt "core:mem/virtual"
 import "core:strings"
 import "core:unicode"
 
-TEXT_ELLIPSIS :: "â€¦"
+TEXT_ELLIPSIS :: "\u2026"
 
 OUTLINE_DIRS :: [8][2]f32{{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 

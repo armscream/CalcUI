@@ -9,14 +9,19 @@ Shape_Kind :: enum u32 {
 	Plain    = 0,
 	Solid    = 1,
 	Textured = 2,
+	Shadow   = 3,
+	Border   = 4,
 }
 
 Draw_Vertex :: struct {
-	pos:    [2]f32,
-	uv:     [2]f32,
-	colour: Colour,
-	shape:  [4]f32,
-	local:  [2]f32,
+	pos:      [2]f32,
+	uv:       [2]f32,
+	colour:   Colour,
+	shape:    [4]f32,
+	local:    [2]f32,
+	softness: f32,
+	corners:  [4]f32,
+	border:   [4]f32,
 }
 
 Draw_Command :: struct {
@@ -111,14 +116,95 @@ draw_quad_shape :: proc(
 	kind: Shape_Kind,
 	radius: f32,
 ) {
+	draw_quad_shape_full(
+		dl,
+		r,
+		uv,
+		c,
+		tex,
+		kind,
+		radius,
+		{r.w * 0.5, r.h * 0.5},
+		0,
+		{radius, radius, radius, radius},
+		{},
+	)
+}
+
+draw_quad_shape_box :: proc(
+	dl: ^Draw_List,
+	r: Rect,
+	uv: [4]f32,
+	c: Colour,
+	tex: Texture_ID,
+	kind: Shape_Kind,
+	radius: f32,
+	shape_half: [2]f32,
+	softness: f32,
+) {
+	draw_quad_shape_full(
+		dl,
+		r,
+		uv,
+		c,
+		tex,
+		kind,
+		radius,
+		shape_half,
+		softness,
+		{radius, radius, radius, radius},
+		{},
+	)
+}
+
+draw_quad_shape_full :: proc(
+	dl: ^Draw_List,
+	r: Rect,
+	uv: [4]f32,
+	c: Colour,
+	tex: Texture_ID,
+	kind: Shape_Kind,
+	radius: f32,
+	shape_half: [2]f32,
+	softness: f32,
+	corners: [4]f32,
+	border: [4]f32,
+) {
 	if r.w <= 0 || r.h <= 0 {return}
 
 	quad := rect_scale(r, dl.scale)
+	half := [2]f32{shape_half[0] * dl.scale, shape_half[1] * dl.scale}
+	blur := softness * dl.scale
+	scaled_corners := [4]f32 {
+		corners[0] * dl.scale,
+		corners[1] * dl.scale,
+		corners[2] * dl.scale,
+		corners[3] * dl.scale,
+	}
+	scaled_border := [4]f32 {
+		border[0] * dl.scale,
+		border[1] * dl.scale,
+		border[2] * dl.scale,
+		border[3] * dl.scale,
+	}
 
 	cr := rect_intersect(quad, dl.current_clip)
 	if cr.w <= 0 || cr.h <= 0 {return}
 	if cr.x == quad.x && cr.y == quad.y && cr.w == quad.w && cr.h == quad.h {
-		draw_quad_vertices(dl, quad, quad, uv, c, tex, kind, radius * dl.scale)
+		draw_quad_vertices(
+			dl,
+			quad,
+			quad,
+			uv,
+			c,
+			tex,
+			kind,
+			radius * dl.scale,
+			half,
+			blur,
+			scaled_corners,
+			scaled_border,
+		)
 		return
 	}
 
@@ -127,7 +213,20 @@ draw_quad_shape :: proc(
 	v0 := uv[1] + (cr.y - quad.y) / quad.h * (uv[3] - uv[1])
 	v1 := uv[1] + (cr.y + cr.h - quad.y) / quad.h * (uv[3] - uv[1])
 
-	draw_quad_vertices(dl, cr, quad, [4]f32{u0, v0, u1, v1}, c, tex, kind, radius * dl.scale)
+	draw_quad_vertices(
+		dl,
+		cr,
+		quad,
+		[4]f32{u0, v0, u1, v1},
+		c,
+		tex,
+		kind,
+		radius * dl.scale,
+		half,
+		blur,
+		scaled_corners,
+		scaled_border,
+	)
 }
 
 draw_quad_vertices :: proc(
@@ -139,11 +238,25 @@ draw_quad_vertices :: proc(
 	tex: Texture_ID,
 	kind: Shape_Kind,
 	radius: f32,
+	shape_half: [2]f32,
+	softness: f32,
+	corners: [4]f32 = {},
+	border: [4]f32 = {},
 ) {
 	colour := c
 	if dl.opacity != 1 {
 		colour.a *= dl.opacity
 	}
+	corner_radii := corners
+	if radii_are_zero(corner_radii) && radius > 0 {
+		corner_radii = {radius, radius, radius, radius}
+	}
+	if shape_half[0] > 0 && shape_half[1] > 0 {
+		corner_radii = clamp_corner_radii(corner_radii, shape_half[0] * 2, shape_half[1] * 2)
+	} else {
+		corner_radii = {}
+	}
+
 	base := len(dl.vertices)
 	resize(&dl.vertices, base + 4)
 	p := [4][2]f32{{r.x, r.y}, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h}, {r.x, r.y + r.h}}
@@ -158,7 +271,7 @@ draw_quad_vertices :: proc(
 		{p[3][0] - cx, p[3][1] - cy},
 	}
 
-	shape := [4]f32{f32(kind), radius, full.w * 0.5, full.h * 0.5}
+	shape := [4]f32{f32(kind), radius, shape_half[0], shape_half[1]}
 	for i in 0 ..< 4 {
 		dl.vertices[base + i] = Draw_Vertex {
 			pos = p[i],
@@ -166,6 +279,9 @@ draw_quad_vertices :: proc(
 			colour = colour,
 			shape = shape,
 			local = l[i],
+			softness = softness,
+			corners = corner_radii,
+			border = border,
 		}
 	}
 

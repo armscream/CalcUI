@@ -579,6 +579,7 @@ text_box_kind :: proc() -> Widget_Kind {
 		pointer = text_box_pointer,
 		measure = measure_text_box,
 		uses_arrow_keys = true,
+		focus_ring = true,
 		theme_name = "TextBox",
 	}
 }

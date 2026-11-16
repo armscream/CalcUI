@@ -4,6 +4,11 @@ Draw_Rect :: proc(g: ^GUI, e: Rect, colour: Colour, radius: f32 = 0) {
 	draw_rect(g, e, colour, radius)
 }
 
+Draw_Rect_Radii :: proc(g: ^GUI, e: Rect, colour: Colour, radii: [4]f32) {
+	if g == nil { return }
+	draw_rect_radii(g, e, colour, radii)
+}
+
 Draw_Text :: proc(g: ^GUI, ts: Text_Style, text: string, e: Rect, colour: Colour) {
 	if g == nil { return }
 	draw_text(g, ts, text, e, colour)

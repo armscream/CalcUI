@@ -61,6 +61,9 @@ Widget_Kind :: struct {
 	//* Whether the widget uses the arrow keys itself, so that they do not
 	//* move the focus away from it.
 	uses_arrow_keys: bool,
+	interactive: bool,
+	hit_test: proc(g: ^GUI, id: Widget_ID, w: ^Widget, p: Vec2) -> bool,
+	focus_ring: bool,
 	//* Whether the draw hook draws the children of the widget itself: the
 	//* core does not draw them a second time.
 	owns_children: bool,
