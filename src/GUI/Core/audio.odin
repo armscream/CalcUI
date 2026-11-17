@@ -142,8 +142,9 @@ audio_update :: proc(g: ^GUI, rt: f32) {
 	if !state.playing {return}
 	//* The position is only moved once a frame, however many widgets
 	//* ask for it.
-	if state.ticker == g.last_frame {return}
-	state.ticker = g.last_frame
+	tick := i64(g.frame_count)
+	if state.ticker == tick {return}
+	state.ticker = tick
 	state.position += rt
 	if state.length > 0 && state.position >= state.length {
 		if state.loops {

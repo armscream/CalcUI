@@ -44,6 +44,9 @@ Backend_Report :: proc(b: Backend) {
 	if b.submit_target == nil {
 		log.warn("backend: no 'submit_target': the floating panels cannot be drawn")
 	}
+	if b.supports_backdrop_blur && !b.supports_shapes {
+		log.warn("backend: backdrop blur needs shapes: the blur is ignored")
+	}
 }
 
 //* Makes the backend for a window of the given size in pixels. Returns
@@ -91,4 +94,11 @@ Backend_Submit :: proc(b: Backend, dl: ^Draw_List) {
 Backend_Submit_Target :: proc(b: Backend, dl: ^Draw_List, window: rawptr) {
 	if b.submit_target == nil { return }
 	b.submit_target(b.ctx, dl, window)
+}
+
+//* Drops the cached frame of a backend. Does nothing when the backend has
+//* no 'invalidate'.
+Backend_Invalidate :: proc(b: Backend) {
+	if b.invalidate == nil { return }
+	b.invalidate(b.ctx)
 }

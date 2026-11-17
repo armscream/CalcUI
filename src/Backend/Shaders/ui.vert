@@ -24,17 +24,20 @@ layout(location=3) in vec4 shape;
 //* the quad. The fragment shader uses it to work out how far a
 //* fragment is from a rounded corner.
 layout(location=4) in vec2 local;
-layout(location=5) in float softness;
-layout(location=6) in vec4 corners;
-layout(location=7) in vec4 border;
+//* The corners are normalized fixed point at 1/16 px and the border is
+//* normalized fixed point at 1/128 px, signed. The two are decoded here
+//* so the fragment shader works in pixels.
+layout(location=5) in vec4 corners;
+layout(location=6) in vec4 border;
+layout(location=7) in float opacity;
 
 layout(location=0) out vec2 uv;
 layout(location=1) out vec4 v_colour;
 layout(location=2) out vec4 v_shape;
 layout(location=3) out vec2 v_local;
-layout(location=4) out float v_softness;
-layout(location=5) out vec4 v_corners;
-layout(location=6) out vec4 v_border;
+layout(location=4) out vec4 v_corners;
+layout(location=5) out vec4 v_border;
+layout(location=6) out float v_opacity;
 
 void main() {
     vec2 ndc = vec2(
@@ -46,7 +49,7 @@ void main() {
     v_colour = colour;
     v_shape = shape;
     v_local = local;
-    v_softness = softness;
-    v_corners = corners;
-    v_border = border;
+    v_corners = corners * 4095.9375;
+    v_border = border * 256.0;
+    v_opacity = opacity;
 }

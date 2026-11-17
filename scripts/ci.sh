@@ -51,6 +51,10 @@ echo "== Testing examples/09_node_graph/blueprint"
 odin test examples/09_node_graph/blueprint -define:ODIN_TEST_THREADS=1
 
 echo
+echo "== Testing examples/09_node_graph"
+odin test examples/09_node_graph -define:ODIN_TEST_THREADS=1
+
+echo
 echo "== Checking examples/09_node_graph/features"
 odin check examples/09_node_graph/features -no-entry-point
 
@@ -92,5 +96,17 @@ if [ ! -s "$BIN/shot_node_graph.png" ]; then
 fi
 
 echo
+echo "== Rendering the SDF picture and checking its pixels"
+odin run tools/shot_sdf -- "$BIN/shot_sdf.ppm"
+
+if [ ! -s "$BIN/shot_sdf.ppm" ]; then
+    echo "The SDF picture was not written." >&2
+    exit 1
+fi
+
+odin run tools/shot_sdf -- verify
+odin run tools/shot_sdf -- parity
+
+echo
 echo "Passed: src/NodeGraph, src/GUI, src/Tests, the blueprint tests,"
-echo "the examples, src/Window, src/Backend and both pictures."
+echo "the examples, src/Window, src/Backend and the three pictures."

@@ -67,6 +67,15 @@ if errorlevel 1 (
 )
 
 echo.
+echo == Testing examples\09_node_graph
+odin test examples\09_node_graph -define:ODIN_TEST_THREADS=1
+if errorlevel 1 (
+    echo The node graph example tests did not pass.
+    set FAILED=the node graph example tests
+    goto fail
+)
+
+echo.
 echo == Checking examples\09_node_graph\features
 odin check examples\09_node_graph\features -no-entry-point
 if errorlevel 1 (
@@ -140,10 +149,43 @@ for %%A in ("%BIN%\shot_node_graph.png") do if %%~zA LSS 1 (
     goto fail
 )
 
+echo.
+echo == Rendering the SDF picture and checking its pixels
+odin run tools\shot_sdf -- "%BIN%\shot_sdf.ppm"
+if errorlevel 1 (
+    echo The SDF picture was not written.
+    set FAILED=the SDF picture
+    goto fail
+)
+if not exist "%BIN%\shot_sdf.ppm" (
+    echo The SDF picture was not written.
+    set FAILED=the SDF picture
+    goto fail
+)
+for %%A in ("%BIN%\shot_sdf.ppm") do if %%~zA LSS 1 (
+    echo The SDF picture is empty.
+    set FAILED=the SDF picture
+    goto fail
+)
+
+odin run tools\shot_sdf -- verify
+if errorlevel 1 (
+    echo The SDF pixel checks did not pass.
+    set FAILED=the SDF pixel checks
+    goto fail
+)
+
+odin run tools\shot_sdf -- parity
+if errorlevel 1 (
+    echo The SDF parity check did not pass.
+    set FAILED=the SDF parity check
+    goto fail
+)
+
 popd
 echo.
 echo Passed: src\NodeGraph, src\GUI, src\Tests, the blueprint tests,
-echo the examples, src\Window, src\Backend and both pictures.
+echo the examples, src\Window, src\Backend and the three pictures.
 endlocal
 exit /b 0
 

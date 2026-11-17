@@ -253,6 +253,27 @@ renderer_submit_target :: proc(ctx: rawptr, dl: ^GUI.Draw_List, window: rawptr) 
 	sdl.RenderPresent(st.targets[index].renderer)
 }
 
+//* The window of a floating panel is going away: its renderer and the
+//* textures that belong to it are released before the window is destroyed.
+renderer_release_target :: proc(ctx: rawptr, window: rawptr) {
+	st := cast(^Renderer_State)ctx
+	if st == nil || window == nil {return}
+	handle := cast(^sdl.Window)window
+	for target, i in st.targets {
+		if target.window != handle {continue}
+		if i + 1 < len(st.textures) {
+			for tex in st.textures[i + 1] {
+				if tex != nil {sdl.DestroyTexture(tex)}
+			}
+			delete(st.textures[i + 1])
+			ordered_remove(&st.textures, i + 1)
+		}
+		ordered_remove(&st.targets, i)
+		if target.renderer != nil {sdl.DestroyRenderer(target.renderer)}
+		return
+	}
+}
+
 render_into :: proc(st: ^Renderer_State, renderer_index: int, dl: ^GUI.Draw_List) {
 	renderer := renderer_at(st, renderer_index)
 	if renderer == nil { return }
@@ -294,4 +315,5 @@ render_into :: proc(st: ^Renderer_State, renderer_index: int, dl: ^GUI.Draw_List
 			i32(cmd.idx_count),
 		)
 	}
+
 }

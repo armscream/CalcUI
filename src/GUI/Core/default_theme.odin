@@ -120,6 +120,14 @@ default_theme_padded :: proc(bg, border: Colour, width, radius, pad_x, pad_y: f3
 	return box
 }
 
+default_theme_floating :: proc(box: StyleBox, size: f32 = 10) -> StyleBox {
+	out := box
+	out.shadow_color = RGBA(0, 0, 0, 0.45)
+	out.shadow_size = size
+	out.shadow_offset = {0, 4}
+	return out
+}
+
 //* The theme of the GUI, in the dark.
 default_theme_dark :: proc() -> ^Theme {
 	return default_theme_make(true)
@@ -390,7 +398,7 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 	//* A popup comes up over the rest of the UI, so it has a border and
 	//* a shadow of its own.
 	Theme_Set_Type(theme, .PopupMenu, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 4, 4),
+		box  = default_theme_floating(default_theme_padded(p.surface, p.border, 1, 6, 4, 4)),
 		text = Text_Style{colour = p.text},
 	})
 	//* The overlays draw their own box, so the theme gives them no
@@ -419,7 +427,7 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		theme_set_color(theme, widget_type, "border", p.border)
 	}
 	Theme_Set_Type(theme, .Tooltip, Style{
-		box  = default_theme_padded(p.surface, p.border, 1, 6, 8, 5),
+		box  = default_theme_floating(default_theme_padded(p.surface, p.border, 1, 6, 8, 5), 8),
 		text = Text_Style{colour = p.text},
 	})
 
@@ -517,10 +525,65 @@ default_theme_make :: proc(dark: bool) -> ^Theme {
 		box  = default_theme_padded(p.surface, p.border, 1, 4, 4, 4),
 		text = Text_Style{colour = p.text},
 	})
+	theme_set_color(theme, .NodeGraph, "grid_minor", RGBA(0.16, 0.18, 0.22, 1))
+	theme_set_color(theme, .NodeGraph, "grid_major", RGBA(0.22, 0.25, 0.31, 1))
+	theme_set_color(theme, .NodeGraph, "node_bg", RGBA(0.18, 0.20, 0.25, 1))
+	theme_set_color(theme, .NodeGraph, "header", RGBA(0.22, 0.25, 0.31, 1))
+	theme_set_color(theme, .NodeGraph, "collapsed", RGBA(0.27, 0.31, 0.39, 1))
+	theme_set_color(theme, .NodeGraph, "selected", RGBA(0.35, 0.74, 1.00, 1))
+	theme_set_color(theme, .NodeGraph, "hovered", RGBA(0.55, 0.62, 0.72, 1))
+	theme_set_color(theme, .NodeGraph, "input", RGBA(0.45, 0.72, 0.95, 1))
+	theme_set_color(theme, .NodeGraph, "output", RGBA(0.98, 0.72, 0.35, 1))
+	theme_set_color(theme, .NodeGraph, "wired", RGBA(0.45, 0.85, 0.55, 1))
+	theme_set_color(theme, .NodeGraph, "compatible", RGBA(0.40, 0.90, 0.55, 1))
+	theme_set_color(theme, .NodeGraph, "incompatible", RGBA(0.95, 0.35, 0.35, 1))
+	theme_set_color(theme, .NodeGraph, "wire", RGBA(0.62, 0.66, 0.74, 1))
+	theme_set_color(theme, .NodeGraph, "wire_hover", RGBA(0.78, 0.82, 0.90, 1))
+	theme_set_color(theme, .NodeGraph, "wire_selected", RGBA(0.35, 0.74, 1.00, 1))
+	theme_set_color(theme, .NodeGraph, "marquee", RGBA(0.35, 0.74, 1.00, 0.16))
+	theme_set_color(theme, .NodeGraph, "resize", RGBA(0.62, 0.66, 0.74, 1))
+	theme_set_color(theme, .NodeGraph, "text", p.text)
+	theme_set_color(theme, .NodeGraph, "node_border", RGBA(0.33, 0.37, 0.45, 1))
+	theme_set_color(theme, .NodeGraph, "node_shadow", RGBA(0, 0, 0, 0.35))
+	theme_set_color(theme, .NodeGraph, "header_accent", RGBA(0.35, 0.74, 1.00, 1))
+	theme_set_color(theme, .NodeGraph, "pin_ring", RGBA(0.10, 0.11, 0.14, 1))
+	theme_set_color(theme, .NodeGraph, "wire_glow", RGBA(0.62, 0.66, 0.74, 1))
+	theme_set_color(theme, .NodeGraph, "region_fill", RGBA(0.32, 0.42, 0.62, 0.16))
+	theme_set_color(theme, .NodeGraph, "region_border", RGBA(0.32, 0.42, 0.62, 0.85))
+	theme_set_color(theme, .NodeGraph, "region_header", RGBA(0.32, 0.42, 0.62, 0.32))
+	theme_set_color(theme, .NodeGraph, "region_text", RGBA(0.86, 0.90, 0.96, 1))
+	theme_set_constant(theme, .NodeGraph, "title_height", 20)
+	theme_set_constant(theme, .NodeGraph, "port_spacing", 16)
+	theme_set_constant(theme, .NodeGraph, "port_size", 9)
+	theme_set_constant(theme, .NodeGraph, "pin_ring_width", 1.5)
+	theme_set_constant(theme, .NodeGraph, "corner_radius", 6)
+	theme_set_constant(theme, .NodeGraph, "title_font_size", 12)
+	theme_set_constant(theme, .NodeGraph, "pin_font_size", 9)
+	theme_set_constant(theme, .NodeGraph, "config_font_size", 9)
+	theme_set_constant(theme, .NodeGraph, "wire_width", 2)
+	theme_set_constant(theme, .NodeGraph, "wire_glow", 5)
+	theme_set_constant(theme, .NodeGraph, "arrow_size", 7)
+	theme_set_constant(theme, .NodeGraph, "badge_height", 14)
+	theme_set_constant(theme, .NodeGraph, "badge_padding", 4)
+	theme_set_constant(theme, .NodeGraph, "shadow_size", 6)
+	theme_set_constant(theme, .NodeGraph, "shadow_opacity", 0.35)
+	theme_set_constant(theme, .NodeGraph, "lod_full_zoom", 0.75)
+	theme_set_constant(theme, .NodeGraph, "lod_compact_zoom", 0.45)
+	theme_set_constant(theme, .NodeGraph, "region_header_height", 18)
+	theme_set_constant(theme, .NodeGraph, "region_padding", 8)
+	theme_set_constant(theme, .NodeGraph, "region_title_font_size", 10)
 	Theme_Set_Type(theme, .Canvas, Style{
 		box  = default_theme_padded(p.surface, p.border, 1, 4, 0, 0),
 		text = Text_Style{colour = p.text},
 	})
+	Theme_Set_Type(theme, .Gizmo, Style{
+		text = Text_Style{colour = p.text},
+	})
+	theme_set_color(theme, .Gizmo, "x_axis", RGBA(0.92, 0.28, 0.32, 1))
+	theme_set_color(theme, .Gizmo, "y_axis", RGBA(0.34, 0.82, 0.40, 1))
+	theme_set_color(theme, .Gizmo, "move", p.text)
+	theme_set_color(theme, .Gizmo, "rotate", RGBA(0.36, 0.64, 1, 1))
+	theme_set_color(theme, .Gizmo, "scale", RGBA(0.94, 0.76, 0.28, 1))
 	Theme_Set_Type(theme, .FileViewer, Style{
 		box  = default_theme_padded(p.field, p.border, 1, 4, 2, 2),
 		text = Text_Style{colour = p.text},

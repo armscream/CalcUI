@@ -37,6 +37,8 @@ animation_property_accepts :: proc(property: Animation_Property, kind: Animation
 		return kind == .Colour || kind == .Scalar
 	case .Shadow:
 		return kind == .Colour || kind == .Scalar || kind == .Vector
+	case .Shadow_Spread, .Shadow_Inset:
+		return kind == .Scalar
 	case .Opacity, .Width, .Height:
 		return kind == .Scalar
 	case .Position:
@@ -433,6 +435,20 @@ animation_apply_value :: proc(g: ^GUI, tween: ^Tween) {
 		} else {
 			return
 		}
+		animation_apply_visual_style(g, w, style)
+	case .Shadow_Spread:
+		value, ok := tween.value.(f32)
+		if !ok {return}
+		style := w.style
+		style.box.shadow_spread = value
+		style.set += bit_set[Style_Field]{.Shadow_Spread}
+		animation_apply_visual_style(g, w, style)
+	case .Shadow_Inset:
+		value, ok := tween.value.(f32)
+		if !ok {return}
+		style := w.style
+		style.box.shadow_inset = value >= 0.5
+		style.set += bit_set[Style_Field]{.Shadow_Inset}
 		animation_apply_visual_style(g, w, style)
 	case .Opacity:
 		value, ok := tween.value.(f32)

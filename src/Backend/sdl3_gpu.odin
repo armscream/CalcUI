@@ -11,34 +11,58 @@ import "core:mem"
 vert_shader_code := #load("Shaders/ui.spv.vert")
 frag_shader_code := #load("Shaders/ui.spv.frag")
 
-//* The vertex layout has to match the GUI's Draw_Vertex exactly.
-Vertex :: GUI.Draw_Vertex
+Vertex :: GUI.Packed_Vertex
 
 //* Matches the uniform block in the vertex shader.
 UBO :: struct {
 	viewport: [2]f32,
 }
 
+//* The glass reads a full window backdrop, so it needs the window metrics
+//* and the length of the mip chain, no capture region.
+Glass_UBO :: struct {
+	metrics: [4]f32, // backdrop scale x, scale y, window width, height
+	levels:  [4]f32, // mip level count
+}
+
 //* What a target needs to draw a list of its own: the buffers of its
 //* geometry and the size of its window.
 GPU_Slot :: struct {
-	vertex_buf:  ^sdl.GPUBuffer,
-	index_buf:   ^sdl.GPUBuffer,
-	vertex_size: int,
-	index_size:  int,
-	//* The geometry that was uploaded last. A list that did not change
-	//* is not sent again.
-	vertices:    []GUI.Draw_Vertex,
-	indices:     []u32,
-	width:       f32,
-	height:      f32,
+	vertex_buf:      ^sdl.GPUBuffer,
+	index_buf:       ^sdl.GPUBuffer,
+	vertex_size:     int,
+	index_size:      int,
+	//* The revision and the counts of the geometry that was uploaded last.
+	revision:        u64,
+	vertex_count:    int,
+	index_count:     int,
+	packed:          [dynamic]Vertex,
+	width:           f32,
+	height:          f32,
+	//* The offscreen scene, the half resolution backdrop the glass reads,
+	//* and the grouped capture points.
+	scene_tex:       ^sdl.GPUTexture,
+	backdrop_tex:    ^sdl.GPUTexture,
+	tex_w:           u32,
+	tex_h:           u32,
+	plan:            Backdrop_Plan,
+	cached_valid:    bool,
+	cached_revision: u64,
 }
 
 GPU_State :: struct {
-	device:   ^sdl.GPUDevice,
-	window:   ^sdl.Window,
-	pipeline: ^sdl.GPUGraphicsPipeline,
-	sampler:  ^sdl.GPUSampler,
+	device:           ^sdl.GPUDevice,
+	window:           ^sdl.Window,
+	pipeline:         ^sdl.GPUGraphicsPipeline,
+	sampler:          ^sdl.GPUSampler,
+	//* The atlas has one level, so it keeps a nearest mip mode. The
+	//* backdrop is sampled trilinearly between the levels of its chain.
+	backdrop_sampler: ^sdl.GPUSampler,
+
+	//* The format of the swapchain. The offscreen targets of a glass
+	//* list use the same one, so the one pipeline draws into all of
+	//* them.
+	format:   sdl.GPUTextureFormat,
 
 	textures: [dynamic]^sdl.GPUTexture,
 
@@ -69,20 +93,21 @@ gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 	if !sdl.ClaimWindowForGPUDevice(device, st.window) { return false }
 
 	vert := load_shader(device, vert_shader_code, .VERTEX, 1, 0)
-	frag := load_shader(device, frag_shader_code, .FRAGMENT, 0, 1)
+	frag := load_shader(device, frag_shader_code, .FRAGMENT, 1, 1)
 	if vert == nil || frag == nil { return false }
 
 	vertex_attrs := []sdl.GPUVertexAttribute{
 		{location = 0, format = .FLOAT2, offset = u32(offset_of(Vertex, pos))},
-		{location = 1, format = .FLOAT2, offset = u32(offset_of(Vertex, uv))},
-		{location = 2, format = .FLOAT4, offset = u32(offset_of(Vertex, colour))},
+		{location = 1, format = .USHORT2_NORM, offset = u32(offset_of(Vertex, uv))},
+		{location = 2, format = .UBYTE4_NORM, offset = u32(offset_of(Vertex, colour))},
 		{location = 3, format = .FLOAT4, offset = u32(offset_of(Vertex, shape))},
 		{location = 4, format = .FLOAT2, offset = u32(offset_of(Vertex, local))},
-		{location = 5, format = .FLOAT, offset = u32(offset_of(Vertex, softness))},
-		{location = 6, format = .FLOAT4, offset = u32(offset_of(Vertex, corners))},
-		{location = 7, format = .FLOAT4, offset = u32(offset_of(Vertex, border))},
+		{location = 5, format = .USHORT4_NORM, offset = u32(offset_of(Vertex, corners))},
+		{location = 6, format = .SHORT4_NORM, offset = u32(offset_of(Vertex, border))},
+		{location = 7, format = .FLOAT, offset = u32(offset_of(Vertex, opacity))},
 	}
 
+	st.format = sdl.GetGPUSwapchainTextureFormat(device, st.window)
 	pipeline := sdl.CreateGPUGraphicsPipeline(
 		device,
 		sdl.GPUGraphicsPipelineCreateInfo {
@@ -101,7 +126,7 @@ gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 			target_info = {
 				num_color_targets = 1,
 				color_target_descriptions = &(sdl.GPUColorTargetDescription {
-					format = sdl.GetGPUSwapchainTextureFormat(device, st.window),
+					format = st.format,
 					blend_state = sdl.GPUColorTargetBlendState {
 						//* The fragment shader outputs premultiplied alpha.
 						src_color_blendfactor = .ONE,
@@ -132,14 +157,41 @@ gpu_create :: proc(ctx, window: rawptr, w, h: i32) -> bool {
 			address_mode_w = .CLAMP_TO_EDGE,
 		},
 	)
+	st.backdrop_sampler = sdl.CreateGPUSampler(
+		device,
+		sdl.GPUSamplerCreateInfo {
+			min_filter = .LINEAR,
+			mag_filter = .LINEAR,
+			mipmap_mode = .LINEAR,
+			address_mode_u = .CLAMP_TO_EDGE,
+			address_mode_v = .CLAMP_TO_EDGE,
+			address_mode_w = .CLAMP_TO_EDGE,
+		},
+	)
 
 	append(&st.slots, GPU_Slot{width = f32(w), height = f32(h)})
 	return true
 }
 
+gpu_slot_release :: proc(st: ^GPU_State, slot: ^GPU_Slot) {
+	if slot.vertex_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.vertex_buf) }
+	if slot.index_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.index_buf) }
+	if slot.scene_tex != nil { sdl.ReleaseGPUTexture(st.device, slot.scene_tex) }
+	if slot.backdrop_tex != nil { sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex) }
+	backdrop_plan_destroy(&slot.plan)
+	delete(slot.packed)
+	slot^ = {}
+}
+
 gpu_destroy :: proc(ctx: rawptr) {
 	st := cast(^GPU_State)ctx
 	if st == nil { return }
+	if st.device == nil {
+		delete(st.slots)
+		delete(st.textures)
+		st^ = {}
+		return
+	}
 
 	for tex in st.textures {
 		if tex != nil { sdl.ReleaseGPUTexture(st.device, tex) }
@@ -148,10 +200,7 @@ gpu_destroy :: proc(ctx: rawptr) {
 	delete(st.textures)
 
 	for &slot in st.slots {
-		if slot.vertex_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.vertex_buf) }
-		if slot.index_buf != nil { sdl.ReleaseGPUBuffer(st.device, slot.index_buf) }
-		delete(slot.vertices)
-		delete(slot.indices)
+		gpu_slot_release(st, &slot)
 	}
 	clear(&st.slots)
 	delete(st.slots)
@@ -166,10 +215,30 @@ gpu_destroy :: proc(ctx: rawptr) {
 
 	if st.window != nil { sdl.ReleaseWindowFromGPUDevice(st.device, st.window) }
 	if st.sampler != nil { sdl.ReleaseGPUSampler(st.device, st.sampler) }
+	if st.backdrop_sampler != nil { sdl.ReleaseGPUSampler(st.device, st.backdrop_sampler) }
 	if st.pipeline != nil { sdl.ReleaseGPUGraphicsPipeline(st.device, st.pipeline) }
 	if st.device != nil { sdl.DestroyGPUDevice(st.device) }
 
 	st^ = {}
+}
+
+//* The window of a floating panel is going away: its swapchain is released
+//* and the buffers and textures of its slot are given back. The main window
+//* keeps slot zero.
+gpu_release_target :: proc(ctx: rawptr, window: rawptr) {
+	st := cast(^GPU_State)ctx
+	if st == nil || st.device == nil || window == nil {return}
+	handle := cast(^sdl.Window)window
+	for target, i in st.targets {
+		if target.window != handle {continue}
+		if i + 1 < len(st.slots) {
+			gpu_slot_release(st, &st.slots[i + 1])
+			ordered_remove(&st.slots, i + 1)
+		}
+		ordered_remove(&st.targets, i)
+		sdl.ReleaseWindowFromGPUDevice(st.device, handle)
+		return
+	}
 }
 
 gpu_resize :: proc(ctx: rawptr, w, h: i32) -> bool {
@@ -178,7 +247,16 @@ gpu_resize :: proc(ctx: rawptr, w, h: i32) -> bool {
 	if len(st.slots) == 0 { return false }
 	st.slots[0].width = f32(w)
 	st.slots[0].height = f32(h)
+	st.slots[0].cached_valid = false
 	return true
+}
+
+gpu_invalidate :: proc(ctx: rawptr) {
+	st := cast(^GPU_State)ctx
+	if st == nil { return }
+	for &slot in st.slots {
+		slot.cached_valid = false
+	}
 }
 
 //* == The textures ==
@@ -366,6 +444,7 @@ gpu_render :: proc(
 ) {
 	if slot_index < 0 || slot_index >= len(st.slots) { return }
 	slot := &st.slots[slot_index]
+	Stats_Reset()
 
 	cmd_buf := sdl.AcquireGPUCommandBuffer(st.device)
 	swapchain: ^sdl.GPUTexture
@@ -374,63 +453,322 @@ gpu_render :: proc(
 		return
 	}
 
-	//* The geometry goes up in the same command buffer as the drawing.
 	transfers: [2]^sdl.GPUTransferBuffer
 	gpu_upload_geometry(st, cmd_buf, slot, dl, &transfers)
 
-	colour_target := sdl.GPUColorTargetInfo {
-		texture = swapchain,
-		load_op = .CLEAR,
-		clear_color = sdl.FColor{0, 0, 0, 1},
-		store_op = .STORE,
-	}
-
-	pass := sdl.BeginGPURenderPass(cmd_buf, &colour_target, 1, nil)
-	sdl.BindGPUGraphicsPipeline(pass, st.pipeline)
-	sdl.SetGPUViewport(
-		pass,
-		sdl.GPUViewport{x = 0, y = 0, w = width, h = height, min_depth = 0, max_depth = 1},
-	)
-
 	ubo := UBO{viewport = {width, height}}
 	sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-
-	empty := len(dl.vertices) == 0 || len(dl.indices) == 0
-	if !empty {
-		sdl.BindGPUVertexBuffers(pass, 0, &(sdl.GPUBufferBinding{buffer = slot.vertex_buf}), 1)
-		sdl.BindGPUIndexBuffer(pass, sdl.GPUBufferBinding{buffer = slot.index_buf}, ._32BIT)
+	glass_ubo := Glass_UBO {
+		metrics = {BACKDROP_SCALE, BACKDROP_SCALE, width, height},
+		levels  = {f32(BACKDROP_MIPS), 0, 0, 0},
 	}
+	sdl.PushGPUFragmentUniformData(cmd_buf, 0, &glass_ubo, u32(size_of(glass_ubo)))
 
-	//* The clip is already worked out in the draw list, so there is no
-	//* scissor here. Everything the window shows comes out of the one
-	//* atlas, so the texture is bound once and the whole window is one
-	//* draw call.
-	bound: ^sdl.GPUTexture = nil
-	for cmd in dl.commands {
-		if cmd.idx_count == 0 { continue }
-
-		tex: ^sdl.GPUTexture = nil
-		if int(cmd.texture) < len(st.textures) { tex = st.textures[cmd.texture] }
-		if tex != bound {
-			binding := sdl.GPUTextureSamplerBinding{texture = tex, sampler = st.sampler}
-			sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
-			bound = tex
+	if gpu_scene_ready(st, slot, u32(width), u32(height)) {
+		if slot.cached_valid && slot.cached_revision == dl.revision {
+			Stats.cache_hits += 1
+			gpu_blit(cmd_buf, slot.scene_tex, swapchain, u32(width), u32(height))
+		} else {
+			gpu_render_scene(st, cmd_buf, slot, width, height, dl)
+			gpu_blit(cmd_buf, slot.scene_tex, swapchain, u32(width), u32(height))
+			slot.cached_valid = true
+			slot.cached_revision = dl.revision
 		}
-
-		sdl.DrawGPUIndexedPrimitives(pass, cmd.idx_count, 1, cmd.idx_offset, 0, 0)
+	} else {
+		gpu_render_direct(st, cmd_buf, swapchain, slot, width, height, dl)
 	}
 
-	sdl.EndGPURenderPass(pass)
 	_ = sdl.SubmitGPUCommandBuffer(cmd_buf)
 
-	//* The transfer buffers live until the command buffer is done.
 	for transfer in transfers {
 		if transfer != nil { sdl.ReleaseGPUTransferBuffer(st.device, transfer) }
 	}
 }
 
-//* Puts the geometry of a list into the buffers of a target. A list
-//* that did not change is not sent again.
+gpu_cmd_texture :: proc(st: ^GPU_State, cmd: GUI.Draw_Command) -> ^sdl.GPUTexture {
+	if int(cmd.texture) < len(st.textures) { return st.textures[cmd.texture] }
+	return nil
+}
+
+//* Binds the pipeline, the viewport and the geometry of a list. The
+//* buffers belong to the pass, so this runs again every time a pass is
+//* started.
+gpu_pass_bind :: proc(
+	st: ^GPU_State,
+	pass: ^sdl.GPURenderPass,
+	slot: ^GPU_Slot,
+	width, height: f32,
+	dl: ^GUI.Draw_List,
+) {
+	sdl.BindGPUGraphicsPipeline(pass, st.pipeline)
+	sdl.SetGPUViewport(
+		pass,
+		sdl.GPUViewport{x = 0, y = 0, w = width, h = height, min_depth = 0, max_depth = 1},
+	)
+	if len(dl.vertices) > 0 && len(dl.indices) > 0 {
+		sdl.BindGPUVertexBuffers(pass, 0, &(sdl.GPUBufferBinding{buffer = slot.vertex_buf}), 1)
+		sdl.BindGPUIndexBuffer(pass, sdl.GPUBufferBinding{buffer = slot.index_buf}, ._32BIT)
+	}
+}
+
+//* The plain path: one pass straight into the swapchain.
+gpu_render_direct :: proc(
+	st: ^GPU_State,
+	cmd: ^sdl.GPUCommandBuffer,
+	target_tex: ^sdl.GPUTexture,
+	slot: ^GPU_Slot,
+	width, height: f32,
+	dl: ^GUI.Draw_List,
+) {
+	target := sdl.GPUColorTargetInfo {
+		texture = target_tex,
+		load_op = .CLEAR,
+		clear_color = sdl.FColor{0, 0, 0, 1},
+		store_op = .STORE,
+	}
+	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
+	Stats.draw_passes += 1
+	Stats.full_updates += 1
+	Stats.scene_updates += 1
+	gpu_pass_bind(st, pass, slot, width, height, dl)
+
+	bound: ^sdl.GPUTexture = nil
+	for c in dl.commands {
+		if c.idx_count == 0 { continue }
+		tex := gpu_cmd_texture(st, c)
+		if tex != bound {
+			binding := sdl.GPUTextureSamplerBinding{texture = tex, sampler = st.sampler}
+			sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
+			bound = tex
+		}
+		sdl.DrawGPUIndexedPrimitives(pass, c.idx_count, 1, c.idx_offset, 0, 0)
+	}
+
+	sdl.EndGPURenderPass(pass)
+}
+
+//* The glass path: the list is drawn into an offscreen scene. A group of
+//* glass commands shares one capture of the half resolution backdrop,
+//* which the shader reads and blurs.
+gpu_render_scene :: proc(
+	st: ^GPU_State,
+	cmd: ^sdl.GPUCommandBuffer,
+	slot: ^GPU_Slot,
+	width, height: f32,
+	dl: ^GUI.Draw_List,
+) {
+	backdrop_plan_build(&slot.plan, dl)
+
+	//* A scissored replay keeps the scene texture and redraws only the
+	//* rectangle the core asked for. It is refused when the cache is not
+	//* valid, the rectangle is empty or too much of the window, or the
+	//* list has glass.
+	scissor, scissored := gpu_partial_rect(dl, slot)
+	if scissored {
+		Stats.partial_updates += 1
+	} else {
+		Stats.full_updates += 1
+	}
+	Stats.scene_updates += 1
+
+	target := sdl.GPUColorTargetInfo {
+		texture = slot.scene_tex,
+		load_op = scissored ? .LOAD : .CLEAR,
+		clear_color = sdl.FColor{0, 0, 0, 1},
+		store_op = .STORE,
+	}
+	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
+	Stats.draw_passes += 1
+	gpu_pass_bind(st, pass, slot, width, height, dl)
+	if scissored {
+		sdl.SetGPUScissor(pass, scissor)
+	}
+
+	bound: ^sdl.GPUTexture = nil
+	current_group := -1
+	group_valid := false
+
+	for c, i in dl.commands {
+		if c.idx_count == 0 { continue }
+
+		if c.glass {
+			group := i32(-1)
+			if i < len(slot.plan.command_group) { group = slot.plan.command_group[i] }
+			if group < 0 { continue }
+
+			if int(group) != current_group {
+				current_group = int(group)
+				group_valid = false
+				sdl.EndGPURenderPass(pass)
+				//* The capture is the whole window, so every level of the
+				//* mip chain is valid and the shader can pick any of them.
+				group_valid = gpu_capture_backdrop(cmd, slot)
+				target.load_op = .LOAD
+				pass = sdl.BeginGPURenderPass(cmd, &target, 1, nil)
+				Stats.draw_passes += 1
+				gpu_pass_bind(st, pass, slot, width, height, dl)
+				if scissored {
+					sdl.SetGPUScissor(pass, scissor)
+				}
+				bound = nil
+			}
+
+			if !group_valid { continue }
+
+			binding := sdl.GPUTextureSamplerBinding {
+				texture = slot.backdrop_tex,
+				sampler = st.backdrop_sampler,
+			}
+			sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
+			bound = slot.backdrop_tex
+			Stats.glass_commands += 1
+			pixels := int(max(c.bounds.w, 0) * max(c.bounds.h, 0))
+			Stats.glass_pixels += pixels
+			//* One level of the chain, plus four taps for the dispersion
+			//* gradient on the surfaces that ask for it, against twenty-five
+			//* taps of the old kernel.
+			Stats.glass_taps += pixels * (c.blur > 8 ? 5 : 9)
+			sdl.DrawGPUIndexedPrimitives(pass, c.idx_count, 1, c.idx_offset, 0, 0)
+			continue
+		}
+
+		tex := gpu_cmd_texture(st, c)
+		if tex != bound {
+			binding := sdl.GPUTextureSamplerBinding{texture = tex, sampler = st.sampler}
+			sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
+			bound = tex
+		}
+		sdl.DrawGPUIndexedPrimitives(pass, c.idx_count, 1, c.idx_offset, 0, 0)
+	}
+
+	sdl.EndGPURenderPass(pass)
+}
+
+//* The rectangle of a scissored replay in physical pixels, and whether the
+//* request can be honoured. Empty rectangles, rectangles over a third of
+//* the window and requests without a valid cache fall back to a full
+//* render.
+gpu_partial_rect :: proc(dl: ^GUI.Draw_List, slot: ^GPU_Slot) -> (sdl.Rect, bool) {
+	if dl == nil || !dl.partial || !slot.cached_valid {return {}, false}
+	//* A glass surface reads the picture behind it. Outside the rectangle
+	//* the scene still holds the glass of the previous frame, not the
+	//* content under it, so a scissored replay would blur the old
+	//* composite into the new one. A list with glass is drawn whole.
+	if len(slot.plan.groups) > 0 {return {}, false}
+	if slot.tex_w == 0 || slot.tex_h == 0 {return {}, false}
+	r := dl.dirty_rect
+	x0 := i32(max(r.x, 0))
+	y0 := i32(max(r.y, 0))
+	x1 := i32(min(r.x + r.w, f32(slot.tex_w)))
+	y1 := i32(min(r.y + r.h, f32(slot.tex_h)))
+	if x1 <= x0 || y1 <= y0 {return {}, false}
+	w := x1 - x0
+	h := y1 - y0
+	if f32(w) * f32(h) > f32(slot.tex_w) * f32(slot.tex_h) / 3 {return {}, false}
+	return sdl.Rect{x = x0, y = y0, w = w, h = h}, true
+}
+
+//* Makes sure the offscreen scene and the half resolution backdrop match
+//* the window. They are kept between frames and remade only when the
+//* size changes.
+gpu_scene_ready :: proc(st: ^GPU_State, slot: ^GPU_Slot, w, h: u32) -> bool {
+	if w == 0 || h == 0 { return false }
+	if slot.scene_tex != nil && slot.backdrop_tex != nil && slot.tex_w == w && slot.tex_h == h {
+		return true
+	}
+
+	if slot.scene_tex != nil {
+		sdl.ReleaseGPUTexture(st.device, slot.scene_tex)
+		slot.scene_tex = nil
+	}
+	if slot.backdrop_tex != nil {
+		sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex)
+		slot.backdrop_tex = nil
+	}
+	slot.cached_valid = false
+
+	info := sdl.GPUTextureCreateInfo {
+		type                 = .D2,
+		format               = st.format,
+		usage                = {.SAMPLER, .COLOR_TARGET},
+		width                = w,
+		height               = h,
+		layer_count_or_depth = 1,
+		num_levels           = 1,
+		sample_count         = ._1,
+	}
+	slot.scene_tex = sdl.CreateGPUTexture(st.device, info)
+	info.width = max((w + 1) / 2, 1)
+	info.height = max((h + 1) / 2, 1)
+	info.num_levels = BACKDROP_MIPS
+	slot.backdrop_tex = sdl.CreateGPUTexture(st.device, info)
+	if slot.scene_tex == nil || slot.backdrop_tex == nil {
+		if slot.scene_tex != nil {
+			sdl.ReleaseGPUTexture(st.device, slot.scene_tex)
+			slot.scene_tex = nil
+		}
+		if slot.backdrop_tex != nil {
+			sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex)
+			slot.backdrop_tex = nil
+		}
+		return false
+	}
+	slot.tex_w = w
+	slot.tex_h = h
+	return true
+}
+
+//* Copies the whole scene into level zero of the backdrop and builds the
+//* rest of the chain. A group shares one chain, and the shader samples an
+//* explicit level of it.
+gpu_capture_backdrop :: proc(
+	cmd: ^sdl.GPUCommandBuffer,
+	slot: ^GPU_Slot,
+) -> bool {
+	if slot.scene_tex == nil || slot.backdrop_tex == nil { return false }
+
+	dw := max((slot.tex_w + 1) / 2, 1)
+	dh := max((slot.tex_h + 1) / 2, 1)
+
+	sdl.BlitGPUTexture(
+		cmd,
+		sdl.GPUBlitInfo {
+			source      = sdl.GPUBlitRegion{texture = slot.scene_tex, w = slot.tex_w, h = slot.tex_h},
+			destination = sdl.GPUBlitRegion{texture = slot.backdrop_tex, w = dw, h = dh},
+			load_op     = .DONT_CARE,
+			clear_color = sdl.FColor{0, 0, 0, 0},
+			flip_mode   = .NONE,
+			filter      = .LINEAR,
+		},
+	)
+	sdl.GenerateMipmapsForGPUTexture(cmd, slot.backdrop_tex)
+
+	Stats.capture_points += 1
+	Stats.backdrop_blits += 1
+	Stats.backdrop_pixels += int(dw) * int(dh)
+	Stats.mip_generations += 1
+	return true
+}
+
+gpu_blit :: proc(
+	cmd: ^sdl.GPUCommandBuffer,
+	src, dst: ^sdl.GPUTexture,
+	w, h: u32,
+) {
+	if src == nil || dst == nil { return }
+	sdl.BlitGPUTexture(
+		cmd,
+		sdl.GPUBlitInfo {
+			source = sdl.GPUBlitRegion{texture = src, w = w, h = h},
+			destination = sdl.GPUBlitRegion{texture = dst, w = w, h = h},
+			load_op = .DONT_CARE,
+			clear_color = sdl.FColor{0, 0, 0, 0},
+			flip_mode = .NONE,
+			filter = .NEAREST,
+		},
+	)
+}
+
 gpu_upload_geometry :: proc(
 	st: ^GPU_State,
 	cmd: ^sdl.GPUCommandBuffer,
@@ -439,10 +777,9 @@ gpu_upload_geometry :: proc(
 	transfers: ^[2]^sdl.GPUTransferBuffer,
 ) {
 	changed :=
-		len(slot.vertices) != len(dl.vertices) ||
-		len(slot.indices) != len(dl.indices) ||
-		!same_bytes(raw_data(slot.vertices), raw_data(dl.vertices), len(dl.vertices) * size_of(GUI.Draw_Vertex)) ||
-		!same_bytes(raw_data(slot.indices), raw_data(dl.indices), len(dl.indices) * size_of(u32))
+		slot.revision != dl.revision ||
+		slot.vertex_count != len(dl.vertices) ||
+		slot.index_count != len(dl.indices)
 
 	vertex_bytes := len(dl.vertices) * size_of(Vertex)
 	index_bytes := len(dl.indices) * size_of(u32)
@@ -471,33 +808,19 @@ gpu_upload_geometry :: proc(
 
 	if !changed { return }
 
+	resize(&slot.packed, len(dl.vertices))
+	for v, i in dl.vertices {
+		slot.packed[i] = GUI.pack_vertex(v)
+	}
+
 	copy_pass := sdl.BeginGPUCopyPass(cmd)
-	transfers[0] = upload_buffer(st, copy_pass, raw_data(dl.vertices), vertex_bytes, slot.vertex_buf)
+	transfers[0] = upload_buffer(st, copy_pass, raw_data(slot.packed), vertex_bytes, slot.vertex_buf)
 	transfers[1] = upload_buffer(st, copy_pass, raw_data(dl.indices), index_bytes, slot.index_buf)
 	sdl.EndGPUCopyPass(copy_pass)
 
-	//* The copy is only kept when the geometry really went up.
-	keep_geometry(slot, dl)
-}
-
-same_bytes :: proc(a, b: rawptr, n: int) -> bool {
-	if n <= 0 { return true }
-	return mem.compare_ptrs(a, b, n) == 0
-}
-
-//* Keeps a copy of the geometry, so the next frame can tell whether it
-//* changed.
-keep_geometry :: proc(slot: ^GPU_Slot, dl: ^GUI.Draw_List) {
-	if len(slot.vertices) != len(dl.vertices) {
-		delete(slot.vertices)
-		slot.vertices = make([]GUI.Draw_Vertex, len(dl.vertices))
-	}
-	if len(slot.indices) != len(dl.indices) {
-		delete(slot.indices)
-		slot.indices = make([]u32, len(dl.indices))
-	}
-	copy(slot.vertices[:], dl.vertices[:])
-	copy(slot.indices[:], dl.indices[:])
+	slot.revision = dl.revision
+	slot.vertex_count = len(dl.vertices)
+	slot.index_count = len(dl.indices)
 }
 
 //* Uploads data into a GPU buffer. The transfer buffer is given back to

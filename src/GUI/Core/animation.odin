@@ -34,6 +34,8 @@ Animation_Property :: enum {
 	Background,
 	Border,
 	Shadow,
+	Shadow_Spread,
+	Shadow_Inset,
 	Opacity,
 	Width,
 	Height,

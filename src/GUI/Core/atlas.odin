@@ -6,8 +6,9 @@ package Core
 //
 //* The shelves are stacked from the top of the atlas downwards, and a
 //* new region goes on the first shelf that is tall enough and has room
-//* left. The glyphs are pinned, because a glyph that is thrown out
-//* would have to be rasterized again; the images are not.
+//* left. A region that is not pinned can be thrown out when room is
+//* needed; a region that a retained draw list names stays until the
+//* next build.
 //
 //* A region is named by its slot and by a generation. The generation
 //* goes up when the space is given back, so a handle to a region that
@@ -128,13 +129,14 @@ atlas_alloc :: proc(a: ^UI_Atlas, w, h: int, pinned: bool) -> Atlas_Region {
 	}
 
 	//* Try again after throwing something out: the space that is
-	//* freed is the space that is used. A region that is not pinned
-	//* can always be thrown out to make room
+	//* freed is the space that is used. Only a region that can hold
+	//* the request is worth throwing out; the other regions still
+	//* name space that the retained draw lists may use.
 	for {
 		if region, ok := atlas_alloc_raw(a, w, h); ok {
 			return atlas_commit(a, region, w, h, pinned)
 		}
-		if !atlas_evict(a) { break }
+		if !atlas_evict_for(a, w, h) { break }
 	}
 	a.exhausted += 1
 	return Atlas_Region{id = -1}
@@ -289,6 +291,27 @@ atlas_evict :: proc(a: ^UI_Atlas) -> bool {
 	return true
 }
 
+//* Throws out the least recently used region that is not pinned, that
+//* the retained draw lists do not name, and that is big enough to hold
+//* a request of `w` x `h`. A region that cannot satisfy the request
+//* would only be lost without helping, so it stays.
+atlas_evict_for :: proc(a: ^UI_Atlas, w, h: int) -> bool {
+	oldest := -1
+	oldest_used := u64(0)
+	for &alloc, i in a.allocs {
+		if alloc.freed || alloc.pinned { continue }
+		if alloc.used == a.retained_frame { continue }
+		if alloc.region.w < w || alloc.region.h < h { continue }
+		if oldest < 0 || alloc.used < oldest_used {
+			oldest_used = alloc.used
+			oldest = i
+		}
+	}
+	if oldest < 0 { return false }
+	atlas_free(a, a.allocs[oldest].region)
+	return true
+}
+
 //* Gives a region back. The space is put on the free list of its
 //* shelf, so it can be used again, and the generation of the slot goes
 //* up, so a handle to the region names nothing from now on.
@@ -301,10 +324,12 @@ atlas_free :: proc(a: ^UI_Atlas, region: Atlas_Region) {
 	append(&a.free_slots, region.id)
 }
 
-//* Puts the space of a region back on the free list of its shelf.
+//* Puts the space of a region back on the free list of its shelf. The
+//* shelf owns the band that the y of the region falls in; a region
+//* carved from the bottom of a split block is still in that band.
 atlas_release :: proc(a: ^UI_Atlas, region: Atlas_Region) {
 	for &s in a.shelves {
-		if s.y == region.y {
+		if region.y >= s.y && region.y < s.y + s.height {
 			append(&s.free, Atlas_Block{x = region.x, y = region.y, w = region.w, h = region.h})
 			return
 		}
@@ -439,6 +464,15 @@ atlas_gather :: proc(a: ^UI_Atlas) {
 atlas_touch :: proc(a: ^UI_Atlas, region: Atlas_Region) {
 	if !atlas_region_valid(a, region) { return }
 	a.allocs[region.id].used = a.frame
+}
+
+atlas_touch_if_valid :: proc(a: ^UI_Atlas, region: Atlas_Region) -> bool {
+	if a == nil { return false }
+	if region.id < 0 || region.id >= len(a.allocs) { return false }
+	alloc := &a.allocs[region.id]
+	if alloc.freed || alloc.gen != region.gen { return false }
+	alloc.used = a.frame
+	return true
 }
 
 //* The next frame: the regions that were not used are the first to go.
