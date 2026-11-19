@@ -1,7 +1,6 @@
 package Widgets
 
 import Core "../Core"
-import NodeGraph "../../NodeGraph"
 
 ACCESS_RELATIONS_MAX :: Core.ACCESS_RELATIONS_MAX
 API_Version :: Core.API_Version
@@ -14,6 +13,7 @@ AUDIO_PLAYER_BUTTON :: Core.AUDIO_PLAYER_BUTTON
 AUDIO_PLAYER_ROW :: Core.AUDIO_PLAYER_ROW
 Accept_Dialog_Opts :: Core.Accept_Dialog_Opts
 Access_Bridge :: Core.Access_Bridge
+Access_Children :: Core.Access_Children
 Access_Collect :: Core.Access_Collect
 Access_Collect_Float :: Core.Access_Collect_Float
 Access_Info :: Core.Access_Info
@@ -26,6 +26,7 @@ Access_Role_Name :: Core.Access_Role_Name
 Access_State :: Core.Access_State
 Access_State_Name :: Core.Access_State_Name
 Access_States :: Core.Access_States
+Access_Sync :: Core.Access_Sync
 Access_Value :: Core.Access_Value
 Access_Value_Text :: Core.Access_Value_Text
 Accordion_Data :: Core.Accordion_Data
@@ -228,34 +229,11 @@ Glyph_Entry :: Core.Glyph_Entry
 Glyph_Key :: Core.Glyph_Key
 Glyph_Quad :: Core.Glyph_Quad
 Glyph_Snap :: Core.Glyph_Snap
-Graph_Callbacks :: NodeGraph.Graph_Callbacks
-Graph_Clip_Port :: NodeGraph.Graph_Clip_Port
-Graph_Clip_Node :: NodeGraph.Graph_Clip_Node
-Graph_Clip_Wire :: NodeGraph.Graph_Clip_Wire
-Graph_Clipboard :: NodeGraph.Graph_Clipboard
-Graph_Config_Entry :: NodeGraph.Graph_Config_Entry
-Graph_Connection_Policy :: NodeGraph.Graph_Connection_Policy
-Graph_Interaction_Mode :: NodeGraph.Graph_Interaction_Mode
-Graph_Node :: NodeGraph.Graph_Node
-Graph_Node_Kind :: NodeGraph.Graph_Node_Kind
-Graph_Node_ID :: NodeGraph.Graph_Node_ID
-Graph_Node_Type :: NodeGraph.Graph_Node_Type
-Graph_Node_Type_Desc :: NodeGraph.Graph_Node_Type_Desc
-Graph_Port :: NodeGraph.Graph_Port
-Graph_Port_Desc :: NodeGraph.Graph_Port_Desc
-Graph_Port_Direction :: NodeGraph.Graph_Port_Direction
-Graph_Port_Kind :: NodeGraph.Graph_Port_Kind
-Graph_Port_ID :: NodeGraph.Graph_Port_ID
-Graph_Port_Policy :: NodeGraph.Graph_Port_Policy
-Graph_Type_Colour :: NodeGraph.Graph_Type_Colour
-Graph_Undo_Record :: NodeGraph.Graph_Undo_Record
-Graph_Value :: NodeGraph.Graph_Value
-Graph_Value_Kind :: NodeGraph.Graph_Value_Kind
-Graph_Wire :: NodeGraph.Graph_Wire
-Graph_Wire_ID :: NodeGraph.Graph_Wire_ID
-INVALID_GRAPH_NODE_ID :: NodeGraph.INVALID_GRAPH_NODE_ID
-INVALID_GRAPH_PORT_ID :: NodeGraph.INVALID_GRAPH_PORT_ID
-INVALID_GRAPH_WIRE_ID :: NodeGraph.INVALID_GRAPH_WIRE_ID
+Gizmo_Data :: Core.Gizmo_Data
+Gizmo_Handle :: Core.Gizmo_Handle
+Gizmo_Mode :: Core.Gizmo_Mode
+Gizmo_Opts :: Core.Gizmo_Opts
+Gizmo_Transform :: Core.Gizmo_Transform
 Grid_Data :: Core.Grid_Data
 Grid_Opts :: Core.Grid_Opts
 Grid_Placement :: Core.Grid_Placement
@@ -331,7 +309,6 @@ Nine_Patch_Layout :: Core.Nine_Patch_Layout
 NINE_PATCH_CELL_COUNT :: Core.NINE_PATCH_CELL_COUNT
 nine_patch_layout :: Core.nine_patch_layout
 Node :: Core.Node
-Node_Graph :: NodeGraph.Node_Graph
 Node_Graph_Data :: Core.Node_Graph_Data
 Node_Graph_Opts :: Core.Node_Graph_Opts
 None_Data :: Core.None_Data
@@ -722,6 +699,7 @@ children_begin_flow :: Core.children_begin_flow
 children_begin_sorted :: Core.children_begin_sorted
 children_end :: Core.children_end
 clamp_measured_size :: Core.clamp_measured_size
+check_box_set :: Core.check_box_set
 class_by_name :: Core.class_by_name
 class_get :: Core.class_get
 class_of_type :: Core.class_of_type
@@ -811,6 +789,7 @@ draw_panel_preview :: Core.draw_panel_preview
 draw_polygon :: Core.draw_polygon
 draw_pop_clip :: Core.draw_pop_clip
 draw_push_clip :: Core.draw_push_clip
+draw_push_clip_radii :: Core.draw_push_clip_radii
 draw_quad :: Core.draw_quad
 draw_quad_shape :: Core.draw_quad_shape
 draw_quad_shape_full :: Core.draw_quad_shape_full
@@ -822,11 +801,14 @@ draw_round_border :: Core.draw_round_border
 draw_round_border_radii :: Core.draw_round_border_radii
 draw_round_polygon :: Core.draw_round_polygon
 draw_round_polygon_radii :: Core.draw_round_polygon_radii
+draw_stylebox_border :: Core.draw_stylebox_border
+draw_stylebox_box :: Core.draw_stylebox_box
 draw_tab_bar :: Core.draw_tab_bar
 draw_tab_container_bar :: Core.draw_tab_container_bar
 draw_text :: Core.draw_text
 draw_text_box :: Core.draw_text_box
 draw_texture :: Core.draw_texture
+draw_texture_rounded :: Core.draw_texture_rounded
 draw_thick_line :: Core.draw_thick_line
 draw_widget :: Core.draw_widget
 drop_target_in :: Core.drop_target_in
@@ -870,8 +852,8 @@ font_place_glyph :: Core.font_place_glyph
 font_slot :: Core.font_slot
 font_stack_build :: Core.font_stack_build
 forget_arrange :: Core.forget_arrange
-frame_time :: Core.frame_time
 glyph_clusters :: Core.glyph_clusters
+wake_at :: Core.wake_at
 glyph_quads :: Core.glyph_quads
 glyph_snap :: Core.glyph_snap
 grid_cells :: Core.grid_cells
@@ -957,6 +939,7 @@ manual_size_of :: Core.manual_size_of
 mark_subtree :: Core.mark_subtree
 measure_box_children_width :: Core.measure_box_children_width
 measure_cache_clear :: Core.measure_cache_clear
+measure_cache_destroy :: Core.measure_cache_destroy
 measure_cache_get :: Core.measure_cache_get
 measure_cache_put :: Core.measure_cache_put
 measure_children_at_width :: Core.measure_children_at_width
@@ -1248,6 +1231,7 @@ theme_state_style :: Core.theme_state_style
 theme_style :: Core.theme_style
 theme_variation_of :: Core.theme_variation_of
 tooltip_of :: Core.tooltip_of
+toggle_switch_set :: Core.toggle_switch_set
 tree_click :: Core.tree_click
 tree_content :: Core.tree_content
 tree_content_height :: Core.tree_content_height
@@ -1318,3 +1302,10 @@ word_rune :: Core.word_rune
 wrap_text_anywhere :: Core.wrap_text_anywhere
 wrap_text_lines :: Core.wrap_text_lines
 wrap_text_piece :: Core.wrap_text_piece
+
+Node_Graph_Inspector_Data :: Core.Node_Graph_Inspector_Data
+theme_constant_ok :: Core.theme_constant_ok
+
+
+
+

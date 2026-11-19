@@ -24,21 +24,6 @@ check_box_kind :: proc() -> Widget_Kind {
 	}
 }
 
-check_box_set :: proc(g: ^GUI, id: Widget_ID, on: bool) {
-	w := Widget_Get(g, id)
-	if w == nil {
-		return
-	}
-	#partial switch &d in w.data {
-	case Check_Box_Data:
-		if d.on == on {
-			return
-		}
-		d.on = on
-	}
-	signal_toggled(g, id, on)
-	invalidate(g, id, Dirty_Flags{.Visual})
-}
 
 check_box_is_on :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	w := Widget_Get(g, id)

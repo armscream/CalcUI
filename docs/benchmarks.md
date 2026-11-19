@@ -1,6 +1,6 @@
 # CalcUI Benchmarks
 
-CalcUI includes a small benchmark suite that measures the main parts of the toolkit: drawing, layout, styling, text, frames, lifecycle work, virtualized widgets and the node graph. The numbers below show what the library costs on a typical laptop and give a baseline for spotting regressions.
+CalcUI includes a small benchmark suite that measures the main parts of the toolkit: drawing, layout, styling, text, frames, lifecycle work and virtualized widgets. The numbers below show what the library costs on a typical laptop and give a baseline for spotting regressions.
 
 ## Method
 
@@ -40,10 +40,6 @@ Results depend on the machine, the compiler and the optimization level. The refe
 | `widgets.data_table_100000` | widgets | The same test with 100,000 rows. |
 | `widgets.data_table_1000000` | widgets | The same test with 1,000,000 rows. |
 | `widgets.virtual_list_mixed_100000` | widgets | Draw-list generation for a 100,000-row virtual list with variable row heights. |
-| `node_graph.draw_500` | node_graph | Draw-list generation for a graph with 500 nodes and 1,000 wires. |
-| `node_graph.drag_500` | node_graph | Pointer movement over a graph with 500 nodes and 1,000 wires. |
-| `node_graph.draw_2000` | node_graph | Draw-list generation for a graph with 2,000 nodes and 4,000 wires. |
-| `node_graph.hover_empty_2000` | node_graph | A pointer over the empty canvas of a graph with 2,000 nodes and 4,000 wires, which exercises the wire hit test and the spatial index. |
 
 ## Reference results
 
@@ -86,10 +82,6 @@ All times are in milliseconds. Median is the typical cost of one operation; mini
 | `widgets.data_table_100000` | 50 | 0.169 | 0.151 | 500 | 48000 | 30000 | 1 |
 | `widgets.data_table_1000000` | 50 | 0.147 | 0.131 | 500 | 48000 | 30000 | 1 |
 | `widgets.virtual_list_mixed_100000` | 50 | 0.142 | 0.120 | 384 | 36864 | 23040 | 1 |
-| `node_graph.draw_500` | 20 | 4.41 | 3.67 | 29850 | 2865600 | 1791000 | 1 |
-| `node_graph.drag_500` | 200 | 0.0016 | 0.0014 | 0 | 0 | 0 | 0 |
-| `node_graph.draw_2000` | 10 | 11.37 | 9.35 | 64800 | 6220800 | 3888000 | 1 |
-| `node_graph.hover_empty_2000` | 50 | 0.0030 | 0.0029 | 0 | 0 | 0 | 0 |
 
 ## Notes
 

@@ -178,7 +178,7 @@ Size_Flag :: enum u8 {
 	Fill          = 1,
 
 	Expand        = 2,
-	//* Stay at minimum size and centre within the allocated space.
+
 	Shrink_Center = 4,
 }
 Size_Flags :: bit_set[Size_Flag]
@@ -859,6 +859,7 @@ GUI :: struct {
 	audio:                     ^Audio_State,
 	default_style:             Style,
 	access_bridge:             Access_Bridge,
+	access_tree:               ^Access_Tree,
 	access_epoch:              int,
 	access_pending:            [dynamic]Widget_ID,
 	access_spare:              [dynamic]Widget_ID,

@@ -1,8 +1,8 @@
 # Extending CalcUI
 
-Custom widgets are registered as classes. A class defines the widget's behavior, signals, default style and optional scene-file constructor.
+Custom widgets are registered as classes. A class defines the widget's behavior, signals, default style, and optional scene-file constructor.
 
-## Register a class
+## Register a Class
 
 ```odin
 class := GUI.Widget_Register_Class(g, GUI.Widget_Class_Desc{
@@ -30,50 +30,52 @@ class := GUI.Widget_Register_Class(g, GUI.Widget_Class_Desc{
 id := GUI.Make_Custom_Widget(g, parent, class, GUI.Base_Opts{name = "gauge"})
 ```
 
-`Widget_Class_Desc` contains:
+`Widget_Class_Desc` supports:
 
 | Field | Purpose |
 |---|---|
 | `name` | Class name used by themes and scene files. |
-| `type` | Base widget type. Custom classes default to `.Panel`. |
+| `type` | Base widget type. Defaults to `.Panel`. |
 | `kind` | Behavior hooks and default style. |
 | `constructor` | Creates the widget when loading a scene. |
-| `signals` | Additional signal names emitted by the class. |
+| `signals` | Additional signals emitted by the class. |
 
-Registering an existing name updates the class. Hooks you omit are kept.
+Registering an existing name updates the class. Omitted hooks are preserved.
 
-## Hooks
+## Widget Hooks
 
-All hooks are optional. When one is nil, CalcUI falls back to the normal control behavior where it applies.
+All hooks are optional. CalcUI uses its default behavior when a hook is not provided.
 
-| Hook | Called when |
+| Hook | Purpose |
 |---|---|
-| `construct` | The widget has been added to the tree. |
-| `destroy` | The widget is being destroyed, before user-data cleanup. |
-| `measure` | The core calculates the widget's minimum size. |
-| `measure_width` | The core measures the widget at the width it is given. Use it when the height depends on the width. |
-| `content_size` | A scroll container asks for the logical size of the widget's content. Use it for a widget that virtualizes its items. |
-| `layout` | The widget lays out its children. |
-| `draw` | The widget's content is drawn. |
-| `update` | Each frame, before layout. State changes made here are measured and arranged in the same frame. |
-| `post_update` | Each frame, after layout and before drawing. Use it for interaction that reads current geometry or the pointer. |
-| `click` | A pressed button is released over the widget. |
-| `pointer` | A pointer or wheel event is received. |
-| `key` | A key is pressed while the widget has focus. |
-| `text_input` | Text is entered while the widget has focus. |
+| `construct` | Initialize the widget when added to the tree. |
+| `destroy` | Release widget resources before user-data cleanup. |
+| `measure` | Calculate minimum size. |
+| `measure_width` | Measure content whose height depends on available width. |
+| `content_size` | Report logical content size, useful for virtualized widgets. |
+| `layout` | Position the widget's children. |
+| `draw` | Draw custom widget content. |
+| `update` | Update state before layout. |
+| `post_update` | Process interaction after layout. |
+| `click` | Handle a completed button press. |
+| `pointer` | Handle pointer and wheel events. |
+| `key` | Handle keyboard input while focused. |
+| `text_input` | Handle text input while focused. |
 
-`update` runs before layout, so a size or content change is measured and arranged in the same frame. `post_update` runs after layout, so it can read the current geometry; a change that affects layout is seen by the next frame. Both run once per visible widget per frame, and either may destroy the widget.
+`update` runs before layout, so changes are reflected in the current frame. `post_update` runs after layout and can access current geometry; layout changes take effect next frame.
 
-Two flags change hook behavior:
+Both run once per visible widget per frame and may destroy the widget.
 
-| Flag | Effect |
+Two flags modify hook behavior:
+
+| Flag | Purpose |
 |---|---|
-| `owns_children` | The draw hook draws the widget's children; CalcUI skips its own child draw pass. |
-| `uses_arrow_keys` | Arrow keys are handled by the widget rather than focus navigation. |
+| `owns_children` | The draw hook handles child drawing. |
+| `uses_arrow_keys` | The widget handles arrow keys instead of focus navigation. |
 
-### Data and lifetime
+### Widget Data
 
-Allocate widget data in `construct` and attach it with `Widget_Set_User_Data`:
+Allocate user data in `construct` and attach it with `Widget_Set_User_Data`:
 
 ```odin
 gauge_construct :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget) {
@@ -82,11 +84,11 @@ gauge_construct :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget) {
 }
 ```
 
-CalcUI treats user data as opaque. `Widget_Set_User_Data` returns the previous pointer and takes a cleanup procedure that runs when the widget is destroyed. `destroy` runs before that cleanup; use it to release other widget-owned resources.
+CalcUI treats user data as opaque. Its cleanup procedure runs when the widget is destroyed, after the `destroy` hook.
 
-### Measurement and layout
+### Measurement and Layout
 
-The core considers the requested size, the text content and the explicit minimum size. `measure` adds the class's sizing requirements and cannot shrink a larger size the program asked for:
+`measure` adds the widget's sizing requirements without shrinking a larger requested or explicit minimum size:
 
 ```odin
 gauge_measure :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget) -> GUI.Vec2 {
@@ -95,22 +97,15 @@ gauge_measure :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget) -> GUI.Vec2 {
 }
 ```
 
-Add `measure_width` when the height depends on the width. The core calls it with the widget's outer width and uses the result as a floor under the normal measurement. A wrapping label already does this, so a custom widget only needs the hook when it draws its own wrapping content.
+Use `measure_width` when content height depends on available width. The hook receives the widget's outer width and provides a minimum measured size.
 
-Add `content_size` when the widget holds its items instead of one widget per item. A scroll container uses the larger of this size and the sizes of its children, so a virtualized list can report the room all its rows would take without creating them. Return a zero vector when the widget has no logical content size.
+Use `content_size` when a widget manages its own items instead of creating a widget for each one. Scroll containers use this size to determine the logical content extent, making it useful for virtualized lists.
 
-```odin
-gauge_measure_width :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget, width: f32) -> GUI.Vec2 {
-    size := GUI.Measure_Text(g, GUI.Widget_Style(g, id).text, "100%", max(width - 48, 0))
-    return GUI.Vec2{0, size.y + 8}
-}
-```
-
-When `layout` is set, the class positions its own children and CalcUI does not lay them out again. Without it, children use their anchors.
+When `layout` is provided, the class positions its children. Otherwise, CalcUI uses their anchors.
 
 ### Drawing
 
-`draw` receives the content rectangle, without the style margins. CalcUI has already drawn the background and border:
+The `draw` hook receives the content rectangle, excluding style margins. CalcUI draws the background and border beforehand.
 
 ```odin
 gauge_draw :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget, content: GUI.Rect) {
@@ -120,37 +115,35 @@ gauge_draw :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget, content: GUI.Rect
 }
 ```
 
-Children are drawn after the hook unless `owns_children` is set. Custom drawing goes through the normal atlas, clipping and batching path. It runs inside the widget's clip, so a rounded `clip_contents` widget also cuts glyphs, images and polygons at the corners.
+Children are drawn afterward unless `owns_children` is enabled. Custom drawing uses CalcUI's normal atlas, clipping, and batching pipeline.
 
-Drawing and measurement helpers:
+Available drawing and measurement helpers:
 
 | Procedure | Purpose |
 |---|---|
-| `Draw_Rect` | Draw a rounded rectangle. |
-| `Draw_Solid` | Draw a solid rectangle. |
+| `Draw_Rect` / `Draw_Solid` | Draw rectangles. |
 | `Draw_Text` | Draw styled text. |
-| `Draw_Quad` | Draw part of a texture. |
-| `Draw_Quad_Rounded` | Draw part of a texture with per-corner radii. |
-| `Draw_Line` | Draw a line between two points. |
+| `Draw_Quad` / `Draw_Quad_Rounded` | Draw textured rectangles. |
+| `Draw_Line` | Draw a line. |
 | `Draw_Polygon` | Draw a polygon. |
-| `Measure_Text` | Measure text as it would be drawn. |
-| `Widget_Measure_At_Width` | Measure a widget at a given width, for content whose height depends on its width. |
+| `Measure_Text` | Measure text. |
+| `Widget_Measure_At_Width` | Measure a widget at a specified width. |
 
 Geometry and style helpers:
 
-| Procedure | Returns |
+| Procedure | Purpose |
 |---|---|
-| `Widget_Style` | Resolved widget style. |
-| `Widget_Background` | Background colour for the current state. |
-| `Widget_Text_Colour` | Text colour for the current state. |
-| `Widget_Rect` | Widget rectangle in the window. |
-| `Widget_Content_Rect` | Content rectangle. |
+| `Widget_Style` | Get resolved style. |
+| `Widget_Background` | Get current background colour. |
+| `Widget_Text_Colour` | Get current text colour. |
+| `Widget_Rect` | Get window-space rectangle. |
+| `Widget_Content_Rect` | Get content rectangle. |
 
 ## Input
 
-### Pointer events
+### Pointer
 
-The pointer hook receives coordinates in GUI, widget-local and screen space:
+Pointer events provide GUI, widget-local, and screen coordinates:
 
 ```odin
 Pointer_Event :: struct {
@@ -164,36 +157,38 @@ Pointer_Event :: struct {
 }
 ```
 
-Down and wheel events go to the widget under the pointer. A widget that gets a down event captures the pointer for the matching move and up events, even outside its bounds. Capture is also available directly:
+Down and wheel events go to the widget under the pointer. A widget receiving a down event captures the pointer for subsequent move and up events, even outside its bounds.
+
+Capture can also be controlled directly:
 
 ```odin
 GUI.Widget_Capture_Pointer(g, id)
 GUI.Widget_Release_Pointer(g)
 ```
 
-Events propagate from the topmost widget through the widgets beneath it. Call `GUI.Event_Handled(g)` to stop propagation.
+Events propagate through widgets beneath the pointer. Call `GUI.Event_Handled(g)` to stop propagation.
 
-`click` is the older completed-press callback. It runs when the button is released over the widget that received the press; CalcUI then emits its `pressed` signal.
+`click` handles completed presses and runs when the pointer is released over the widget that received the press. CalcUI then emits its `pressed` signal.
 
-### Keyboard events
+### Keyboard
 
-`key` and `text_input` run while the widget has focus. A click assigns focus according to `focus_mode`; `.All` also enables Tab navigation:
+`key` and `text_input` run while the widget has focus. Set `focus_mode` to `.All` to enable keyboard focus and Tab navigation:
 
 ```odin
 GUI.Make_Custom_Widget(g, parent, class, GUI.Base_Opts{focus_mode = .All})
 ```
 
-Set `uses_arrow_keys` if the widget handles the arrow keys itself.
+Set `uses_arrow_keys` when the widget handles arrow keys itself.
 
-## Signals and invalidation
+## Signals and Invalidation
 
-All widgets share signals for presses, toggles, value, colour and text changes, selection, submission, focus, dragging and resizing. A class can add its own:
+Widgets share built-in signals for presses, toggles, values, colours, text, selection, submission, focus, dragging, and resizing. Classes can declare additional signals:
 
 ```odin
-// Declare the signal on the class.
+// Declare the signal.
 signals = {"value_changed"}
 
-// Emit it from the widget.
+// Emit it.
 GUI.Signal_Emit(g, id, "value_changed", value)
 
 // Connect a handler.
@@ -206,24 +201,22 @@ gauge_on_value_changed :: proc(g: ^GUI, id: GUI.Widget_ID, value: any) {
 }
 ```
 
-Signal payloads are `any`; the handler interprets the value. Emitting a signal with no listeners only does the listener lookup.
-
-After changing widget state, invalidate the affected work:
+Signal payloads use `any`. After changing widget state, invalidate the affected work:
 
 ```odin
 GUI.Widget_Invalidate(g, id, GUI.Dirty_Flags{.Measure, .Visual})
 ```
 
-## Styling and themes
+## Styling and Themes
 
-Styles apply in this order, with later entries taking precedence:
+Styles are resolved in this order, with later entries taking precedence:
 
-1. Global default style (`GUI_Set_Default_Style`).
-2. Class style (`Widget_Kind.style`).
-3. Theme style, if the widget uses the theme.
+1. Global default style.
+2. Class style.
+3. Theme style.
 4. Widget-specific style.
 
-Set a class's default style in `Widget_Kind`:
+Set a class's default style through `Widget_Kind.style`:
 
 ```odin
 kind = GUI.Widget_Kind{
@@ -237,7 +230,7 @@ kind = GUI.Widget_Kind{
 }
 ```
 
-Themes can override the class by name:
+Themes can override styles by class name:
 
 ```odin
 theme := GUI.Theme_Make()
@@ -247,20 +240,20 @@ GUI.Theme_Set_Class(theme, "Gauge", GUI.Style{
 GUI.GUI_Set_Theme(g, theme)
 ```
 
-Theme lookup checks the class name first, then the base widget type. Widgets use the theme when created with `use_theme = true`; scene-loaded widgets use it by default.
+Theme lookup checks the class name before the base widget type. Widgets use themes when created with `use_theme = true`; scene-loaded widgets use them by default.
 
-Class themes also support state styles, named colours and constants:
+Additional theme helpers:
 
 | Procedure | Purpose |
 |---|---|
-| `Theme_Set_Class` | Set the class style. |
-| `Theme_Set_Class_State` | Set a style for a class state. |
-| `Theme_Set_Class_Color` | Set a named class colour. |
-| `Theme_Set_Class_Constant` | Set a named class constant. |
+| `Theme_Set_Class` | Set class style. |
+| `Theme_Set_Class_State` | Set class state style. |
+| `Theme_Set_Class_Color` | Set a named colour. |
+| `Theme_Set_Class_Constant` | Set a named constant. |
 
-## Scene files
+## Scene Files
 
-Give a custom class a constructor to use it in a scene:
+Register a constructor to create custom widgets from scene files:
 
 ```odin
 constructor = gauge_scene_constructor,
@@ -275,7 +268,7 @@ gauge_scene_constructor :: proc(
 }
 ```
 
-Then refer to the class by name:
+Then reference the class by name:
 
 ```text
 [node name="Root" type="Panel"]
@@ -284,17 +277,17 @@ Then refer to the class by name:
         offsets = {0, 0, 0, 40}
 ```
 
-Register classes before loading the scene. `src/Tests/class_test.odin` has a working `Gauge` example that uses the public API.
+Register classes before loading scenes.
 
-## Built-in widgets
+## Built-in Widgets
 
-Built-in widgets use the same class system, with hooks kept next to each widget's implementation. Widgets that have not been converted still work through the core's switch-based behavior.
+Built-in widgets use the same class system, although unconverted widgets continue using the core's switch-based behavior.
 
 To migrate a built-in widget:
 
-1. Move its drawing and behavior into class hooks.
-2. Define the class beside the widget and register it with `kind_register`.
-3. Remove its cases from the central draw, layout and input switches.
-4. Keep its behavior unchanged.
+1. Move its behavior into class hooks.
+2. Define and register its class beside its implementation.
+3. Remove its cases from the central drawing, layout, and input switches.
+4. Preserve existing behavior.
 
-Migration is incremental; unconverted widgets keep working.
+Migration is incremental; unconverted widgets continue working.

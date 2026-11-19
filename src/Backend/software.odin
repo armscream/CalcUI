@@ -27,10 +27,15 @@ Software_State :: struct {
 	frame_w:     i32,
 	frame_h:     i32,
 	have_frame:  bool,
-	atlas:       []u8,
-	atlas_w:     i32,
-	atlas_h:     i32,
+	//* Every texture the atlas pages made, indexed by Texture_ID.
+	textures:    [dynamic]Software_Texture,
 	clear:       [4]u8,
+}
+
+Software_Texture :: struct {
+	pixels: []u8,
+	width:  i32,
+	height: i32,
 }
 
 software_create :: proc(ctx: rawptr, window: rawptr, w, h: i32) -> bool {
@@ -51,7 +56,8 @@ software_destroy :: proc(ctx: rawptr) {
 		state.mip_pixels[i] = nil
 	}
 	backdrop_plan_destroy(&state.plan)
-	delete(state.atlas)
+	for &t in state.textures { delete(t.pixels) }
+	delete(state.textures)
 	state^ = {}
 }
 
@@ -61,15 +67,25 @@ software_resize :: proc(ctx: rawptr, w, h: i32) -> bool {
 	return software_make_buffer(state, w, h)
 }
 
+software_texture :: proc(state: ^Software_State, id: GUI.Texture_ID) -> ^Software_Texture {
+	index := int(id)
+	if index < 0 || index >= len(state.textures) { return nil }
+	return &state.textures[index]
+}
+
 software_upload_texture :: proc(ctx: rawptr, id: GUI.Texture_ID, pixels: []u8, w, h: i32) -> bool {
 	state := cast(^Software_State)ctx
 	if state == nil {return false}
 	if w <= 0 || h <= 0 {return false}
-	delete(state.atlas)
-	state.atlas = make([]u8, int(w) * int(h) * 4)
-	copy(state.atlas, pixels)
-	state.atlas_w = w
-	state.atlas_h = h
+	index := int(id)
+	for len(state.textures) <= index { append(&state.textures, Software_Texture{}) }
+	delete(state.textures[index].pixels)
+	state.textures[index] = Software_Texture {
+		pixels = make([]u8, int(w) * int(h) * 4),
+		width  = w,
+		height = h,
+	}
+	copy(state.textures[index].pixels, pixels)
 	return true
 }
 
@@ -80,14 +96,15 @@ software_upload_texture_regions :: proc(
 ) -> bool {
 	state := cast(^Software_State)ctx
 	if state == nil {return false}
-	if state.atlas == nil {return false}
+	tex := software_texture(state, id)
+	if tex == nil || tex.pixels == nil {return false}
 	for region in regions {
 		row_bytes := int(region.w) * 4
 		if row_bytes <= 0 {continue}
 		for row in 0 ..< int(region.h) {
 			src := region.pixels[row * row_bytes:][:row_bytes]
-			dst := (int(region.y) + row) * int(state.atlas_w) * 4 + int(region.x) * 4
-			copy(state.atlas[dst:][:row_bytes], src)
+			dst := (int(region.y) + row) * int(tex.width) * 4 + int(region.x) * 4
+			copy(tex.pixels[dst:][:row_bytes], src)
 		}
 	}
 	return true
@@ -96,10 +113,10 @@ software_upload_texture_regions :: proc(
 software_destroy_texture :: proc(ctx: rawptr, id: GUI.Texture_ID) {
 	state := cast(^Software_State)ctx
 	if state == nil {return}
-	delete(state.atlas)
-	state.atlas = nil
-	state.atlas_w = 0
-	state.atlas_h = 0
+	tex := software_texture(state, id)
+	if tex == nil {return}
+	delete(tex.pixels)
+	tex^ = {}
 }
 
 software_submit :: proc(ctx: rawptr, dl: ^GUI.Draw_List) {
@@ -730,19 +747,20 @@ software_smoothstep :: proc(edge0, edge1, x: f32) -> f32 {
 
 software_sample :: proc(state: ^Software_State, texture: GUI.Texture_ID, u, v: f32) -> [4]f32 {
 	if texture == GUI.INVALID_TEXTURE_ID {return {1, 1, 1, 1}}
-	if state.atlas == nil {return {1, 1, 1, 1}}
-	x := int(u * f32(state.atlas_w))
-	y := int(v * f32(state.atlas_h))
+	tex := software_texture(state, texture)
+	if tex == nil || tex.pixels == nil {return {1, 1, 1, 1}}
+	x := int(u * f32(tex.width))
+	y := int(v * f32(tex.height))
 	if x < 0 {x = 0}
 	if y < 0 {y = 0}
-	if x >= int(state.atlas_w) {x = int(state.atlas_w) - 1}
-	if y >= int(state.atlas_h) {y = int(state.atlas_h) - 1}
-	at := (y * int(state.atlas_w) + x) * 4
+	if x >= int(tex.width) {x = int(tex.width) - 1}
+	if y >= int(tex.height) {y = int(tex.height) - 1}
+	at := (y * int(tex.width) + x) * 4
 	return {
-		f32(state.atlas[at + 0]) / 255,
-		f32(state.atlas[at + 1]) / 255,
-		f32(state.atlas[at + 2]) / 255,
-		f32(state.atlas[at + 3]) / 255,
+		f32(tex.pixels[at + 0]) / 255,
+		f32(tex.pixels[at + 1]) / 255,
+		f32(tex.pixels[at + 2]) / 255,
+		f32(tex.pixels[at + 3]) / 255,
 	}
 }
 

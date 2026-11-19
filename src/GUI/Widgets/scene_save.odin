@@ -17,12 +17,23 @@ import "core:strings"
 //*
 //* Unnamed widgets receive a type-based name, such as Label1 or Label2.
 //* Anchors and offsets are always saved. Borders use one colour for all
-//* four sides.
+Scene_Save_Options :: struct {
+	dock_layout: bool,
+}
 
 //* Writes the tree under root and returns the scene text.
 //* The caller owns the returned string and must free it with the
 //* allocator used to create it. An invalid root returns an empty string.
 Scene_Save :: proc(g: ^GUI, root: Widget_ID, allocator: mem.Allocator = context.allocator) -> string {
+	return Scene_Save_With_Options(g, root, {}, allocator)
+}
+
+Scene_Save_With_Options :: proc(
+	g: ^GUI,
+	root: Widget_ID,
+	options: Scene_Save_Options,
+	allocator: mem.Allocator = context.allocator,
+) -> string {
 	if g == nil {return ""}
 	if Widget_Get(g, root) == nil {return ""}
 
@@ -36,6 +47,7 @@ Scene_Save :: proc(g: ^GUI, root: Widget_ID, allocator: mem.Allocator = context.
 
 	saver := scene_saver {
 		g = g,
+		options = options,
 		taken = make(map[string]bool),
 		used = make(map[string]bool),
 		counters = make(map[Widget_Type]int),
@@ -43,23 +55,69 @@ Scene_Save :: proc(g: ^GUI, root: Widget_ID, allocator: mem.Allocator = context.
 	defer scene_saver_destroy(&saver)
 
 	scene_save_take_names(&saver, root)
+	if options.dock_layout {
+		for f in g.floats {
+			if Widget_Get(g, f.widget) == nil {continue}
+			scene_save_take_names(&saver, f.widget)
+		}
+		scene_save_dock_section(&builder, g)
+	}
+
 	scene_save_node(&builder, &saver, root, "", 0)
+
+	if options.dock_layout {
+		for f in g.floats {
+			if Widget_Get(g, f.widget) == nil {continue}
+			strings.write_byte(&builder, '\n')
+			scene_save_node(&builder, &saver, f.widget, "", 0)
+		}
+	}
 	return strings.to_string(builder)
 }
 
 //* Writes the scene tree to a file. Returns false if the path or tree
 //* is invalid, or if writing fails.
 Scene_Save_File :: proc(g: ^GUI, root: Widget_ID, path: string) -> bool {
+	return Scene_Save_File_With_Options(g, root, path, {})
+}
+
+Scene_Save_File_With_Options :: proc(
+	g: ^GUI,
+	root: Widget_ID,
+	path: string,
+	options: Scene_Save_Options = {},
+	allocator: mem.Allocator = context.allocator,
+) -> bool {
 	if path == "" {return false}
-	text := Scene_Save(g, root)
-	defer delete(text)
+	text := Scene_Save_With_Options(g, root, options, allocator)
+	defer delete(text, allocator)
 	if text == "" {return false}
 	return os.write_entire_file(path, text) == nil
+}
+
+scene_save_dock_section :: proc(builder: ^strings.Builder, g: ^GUI) {
+	strings.write_string(builder, "[dock]\n")
+
+	scene_save_line(builder, 1, "version")
+	strings.write_int(builder, SCENE_DOCK_VERSION)
+	strings.write_byte(builder, '\n')
+
+	viewport := [4]f32{g.viewport.x, g.viewport.y, g.viewport.w, g.viewport.h}
+	scene_save_line(builder, 1, "viewport")
+	scene_save_write_numbers(builder, viewport[:])
+	strings.write_byte(builder, '\n')
+
+	window_rect := [4]f32{g.window_rect.x, g.window_rect.y, g.window_rect.w, g.window_rect.h}
+	scene_save_line(builder, 1, "window_rect")
+	scene_save_write_numbers(builder, window_rect[:])
+	strings.write_byte(builder, '\n')
+	strings.write_byte(builder, '\n')
 }
 
 //* Tracks names used by the tree and the file.
 scene_saver :: struct {
 	g:        ^GUI,
+	options:  Scene_Save_Options,
 	//* Original widget names, reserved for generated names.
 	taken:    map[string]bool,
 	//* Names already written to the file.
@@ -148,7 +206,7 @@ scene_save_node :: proc(
 	}
 	strings.write_string(builder, "]\n")
 
-	scene_save_properties(builder, g, w, depth + 1)
+	scene_save_properties(builder, saver, w, depth + 1)
 	scene_save_children(builder, saver, w, name, depth + 1)
 }
 
@@ -227,7 +285,13 @@ scene_save_make_name :: proc(saver: ^scene_saver, w: ^Widget, buf: []u8) -> stri
 }
 
 //* Writes the properties supported by the scene loader.
-scene_save_properties :: proc(builder: ^strings.Builder, g: ^GUI, w: ^Widget, depth: int) {
+scene_save_properties :: proc(
+	builder: ^strings.Builder,
+	saver: ^scene_saver,
+	w: ^Widget,
+	depth: int,
+) {
+	g := saver.g
 	//* Always save anchors and offsets to preserve layout.
 	anchors := [4]f32{w.anchors.left, w.anchors.top, w.anchors.right, w.anchors.bottom}
 	scene_save_line(builder, depth, "anchors")
@@ -239,17 +303,57 @@ scene_save_properties :: proc(builder: ^strings.Builder, g: ^GUI, w: ^Widget, de
 	scene_save_write_numbers(builder, offsets[:])
 	strings.write_byte(builder, '\n')
 
-	if w.type == .NodeGraph {
-		//* A node graph carries its whole model in the text property.
-		graph_text := node_graph_save(g, w.id)
-		if graph_text != "" {
+	if saver.options.dock_layout {
+		if w.weight != 1 {
+			scene_save_line(builder, depth, "weight")
+			scene_save_write_number(builder, w.weight)
+			strings.write_byte(builder, '\n')
+		}
+
+		#partial switch d in w.data {
+		case Tabs_Data:
+			if d.active > 0 {
+				scene_save_line(builder, depth, "active")
+				strings.write_int(builder, d.active)
+				strings.write_byte(builder, '\n')
+			}
+		case Tab_Container_Data:
+			if d.active > 0 {
+				scene_save_line(builder, depth, "active")
+				strings.write_int(builder, d.active)
+				strings.write_byte(builder, '\n')
+			}
+		}
+
+		if index := float_of(g, w.id); index != FLOAT_NONE {
+			f := g.floats[index]
+			scene_save_line(builder, depth, "floating")
+			strings.write_string(builder, "true")
+			strings.write_byte(builder, '\n')
+
+			pos := [2]f32{f.pos.x, f.pos.y}
+			scene_save_line(builder, depth, "float_pos")
+			scene_save_write_numbers(builder, pos[:])
+			strings.write_byte(builder, '\n')
+
+			size := [2]f32{f.size.x, f.size.y}
+			scene_save_line(builder, depth, "float_size")
+			scene_save_write_numbers(builder, size[:])
+			strings.write_byte(builder, '\n')
+		}
+	}
+
+	if kind := widget_kind(g, w); kind.scene_save_text != nil {
+		//* A widget with its own scene text carries a whole model there.
+		text := kind.scene_save_text(g, w.id, w)
+		if text != "" {
 			scene_save_line(builder, depth, "text")
 			strings.write_byte(builder, '"')
-			scene_save_write_escaped(builder, graph_text)
+			scene_save_write_escaped(builder, text)
 			strings.write_byte(builder, '"')
 			strings.write_byte(builder, '\n')
 		}
-		delete(graph_text)
+		delete(text)
 	} else {
 		text := scene_save_text_of(w)
 		if text != "" {
@@ -343,6 +447,69 @@ scene_save_properties :: proc(builder: ^strings.Builder, g: ^GUI, w: ^Widget, de
 	if .Padding in fields {
 		scene_save_line(builder, depth, "padding")
 		scene_save_write_numbers(builder, w.style.box.content_margin[:])
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Corner_Radius in fields {
+		scene_save_line(builder, depth, "corner_radius")
+		scene_save_write_numbers(builder, w.style.box.corner_radius[:])
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Shadow in fields {
+		scene_save_line(builder, depth, "shadow")
+		scene_save_write_colour(builder, w.style.box.shadow_color)
+		strings.write_byte(builder, '\n')
+
+		scene_save_line(builder, depth, "shadow_size")
+		scene_save_write_number(builder, w.style.box.shadow_size)
+		strings.write_byte(builder, '\n')
+
+		offset := [2]f32{w.style.box.shadow_offset.x, w.style.box.shadow_offset.y}
+		scene_save_line(builder, depth, "shadow_offset")
+		scene_save_write_numbers(builder, offset[:])
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Shadow_Spread in fields {
+		scene_save_line(builder, depth, "shadow_spread")
+		scene_save_write_number(builder, w.style.box.shadow_spread)
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Shadow_Inset in fields {
+		scene_save_line(builder, depth, "shadow_inset")
+		strings.write_string(builder, w.style.box.shadow_inset ? "true" : "false")
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Backdrop_Blur in fields {
+		scene_save_line(builder, depth, "backdrop_blur")
+		scene_save_write_number(builder, w.style.box.backdrop_blur)
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Optics_Refraction in fields {
+		scene_save_line(builder, depth, "optics_refraction")
+		scene_save_write_number(builder, w.style.box.optics.refraction)
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Optics_Dispersion in fields {
+		scene_save_line(builder, depth, "optics_dispersion")
+		scene_save_write_number(builder, w.style.box.optics.dispersion)
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Optics_Fresnel in fields {
+		scene_save_line(builder, depth, "optics_fresnel")
+		scene_save_write_number(builder, w.style.box.optics.fresnel)
+		strings.write_byte(builder, '\n')
+	}
+
+	if .Optics_Saturation in fields {
+		scene_save_line(builder, depth, "optics_saturation")
+		scene_save_write_number(builder, w.style.box.optics.saturation)
 		strings.write_byte(builder, '\n')
 	}
 

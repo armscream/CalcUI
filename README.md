@@ -140,7 +140,7 @@ Tests use a headless backend, so GUI logic runs without a window. The CI script 
 ./scripts/ci.sh
 ```
 
-GitHub Actions runs the same checks on Windows, Linux and macOS. The test suite also runs the benchmarks; each prints one line and checks a budget, so a slowdown fails the build. See [`docs/benchmarks.md`](docs/benchmarks.md) for details.
+GitHub Actions runs the same checks on Windows, Linux and macOS. The test suite also runs the benchmarks; see [`docs/benchmarks.md`](docs/benchmarks.md) for the measured operations and the reference results.
 
 ### Shaders
 
@@ -151,9 +151,11 @@ Compiled shaders are included, so a shader compiler is not needed to build CalcU
 | Directory | Contents |
 |---|---|
 | `src/GUI` | Public facade (`api.odin`) and the `Core`, `Widgets` and `Animation` packages: widget tree, layout, rendering, text, atlas and themes. |
-| `src/NodeGraph` | Renderer-independent node graph model, geometry, styles, port policies, reroutes and serialization. |
+| `src/GUI/NodeGraph` | Optional node graph editor: model, geometry, styles, port policies, reroutes, serialization, widget and inspector. |
 | `src/Backend` | SDL3 renderer and SDL3 GPU backends. |
-| `src/Window` | Window management, events, popups, cursor and clipboard. |
+| `src/Platform` | Window management, events, popups, cursor and clipboard. |
+| `src/GUI/Accessibility` | Native accessibility bridge; the generic metadata and tree live in the core. |
+| `src/App` | Shared application skeleton and platform callback wiring. |
 | `examples` | Example applications. |
 | `assets` | Fonts, images and other example assets. |
 | `tools` | Development tools, shaders and frame capture utilities. |

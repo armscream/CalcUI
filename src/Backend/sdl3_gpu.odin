@@ -36,7 +36,6 @@ GPU_Slot :: struct {
 	revision:        u64,
 	vertex_count:    int,
 	index_count:     int,
-	packed:          [dynamic]Vertex,
 	width:           f32,
 	height:          f32,
 	//* The offscreen scene, the half resolution backdrop the glass reads,
@@ -179,8 +178,23 @@ gpu_slot_release :: proc(st: ^GPU_State, slot: ^GPU_Slot) {
 	if slot.scene_tex != nil { sdl.ReleaseGPUTexture(st.device, slot.scene_tex) }
 	if slot.backdrop_tex != nil { sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex) }
 	backdrop_plan_destroy(&slot.plan)
-	delete(slot.packed)
 	slot^ = {}
+}
+
+//* Gives back the offscreen targets of a slot that no longer needs them.
+gpu_scene_release :: proc(st: ^GPU_State, slot: ^GPU_Slot) {
+	if slot.scene_tex != nil {
+		sdl.ReleaseGPUTexture(st.device, slot.scene_tex)
+		slot.scene_tex = nil
+	}
+	if slot.backdrop_tex != nil {
+		sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex)
+		slot.backdrop_tex = nil
+	}
+	slot.tex_w = 0
+	slot.tex_h = 0
+	slot.cached_valid = false
+	backdrop_plan_destroy(&slot.plan)
 }
 
 gpu_destroy :: proc(ctx: rawptr) {
@@ -464,17 +478,23 @@ gpu_render :: proc(
 	}
 	sdl.PushGPUFragmentUniformData(cmd_buf, 0, &glass_ubo, u32(size_of(glass_ubo)))
 
-	if gpu_scene_ready(st, slot, u32(width), u32(height)) {
-		if slot.cached_valid && slot.cached_revision == dl.revision {
-			Stats.cache_hits += 1
-			gpu_blit(cmd_buf, slot.scene_tex, swapchain, u32(width), u32(height))
+	need_scene := dl != nil && (dl.partial || dl.has_glass)
+	if need_scene {
+		if gpu_scene_ready(st, slot, u32(width), u32(height), dl.has_glass) {
+			if slot.cached_valid && slot.cached_revision == dl.revision {
+				Stats.cache_hits += 1
+				gpu_blit(cmd_buf, slot.scene_tex, swapchain, u32(width), u32(height))
+			} else {
+				gpu_render_scene(st, cmd_buf, slot, width, height, dl)
+				gpu_blit(cmd_buf, slot.scene_tex, swapchain, u32(width), u32(height))
+				slot.cached_valid = true
+				slot.cached_revision = dl.revision
+			}
 		} else {
-			gpu_render_scene(st, cmd_buf, slot, width, height, dl)
-			gpu_blit(cmd_buf, slot.scene_tex, swapchain, u32(width), u32(height))
-			slot.cached_valid = true
-			slot.cached_revision = dl.revision
+			gpu_render_direct(st, cmd_buf, swapchain, slot, width, height, dl)
 		}
 	} else {
+		gpu_scene_release(st, slot)
 		gpu_render_direct(st, cmd_buf, swapchain, slot, width, height, dl)
 	}
 
@@ -668,41 +688,13 @@ gpu_partial_rect :: proc(dl: ^GUI.Draw_List, slot: ^GPU_Slot) -> (sdl.Rect, bool
 	return sdl.Rect{x = x0, y = y0, w = w, h = h}, true
 }
 
-//* Makes sure the offscreen scene and the half resolution backdrop match
-//* the window. They are kept between frames and remade only when the
-//* size changes.
-gpu_scene_ready :: proc(st: ^GPU_State, slot: ^GPU_Slot, w, h: u32) -> bool {
+//* Makes sure the offscreen scene, and the backdrop when a glass command
+//* needs it, match the window. They are kept between frames and remade
+//* only when the size changes.
+gpu_scene_ready :: proc(st: ^GPU_State, slot: ^GPU_Slot, w, h: u32, need_backdrop: bool) -> bool {
 	if w == 0 || h == 0 { return false }
-	if slot.scene_tex != nil && slot.backdrop_tex != nil && slot.tex_w == w && slot.tex_h == h {
-		return true
-	}
 
-	if slot.scene_tex != nil {
-		sdl.ReleaseGPUTexture(st.device, slot.scene_tex)
-		slot.scene_tex = nil
-	}
-	if slot.backdrop_tex != nil {
-		sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex)
-		slot.backdrop_tex = nil
-	}
-	slot.cached_valid = false
-
-	info := sdl.GPUTextureCreateInfo {
-		type                 = .D2,
-		format               = st.format,
-		usage                = {.SAMPLER, .COLOR_TARGET},
-		width                = w,
-		height               = h,
-		layer_count_or_depth = 1,
-		num_levels           = 1,
-		sample_count         = ._1,
-	}
-	slot.scene_tex = sdl.CreateGPUTexture(st.device, info)
-	info.width = max((w + 1) / 2, 1)
-	info.height = max((h + 1) / 2, 1)
-	info.num_levels = BACKDROP_MIPS
-	slot.backdrop_tex = sdl.CreateGPUTexture(st.device, info)
-	if slot.scene_tex == nil || slot.backdrop_tex == nil {
+	if slot.tex_w != w || slot.tex_h != h {
 		if slot.scene_tex != nil {
 			sdl.ReleaseGPUTexture(st.device, slot.scene_tex)
 			slot.scene_tex = nil
@@ -711,10 +703,47 @@ gpu_scene_ready :: proc(st: ^GPU_State, slot: ^GPU_Slot, w, h: u32) -> bool {
 			sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex)
 			slot.backdrop_tex = nil
 		}
-		return false
+		slot.cached_valid = false
+		slot.tex_w = w
+		slot.tex_h = h
 	}
-	slot.tex_w = w
-	slot.tex_h = h
+
+	//* Without glass the backdrop is dead weight.
+	if !need_backdrop && slot.backdrop_tex != nil {
+		sdl.ReleaseGPUTexture(st.device, slot.backdrop_tex)
+		slot.backdrop_tex = nil
+	}
+
+	if slot.scene_tex == nil {
+		info := sdl.GPUTextureCreateInfo {
+			type                 = .D2,
+			format               = st.format,
+			usage                = {.SAMPLER, .COLOR_TARGET},
+			width                = w,
+			height               = h,
+			layer_count_or_depth = 1,
+			num_levels           = 1,
+			sample_count         = ._1,
+		}
+		slot.scene_tex = sdl.CreateGPUTexture(st.device, info)
+		if slot.scene_tex == nil { return false }
+	}
+
+	if need_backdrop && slot.backdrop_tex == nil {
+		info := sdl.GPUTextureCreateInfo {
+			type                 = .D2,
+			format               = st.format,
+			usage                = {.SAMPLER, .COLOR_TARGET},
+			width                = max((w + 1) / 2, 1),
+			height               = max((h + 1) / 2, 1),
+			layer_count_or_depth = 1,
+			num_levels           = BACKDROP_MIPS,
+			sample_count         = ._1,
+		}
+		slot.backdrop_tex = sdl.CreateGPUTexture(st.device, info)
+		if slot.backdrop_tex == nil { return false }
+	}
+
 	return true
 }
 
@@ -808,13 +837,8 @@ gpu_upload_geometry :: proc(
 
 	if !changed { return }
 
-	resize(&slot.packed, len(dl.vertices))
-	for v, i in dl.vertices {
-		slot.packed[i] = GUI.pack_vertex(v)
-	}
-
 	copy_pass := sdl.BeginGPUCopyPass(cmd)
-	transfers[0] = upload_buffer(st, copy_pass, raw_data(slot.packed), vertex_bytes, slot.vertex_buf)
+	transfers[0] = upload_vertices(st, copy_pass, dl.vertices[:], vertex_bytes, slot.vertex_buf)
 	transfers[1] = upload_buffer(st, copy_pass, raw_data(dl.indices), index_bytes, slot.index_buf)
 	sdl.EndGPUCopyPass(copy_pass)
 
@@ -855,6 +879,41 @@ upload_buffer :: proc(
 	return transfer
 }
 
+//* Packs the vertices straight into the mapped transfer buffer, so the
+//* geometry is not copied through a second array.
+upload_vertices :: proc(
+	st: ^GPU_State,
+	copy_pass: ^sdl.GPUCopyPass,
+	verts: []GUI.Draw_Vertex,
+	size: int,
+	buf: ^sdl.GPUBuffer,
+) -> ^sdl.GPUTransferBuffer {
+	transfer := sdl.CreateGPUTransferBuffer(
+		st.device,
+		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = u32(size)},
+	)
+	if transfer == nil { return nil }
+
+	dst := sdl.MapGPUTransferBuffer(st.device, transfer, false)
+	if dst == nil {
+		sdl.ReleaseGPUTransferBuffer(st.device, transfer)
+		return nil
+	}
+	packed := cast([^]Vertex)dst
+	for v, i in verts {
+		packed[i] = GUI.pack_vertex(v)
+	}
+	sdl.UnmapGPUTransferBuffer(st.device, transfer)
+
+	sdl.UploadToGPUBuffer(
+		copy_pass,
+		sdl.GPUTransferBufferLocation{transfer_buffer = transfer},
+		sdl.GPUBufferRegion{buffer = buf, offset = 0, size = u32(size)},
+		false,
+	)
+	return transfer
+}
+
 load_shader :: proc(
 	device: ^sdl.GPUDevice,
 	code: []u8,
@@ -876,6 +935,31 @@ load_shader :: proc(
 	)
 }
 
+//* The GPU memory the slots hold. The scene and the backdrop are full
+//* textures; the buffers are the capacities they were made with.
+gpu_memory_stats :: proc(ctx: rawptr) -> GUI.GPU_Memory_Stats {
+	st := cast(^GPU_State)ctx
+	out := GUI.GPU_Memory_Stats{}
+	if st == nil {return out}
+	for &slot in st.slots {
+		if slot.scene_tex != nil {
+			out.scene_bytes += int(slot.tex_w) * int(slot.tex_h) * 4
+		}
+		if slot.backdrop_tex != nil {
+			w := int(max((slot.tex_w + 1) / 2, 1))
+			h := int(max((slot.tex_h + 1) / 2, 1))
+			for _ in 0 ..< BACKDROP_MIPS {
+				out.backdrop_bytes += w * h * 4
+				w = max(w / 2, 1)
+				h = max(h / 2, 1)
+			}
+		}
+		out.vertex_bytes += slot.vertex_size
+		out.index_bytes += slot.index_size
+	}
+	return out
+}
+
 //* The GUI backend that draws through SDL's GPU API.
 gpu_backend :: proc(ctx: rawptr) -> GUI.Backend {
 	return GUI.Backend {
@@ -890,6 +974,7 @@ gpu_backend :: proc(ctx: rawptr) -> GUI.Backend {
 		submit_target          = gpu_submit_target,
 		release_target         = gpu_release_target,
 		invalidate             = gpu_invalidate,
+		memory_stats           = gpu_memory_stats,
 		open_url               = open_url,
 		supports_shapes        = true,
 		supports_backdrop_blur = true,

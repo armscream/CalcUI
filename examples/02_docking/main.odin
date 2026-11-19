@@ -162,8 +162,7 @@ make_menu_bar :: proc(g: ^GUI.GUI, parent: GUI.Widget_ID) {
 			},
 		)
 		//* The program hears about a pick on the menu button itself.
-		w := GUI.Widget_Get(g, id)
-		w.signals.on_item_selected = on_menu_selected
+		if s := GUI.Widget_Signals(g, id); s != nil { s.on_item_selected = on_menu_selected }
 	}
 }
 

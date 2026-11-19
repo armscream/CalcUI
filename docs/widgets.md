@@ -262,11 +262,11 @@ Every widget has the same signals, so a handler can connect without knowing the 
 | `on_focus_entered`, `on_focus_exited` | | Keyboard focus moves. |
 | `on_dragged`, `on_resized` | `delta` / `size` | Reserved; currently unfired. |
 
-An unconnected signal is nil. Connect one on the widget:
+An unconnected signal is nil. The signals are made the first time one is connected:
 
 ```odin
-w := GUI.Widget_Get(g, id)
-w.signals.on_pressed = on_pressed
+signals := GUI.Widget_Signals(g, id)
+signals.on_pressed = on_pressed
 ```
 
 ## Writing a widget

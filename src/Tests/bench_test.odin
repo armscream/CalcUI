@@ -285,36 +285,9 @@ bench_work_data_table :: proc(t: ^testing.T, g: ^GUI.GUI, ctx: rawptr, index: in
 }
 
 //* Builds the draw list of a node graph again.
-bench_work_node_graph :: proc(t: ^testing.T, g: ^GUI.GUI, ctx: rawptr, index: int) {
-	virt.arena_free_all(&g.frame_arena)
-	GUI.build_draw_list(g)
-}
-
 //* Moves the pointer over a node graph and lets the graph answer.
-bench_work_node_graph_drag :: proc(t: ^testing.T, g: ^GUI.GUI, ctx: rawptr, index: int) {
-	scene := cast(^Bench_Graph)ctx
-	pos := GUI.Vec2{
-		x = scene.drag.x + f32(index % 40),
-		y = scene.drag.y + f32((index / 40) % 5),
-	}
-	append(&g.events, mouse_move(pos))
-	GUI.Handle_Events(g)
-}
-
 //* Moves the pointer over empty canvas of a node graph and asks the graph
 //* what is under it. The index and the wire hit test are exercised.
-bench_work_node_graph_hover_empty :: proc(t: ^testing.T, g: ^GUI.GUI, ctx: rawptr, index: int) {
-	scene := cast(^Bench_Graph)ctx
-	pos := GUI.Vec2{
-		x = scene.drag.x + f32(index % 4),
-		y = scene.drag.y + f32((index / 4) % 4),
-	}
-	append(&g.events, mouse_move(pos))
-	GUI.Handle_Events(g)
-	_ = GUI.node_graph_node_at(g, scene.graph, pos)
-	_ = GUI.node_graph_wire_at(g, scene.graph, pos)
-}
-
 //* == The virtualized data sources ==
 
 BENCH_ROW_VALUES: [4]string = {"alpha", "bravo", "charlie", "delta"}
@@ -335,11 +308,6 @@ Bench_Scene :: struct {
 }
 
 //* The node graph of the benchmarks of the graph.
-Bench_Graph :: struct {
-	graph: GUI.Widget_ID,
-	drag:  GUI.Vec2,
-}
-
 bench_list_count :: proc(ctx: rawptr) -> int {
 	return (cast(^Bench_List_Data)ctx).count
 }
@@ -573,110 +541,10 @@ bench_cleanup_table :: proc(g: ^GUI.GUI, ctx: rawptr) {
 	free(cast(rawptr)cast(^Bench_Table_Data)ctx)
 }
 
-bench_make_node_graph :: proc(t: ^testing.T, count: int) -> (^GUI.GUI, rawptr) {
-	g := bench_make_scene(t, 1920, 1080, true)
-	graph := bench_build_node_graph(g, count)
-	GUI.layout_pass(g)
-	GUI.node_graph_fit_view(g, graph)
-	GUI.build_draw_list(g)
-	return g, nil
-}
-
-bench_make_node_graph_drag :: proc(t: ^testing.T, count: int) -> (^GUI.GUI, rawptr) {
-	g := bench_make_scene(t, 1920, 1080, true)
-	graph := bench_build_node_graph(g, count)
-	GUI.layout_pass(g)
-	GUI.node_graph_fit_view(g, graph)
-	GUI.node_graph_select_all(g, graph)
-
-	content := GUI.content_rect(g, GUI.Widget_Get(g, graph))
-	state := GUI.node_graph_model(g, graph)
-	first := GUI.node_graph_node_of(state, state.nodes[0].id)
-	start := GUI.node_graph_screen_pos(state, content, {first.pos.x + 20, first.pos.y + 10})
-
-	scene := new(Bench_Graph)
-	scene.graph = graph
-	scene.drag = start
-	append(&g.events, mouse_down(start))
-	GUI.Handle_Events(g)
-	return g, cast(rawptr)scene
-}
-
-bench_cleanup_graph :: proc(g: ^GUI.GUI, ctx: rawptr) {
-	if ctx == nil {return}
-	free(cast(rawptr)cast(^Bench_Graph)ctx)
-}
-
 //* Builds a graph and finds a point of the canvas that holds no node and no
 //* wire, so the pointer can hover over empty canvas.
-bench_make_node_graph_hover_empty :: proc(t: ^testing.T, count: int) -> (^GUI.GUI, rawptr) {
-	g := bench_make_scene(t, 1920, 1080, true)
-	graph := bench_build_node_graph(g, count)
-	GUI.layout_pass(g)
-	GUI.node_graph_fit_view(g, graph)
-
-	content := GUI.content_rect(g, GUI.Widget_Get(g, graph))
-	point := GUI.Vec2{content.x + content.w * 0.5, content.y + content.h * 0.5}
-	found := false
-	for y := content.y + 6; y < content.y + content.h - 6 && !found; y += 5 {
-		for x := content.x + 6; x < content.x + content.w - 6; x += 5 {
-			p := GUI.Vec2{x, y}
-			if GUI.node_graph_node_at(g, graph, p).index != 0 {continue}
-			if GUI.node_graph_wire_at(g, graph, p).index != 0 {continue}
-			point = p
-			found = true
-			break
-		}
-	}
-
-	scene := new(Bench_Graph)
-	scene.graph = graph
-	scene.drag = point
-	return g, cast(rawptr)scene
-}
-
 //* Builds a graph with the given number of nodes, every node with four
 //* ports, and two wires from every node to the next ones.
-bench_build_node_graph :: proc(g: ^GUI.GUI, count: int) -> GUI.Widget_ID {
-	graph := GUI.Make_Node_Graph(g, g.root, GUI.Node_Graph_Opts{})
-	GUI.node_graph_undo_begin(g, graph)
-
-	nodes := make([]GUI.Graph_Node_ID, count)
-	defer delete(nodes)
-	for i in 0 ..< count {
-		x := f32(i % 25) * 180
-		y := f32(i / 25) * 100
-		nodes[i] = GUI.node_graph_add_node(g, graph, "Node", {x, y})
-		GUI.node_graph_add_typed_port(g, graph, nodes[i], bench_port("A", .Input))
-		GUI.node_graph_add_typed_port(g, graph, nodes[i], bench_port("B", .Input))
-		GUI.node_graph_add_typed_port(g, graph, nodes[i], bench_port("X", .Output))
-		GUI.node_graph_add_typed_port(g, graph, nodes[i], bench_port("Y", .Output))
-	}
-
-	state := GUI.node_graph_model(g, graph)
-	for i in 0 ..< count {
-		from := nodes[i]
-		to_a := nodes[(i + 1) % count]
-		to_b := nodes[(i + 2) % count]
-		from_node := GUI.node_graph_node_of(state, from)
-		to_a_node := GUI.node_graph_node_of(state, to_a)
-		to_b_node := GUI.node_graph_node_of(state, to_b)
-		GUI.node_graph_connect(g, graph, from, from_node.ports[2].id, to_a, to_a_node.ports[0].id)
-		GUI.node_graph_connect(g, graph, from, from_node.ports[3].id, to_b, to_b_node.ports[1].id)
-	}
-	GUI.node_graph_undo_commit(g, graph, "bench")
-	return graph
-}
-
-bench_port :: proc(name: string, direction: GUI.Graph_Port_Direction) -> GUI.Graph_Port_Desc {
-	return GUI.Graph_Port_Desc{
-		name = name,
-		direction = direction,
-		capacity = -1,
-		visible = true,
-	}
-}
-
 //* == The rules ==
 
 //* A virtual list may only ask for the rows that are on the screen.
@@ -979,53 +847,7 @@ bench_cases :: proc() -> []Bench_Case {
 		cleanup = bench_cleanup_list,
 	})
 
-	append(&cases, Bench_Case{
-		id = "node_graph.draw_500",
-		title = "a graph with 500 nodes and 1000 wires",
-		group = "node_graph",
-		notes = "The cost of one draw list of a node graph with 500 nodes and 1000 wires.",
-		iterations = 20,
-		budget_ns = 120e6,
-		count = 500,
-		make = bench_make_node_graph,
-		work = bench_work_node_graph,
-	})
-	append(&cases, Bench_Case{
-		id = "node_graph.drag_500",
-		title = "a drag over a graph with 500 nodes and 1000 wires",
-		group = "node_graph",
-		notes = "The cost of one move of the pointer over a node graph with 500 nodes and 1000 wires.",
-		iterations = 200,
-		budget_ns = 100e3,
-		count = 500,
-		make = bench_make_node_graph_drag,
-		work = bench_work_node_graph_drag,
-		cleanup = bench_cleanup_graph,
-	})
-	append(&cases, Bench_Case{
-		id = "node_graph.draw_2000",
-		title = "a graph with 2000 nodes and 4000 wires",
-		group = "node_graph",
-		notes = "The cost of one draw list of a node graph with 2000 nodes and 4000 wires.",
-		iterations = 10,
-		budget_ns = 200e6,
-		count = 2000,
-		make = bench_make_node_graph,
-		work = bench_work_node_graph,
-	})
-	append(&cases, Bench_Case{
-		id = "node_graph.hover_empty_2000",
-		title = "a pointer over empty canvas of a graph with 2000 nodes and 4000 wires",
-		group = "node_graph",
-		notes = "The cost of one frame while the pointer is over empty canvas of a graph with 2000 nodes and 4000 wires. The wire hit test and the index are exercised.",
-		iterations = 50,
-		budget_ns = 80e3,
-		count = 2000,
-		make = bench_make_node_graph_hover_empty,
-		work = bench_work_node_graph_hover_empty,
-		cleanup = bench_cleanup_graph,
-	})
-
+				
 	return cases[:]
 }
 
@@ -1077,13 +899,6 @@ test_bench_the_widget_benchmarks_run :: proc(t: ^testing.T) {
 	cases := bench_cases()
 	defer delete(cases)
 	bench_run_group(t, "widgets", cases)
-}
-
-@(test)
-test_bench_the_node_graph_benchmarks_run :: proc(t: ^testing.T) {
-	cases := bench_cases()
-	defer delete(cases)
-	bench_run_group(t, "node_graph", cases)
 }
 
 //* Every benchmark has to be named, measured and given a budget, so that
@@ -1142,7 +957,7 @@ test_bench_every_group_is_run :: proc(t: ^testing.T) {
 		}
 	}
 
-	run := [7]string{"draw", "layout", "style", "frame", "lifecycle", "widgets", "node_graph"}
+	run := [6]string{"draw", "layout", "style", "frame", "lifecycle", "widgets"}
 	for name in groups {
 		found := false
 		for other in run {

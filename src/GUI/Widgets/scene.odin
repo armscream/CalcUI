@@ -49,6 +49,7 @@
 package Widgets
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:mem"
 import virt "core:mem/virtual"
 import "core:strconv"
@@ -56,7 +57,7 @@ import "core:strings"
 
 //* == Node properties ==
 //* Properties shared by all widget types.
-SCENE_PROPERTIES_COMMON :: [13]string {
+SCENE_PROPERTIES_COMMON :: [24]string {
 	"anchors",
 	"offsets",
 	"min_size",
@@ -70,6 +71,17 @@ SCENE_PROPERTIES_COMMON :: [13]string {
 	"border_width",
 	"padding",
 	"bg",
+	"corner_radius",
+	"backdrop_blur",
+	"optics_refraction",
+	"optics_dispersion",
+	"optics_fresnel",
+	"optics_saturation",
+	"shadow",
+	"shadow_size",
+	"shadow_offset",
+	"shadow_spread",
+	"shadow_inset",
 }
 
 //* Widget types that accept their own text property.
@@ -108,6 +120,16 @@ SCENE_PROPERTIES_TEXTURE :: [1]string {
 	"texture",
 }
 
+SCENE_PROPERTIES_DOCK :: [5]string {
+	"weight",
+	"active",
+	"floating",
+	"float_pos",
+	"float_size",
+}
+
+SCENE_DOCK_VERSION :: 1
+
 //* Creates a widget for a scene node.
 //* == Scene document ==
 //* A scene is a list of nodes, each introduced by a [node ...] header.
@@ -127,6 +149,16 @@ Scene_Property :: struct {
 	key:   string,
 	value: string,
 	line:  int,
+}
+
+Scene_Dock :: struct {
+	version:         int,
+	has_version:     bool,
+	viewport:        [4]f32,
+	has_viewport:    bool,
+	window_rect:     [4]f32,
+	has_window_rect: bool,
+	line:            int,
 }
 
 //* A scene node and its parsed properties.
@@ -149,6 +181,17 @@ Scene_Node :: struct {
 	custom_min_size:     [2]f32,
 	border_width:        f32,
 	font_size:           f32,
+	corner_radius:       [4]f32,
+	backdrop_blur:       f32,
+	optics_refraction:   f32,
+	optics_dispersion:   f32,
+	optics_fresnel:      f32,
+	optics_saturation:   f32,
+	shadow:              [4]f32,
+	shadow_size:         f32,
+	shadow_offset:       [2]f32,
+	shadow_spread:       f32,
+	shadow_inset:        bool,
 	//* The persistent configuration of a nine-patch rectangle.
 	nine_patch_patch:           [4]f32,
 	nine_patch_source:          [4]f32,
@@ -156,6 +199,11 @@ Scene_Node :: struct {
 	nine_patch_horizontal_edge: Nine_Patch_Edge_Mode,
 	nine_patch_vertical_edge:   Nine_Patch_Edge_Mode,
 	nine_patch_centre_mode:     Nine_Patch_Centre_Mode,
+	weight:              f32,
+	active:              int,
+	float_pos:           [2]f32,
+	float_size:          [2]f32,
+	floating:            bool,
 	visible:             bool,
 	interactive:         bool,
 	has_anchors:         bool,
@@ -168,10 +216,26 @@ Scene_Node :: struct {
 	has_min_size:        bool,
 	has_custom_min_size: bool,
 	has_font_size:       bool,
+	has_corner_radius:   bool,
+	has_backdrop_blur:      bool,
+	has_optics_refraction:  bool,
+	has_optics_dispersion:  bool,
+	has_optics_fresnel:     bool,
+	has_optics_saturation:  bool,
+	has_shadow:          bool,
+	has_shadow_size:     bool,
+	has_shadow_offset:   bool,
+	has_shadow_spread:   bool,
+	has_shadow_inset:    bool,
 	has_font:            bool,
 	has_texture:         bool,
 	has_visible:         bool,
 	has_interactive:     bool,
+	has_weight:          bool,
+	has_active:          bool,
+	has_floating:        bool,
+	has_float_pos:       bool,
+	has_float_size:      bool,
 	has_nine_patch_patch:           bool,
 	has_nine_patch_source:          bool,
 	has_nine_patch_tint:            bool,
@@ -196,6 +260,7 @@ Scene_Node :: struct {
 //* Parsed scene document. Parsed strings belong to allocator.
 Scene_Doc :: struct {
 	nodes:     [dynamic]Scene_Node,
+	dock:      Scene_Dock,
 	allocator: mem.Allocator,
 }
 
@@ -272,6 +337,23 @@ Scene_Instantiate :: proc(g: ^GUI, doc: Scene_Doc) -> (Widget_ID, Scene_Report) 
 	waiting: [dynamic]int
 	defer delete(waiting)
 
+	made_of := make([]Widget_ID, len(doc.nodes))
+	defer delete(made_of)
+
+	dock_allowed := true
+	if doc.dock.has_version && doc.dock.version != SCENE_DOCK_VERSION {
+		scene_report_add(
+			&report,
+			.Warning,
+			doc.dock.line,
+			"",
+			"version",
+			"the dock layout version %d is not supported",
+			doc.dock.version,
+		)
+		dock_allowed = false
+	}
+
 	root := INVALID_WIDGET_ID
 	for index in 0 ..< len(doc.nodes) {
 		node := doc.nodes[index]
@@ -290,6 +372,7 @@ Scene_Instantiate :: proc(g: ^GUI, doc: Scene_Doc) -> (Widget_ID, Scene_Report) 
 		if !node.skipped {
 			id = scene_make(g, node, parent, &report)
 		}
+		made_of[index] = id
 		if node.owns_name {
 			if id == INVALID_WIDGET_ID {
 				//* The node could not be made: the children of the
@@ -299,16 +382,24 @@ Scene_Instantiate :: proc(g: ^GUI, doc: Scene_Doc) -> (Widget_ID, Scene_Report) 
 				built[node.name] = id
 			}
 		}
-		if id != INVALID_WIDGET_ID && root == INVALID_WIDGET_ID {
+		if id != INVALID_WIDGET_ID && root == INVALID_WIDGET_ID && !node.floating {
 			root = id
 		}
 
-		made := scene_make_waiting(g, doc, &built, &waiting, &report)
+		made := scene_make_waiting(g, doc, &built, &waiting, made_of, &report)
 		if root == INVALID_WIDGET_ID && made != INVALID_WIDGET_ID {
 			root = made
 		}
 	}
 
+	scene_apply_dock_state(g, doc, made_of, &report, dock_allowed)
+	if root == INVALID_WIDGET_ID {
+		for id in made_of {
+			if id == INVALID_WIDGET_ID {continue}
+			root = id
+			break
+		}
+	}
 	return root, report
 }
 
@@ -996,17 +1087,6 @@ scene_constructor_chart :: proc(
 	return Make_Chart(g, parent, Chart_Opts{Base_Opts = Base_Opts{name = name}})
 }
 
-scene_constructor_node_graph :: proc(
-	g: ^GUI,
-	parent: Widget_ID,
-	name: string,
-	text: string,
-) -> Widget_ID {
-	id := Make_Node_Graph(g, parent, Node_Graph_Opts{Base_Opts = Base_Opts{name = name}})
-	//* The text of a node graph is its serialized graph.
-	if text != "" {node_graph_load(g, id, text)}
-	return id
-}
 
 scene_constructor_canvas :: proc(
 	g: ^GUI,
@@ -1055,6 +1135,15 @@ scene_constructor_audio_player :: proc(
 	text: string,
 ) -> Widget_ID {
 	return Make_Audio_Player(g, parent, Audio_Player_Opts{Base_Opts = Base_Opts{name = name}})
+}
+
+scene_constructor_gizmo :: proc(
+	g: ^GUI,
+	parent: Widget_ID,
+	name: string,
+	text: string,
+) -> Widget_ID {
+	return Make_Gizmo(g, parent, Gizmo_Opts{Base_Opts = Base_Opts{name = name}})
 }
 
 //* Registers the built-in constructors once. Custom registrations are
@@ -1130,12 +1219,12 @@ scene_register_defaults :: proc(g: ^GUI) {
 	scene_register_default(g, .Tooltip, scene_constructor_tooltip)
 
 	scene_register_default(g, .Chart, scene_constructor_chart)
-	scene_register_default(g, .NodeGraph, scene_constructor_node_graph)
 	scene_register_default(g, .Canvas, scene_constructor_canvas)
 	scene_register_default(g, .FileViewer, scene_constructor_file_viewer)
 	scene_register_default(g, .RichTextEditor, scene_constructor_rich_text_editor)
 	scene_register_default(g, .VectorDrawing, scene_constructor_vector_drawing)
 	scene_register_default(g, .AudioPlayer, scene_constructor_audio_player)
+	scene_register_default(g, .Gizmo, scene_constructor_gizmo)
 }
 
 //* Registers a default only when no constructor is already present.
@@ -1163,6 +1252,7 @@ scene_parse :: proc(text: string, allocator: mem.Allocator) -> (Scene_Doc, Scene
 	}
 	props: [dynamic]Scene_Property
 	have_node := false
+	in_dock := false
 
 	lines := strings.split_lines(text)
 	defer delete(lines)
@@ -1181,6 +1271,7 @@ scene_parse :: proc(text: string, allocator: mem.Allocator) -> (Scene_Doc, Scene
 				props = nil
 				have_node = false
 			}
+			in_dock = false
 			if scene_is_node_header(trimmed) {
 				node = Scene_Node {
 					name    = scene_attr(trimmed, "name", allocator),
@@ -1190,10 +1281,17 @@ scene_parse :: proc(text: string, allocator: mem.Allocator) -> (Scene_Doc, Scene
 					line    = number + 1,
 				}
 				have_node = true
+			} else if scene_is_section(trimmed, "dock") {
+				in_dock = true
+				doc.dock.line = number + 1
 			}
 			continue
 		}
 
+		if in_dock {
+			scene_read_dock_line(&doc.dock, trimmed)
+			continue
+		}
 		if !have_node {continue}
 		scene_read_line(&node, &props, trimmed, number + 1, allocator)
 	}
@@ -1208,11 +1306,34 @@ scene_parse :: proc(text: string, allocator: mem.Allocator) -> (Scene_Doc, Scene
 
 //* Returns true for a [node ...] header.
 scene_is_node_header :: proc(line: string) -> bool {
+	return scene_is_section(line, "node")
+}
+
+scene_is_section :: proc(line: string, name: string) -> bool {
 	i := 1
 	for i < len(line) && scene_is_space(line[i]) {i += 1}
 	start := i
 	for i < len(line) && !scene_is_space(line[i]) && line[i] != ']' {i += 1}
-	return line[start:i] == "node"
+	return line[start:i] == name
+}
+
+scene_read_dock_line :: proc(dock: ^Scene_Dock, line: string) {
+	eq := strings.index(line, "=")
+	if eq < 0 {return}
+	key := strings.trim_space(line[:eq])
+	value := strings.trim_space(line[eq + 1:])
+	switch key {
+	case "version":
+		number, ok := scene_integer(value)
+		if ok {
+			dock.version = int(number)
+			dock.has_version = true
+		}
+	case "viewport":
+		dock.has_viewport = scene_read_numbers(value, dock.viewport[:], 4)
+	case "window_rect":
+		dock.has_window_rect = scene_read_numbers(value, dock.window_rect[:], 4)
+	}
 }
 
 //* Reads a quoted or unquoted node-header attribute.
@@ -1300,6 +1421,60 @@ scene_read_line :: proc(
 		}
 	case "padding":
 		node.has_padding = scene_read_numbers(value, node.padding[:], 4)
+	case "corner_radius":
+		node.has_corner_radius = scene_read_scalar_or_numbers(value, node.corner_radius[:])
+	case "backdrop_blur":
+		number, ok := scene_number(value)
+		if ok {
+			node.backdrop_blur = number
+			node.has_backdrop_blur = true
+		}
+	case "optics_refraction":
+		number, ok := scene_number(value)
+		if ok {
+			node.optics_refraction = number
+			node.has_optics_refraction = true
+		}
+	case "optics_dispersion":
+		number, ok := scene_number(value)
+		if ok {
+			node.optics_dispersion = number
+			node.has_optics_dispersion = true
+		}
+	case "optics_fresnel":
+		number, ok := scene_number(value)
+		if ok {
+			node.optics_fresnel = number
+			node.has_optics_fresnel = true
+		}
+	case "optics_saturation":
+		number, ok := scene_number(value)
+		if ok {
+			node.optics_saturation = number
+			node.has_optics_saturation = true
+		}
+	case "shadow":
+		node.has_shadow = scene_read_numbers(value, node.shadow[:], 4)
+	case "shadow_size":
+		number, ok := scene_number(value)
+		if ok {
+			node.shadow_size = number
+			node.has_shadow_size = true
+		}
+	case "shadow_offset":
+		node.has_shadow_offset = scene_read_numbers(value, node.shadow_offset[:], 2)
+	case "shadow_spread":
+		number, ok := scene_number(value)
+		if ok {
+			node.shadow_spread = number
+			node.has_shadow_spread = true
+		}
+	case "shadow_inset":
+		flag, ok := scene_bool(value)
+		if ok {
+			node.shadow_inset = flag
+			node.has_shadow_inset = true
+		}
 	case "font_size":
 		number, ok := scene_number(value)
 		if ok {
@@ -1328,6 +1503,28 @@ scene_read_line :: proc(
 		node.has_min_size = scene_read_numbers(value, node.min_size[:], 2)
 	case "custom_min_size":
 		node.has_custom_min_size = scene_read_numbers(value, node.custom_min_size[:], 2)
+	case "weight":
+		number, ok := scene_number(value)
+		if ok {
+			node.weight = number
+			node.has_weight = true
+		}
+	case "active":
+		number, ok := scene_integer(value)
+		if ok {
+			node.active = int(number)
+			node.has_active = true
+		}
+	case "floating":
+		flag, ok := scene_bool(value)
+		if ok {
+			node.floating = flag
+			node.has_floating = true
+		}
+	case "float_pos":
+		node.has_float_pos = scene_read_numbers(value, node.float_pos[:], 2)
+	case "float_size":
+		node.has_float_size = scene_read_numbers(value, node.float_size[:], 2)
 	case "patch":
 		node.has_nine_patch_patch = scene_read_numbers(value, node.nine_patch_patch[:], 4)
 	case "source":
@@ -1463,9 +1660,23 @@ scene_read_numbers :: proc(value: string, out: []f32, count: int) -> bool {
 	return scene_numbers(value, out) == count
 }
 
+scene_read_scalar_or_numbers :: proc(value: string, out: []f32) -> bool {
+	count := scene_numbers(value, out)
+	if count == len(out) {return true}
+	if count == 1 {
+		for i in 1 ..< len(out) {out[i] = out[0]}
+		return true
+	}
+	return false
+}
+
 //* Parses a floating-point value.
 scene_number :: proc(value: string) -> (f32, bool) {
 	return strconv.parse_f32(strings.trim_space(value))
+}
+
+scene_integer :: proc(value: string) -> (int, bool) {
+	return strconv.parse_int(strings.trim_space(value))
 }
 
 //* Parses true or false.
@@ -1523,7 +1734,11 @@ scene_property_count :: proc(key: string) -> int {
 	switch key {
 	case "anchors", "offsets", "colour", "bg", "border", "padding":
 		return 4
-	case "min_size", "custom_min_size":
+	case "min_size", "custom_min_size", "float_pos", "float_size":
+		return 2
+	case "shadow":
+		return 4
+	case "shadow_offset":
 		return 2
 	case "patch", "source", "tint":
 		return 4
@@ -1547,7 +1762,15 @@ scene_property_known :: proc(key: string) -> bool {
 	if key == "text" {return true}
 	if scene_property_nine_patch(key) {return true}
 	if scene_property_texture(key) {return true}
+	if scene_property_dock(key) {return true}
 	return scene_property_common(key)
+}
+
+scene_property_dock :: proc(key: string) -> bool {
+	for property in SCENE_PROPERTIES_DOCK {
+		if property == key {return true}
+	}
+	return false
 }
 
 scene_property_texture :: proc(key: string) -> bool {
@@ -1588,6 +1811,12 @@ scene_property_used :: proc(widget_type: Widget_Type, key: string) -> bool {
 	if scene_property_nine_patch(key) {return widget_type == .NinePatchRect}
 	if scene_property_texture(key) {
 		return widget_type == .TextureRect || widget_type == .NinePatchRect
+	}
+	if scene_property_dock(key) {
+		if key == "active" {
+			return widget_type == .Tabs || widget_type == .TabContainer
+		}
+		return true
 	}
 	return scene_property_common(key)
 }
@@ -1743,7 +1972,8 @@ scene_check_value :: proc(
 	report: ^Scene_Report,
 ) {
 	switch property.key {
-	case "border_width", "font_size":
+	case "border_width", "font_size", "weight", "backdrop_blur", "shadow_size", "shadow_spread",
+	     "optics_refraction", "optics_dispersion", "optics_fresnel", "optics_saturation":
 		if _, ok := scene_number(property.value); !ok {
 			scene_report_add(
 				report,
@@ -1755,7 +1985,33 @@ scene_check_value :: proc(
 				property.key,
 			)
 		}
-	case "visible", "interactive":
+	case "corner_radius":
+		numbers: [4]f32
+		count := scene_numbers(property.value, numbers[:])
+		if count != 1 && count != 4 {
+			scene_report_add(
+				report,
+				.Warning,
+				property.line,
+				node.name,
+				property.key,
+				"the value of %q is not one number or four numbers",
+				property.key,
+			)
+		}
+	case "active":
+		if _, ok := scene_integer(property.value); !ok {
+			scene_report_add(
+				report,
+				.Warning,
+				property.line,
+				node.name,
+				property.key,
+				"the value of %q is not a whole number",
+				property.key,
+			)
+		}
+	case "visible", "interactive", "floating", "shadow_inset":
 		if _, ok := scene_bool(property.value); !ok {
 			scene_report_add(
 				report,
@@ -1991,6 +2247,7 @@ scene_make_waiting :: proc(
 	doc: Scene_Doc,
 	built: ^map[string]Widget_ID,
 	waiting: ^[dynamic]int,
+	made_of: []Widget_ID,
 	report: ^Scene_Report,
 ) -> Widget_ID {
 	first := INVALID_WIDGET_ID
@@ -1999,7 +2256,8 @@ scene_make_waiting :: proc(
 		made = false
 		i := 0
 		for i < len(waiting) {
-			node := doc.nodes[waiting[i]]
+			index := waiting[i]
+			node := doc.nodes[index]
 			p, found := built^[node.parent]
 			if !found {
 				i += 1
@@ -2010,6 +2268,7 @@ scene_make_waiting :: proc(
 			if !node.skipped {
 				id = scene_make(g, node, p, report)
 			}
+			made_of[index] = id
 			if node.owns_name {
 				if id == INVALID_WIDGET_ID {
 					built^[node.name] = p
@@ -2017,7 +2276,7 @@ scene_make_waiting :: proc(
 					built^[node.name] = id
 				}
 			}
-			if id != INVALID_WIDGET_ID && first == INVALID_WIDGET_ID {
+			if id != INVALID_WIDGET_ID && first == INVALID_WIDGET_ID && !node.floating {
 				first = id
 			}
 			ordered_remove(waiting, i)
@@ -2050,6 +2309,9 @@ scene_place :: proc(
 	}
 	if node.has_custom_min_size {
 		Widget_Set_Custom_Min_Size(g, id, Vec2{node.custom_min_size[0], node.custom_min_size[1]})
+	}
+	if node.has_weight {
+		Widget_Set_Weight(g, id, node.weight)
 	}
 	if node.has_visible && !node.visible {
 		Widget_Set_Visible(g, id, false)
@@ -2111,6 +2373,109 @@ scene_place :: proc(
 	}
 
 	return id
+}
+
+scene_apply_dock_state :: proc(
+	g: ^GUI,
+	doc: Scene_Doc,
+	made_of: []Widget_ID,
+	report: ^Scene_Report,
+	floats_allowed: bool,
+) {
+	for index in 0 ..< len(doc.nodes) {
+		node := doc.nodes[index]
+		id := made_of[index]
+		if id == INVALID_WIDGET_ID {continue}
+		w := Widget_Get(g, id)
+		if w == nil {continue}
+
+		if node.has_active {
+			count := 0
+			child := w.first_child
+			for child != INVALID_WIDGET_ID {
+				c := Widget_Get(g, child)
+				if c == nil {break}
+				count += 1
+				child = c.next_sibling
+			}
+
+			active := node.active
+			if count == 0 || active < 0 {
+				active = 0
+			} else if active >= count {
+				active = count - 1
+			}
+
+			changed := false
+			#partial switch &d in w.data {
+			case Tabs_Data:
+				changed = d.active != active
+				d.active = active
+			case Tab_Container_Data:
+				changed = d.active != active
+				d.active = active
+			}
+			if changed {
+				invalidate(g, id, Dirty_Flags{.Measure, .Arrange, .Visual, .Hit})
+			}
+		}
+
+		if !floats_allowed || !node.has_floating || !node.floating {continue}
+		if w.parent != g.root {
+			scene_report_add(
+				report,
+				.Warning,
+				node.line,
+				node.name,
+				"floating",
+				"the floating panel is not a top-level node",
+			)
+			continue
+		}
+		if !node.has_float_pos || !node.has_float_size {
+			scene_report_add(
+				report,
+				.Warning,
+				node.line,
+				node.name,
+				"floating",
+				"the floating panel has no position or size",
+			)
+			continue
+		}
+
+		pos := Vec2{node.float_pos[0], node.float_pos[1]}
+		size := Vec2{node.float_size[0], node.float_size[1]}
+		if !scene_vec2_finite(pos) || !scene_vec2_finite(size) || size.x <= 0 || size.y <= 0 {
+			scene_report_add(
+				report,
+				.Warning,
+				node.line,
+				node.name,
+				"float_size",
+				"the size of the floating panel is not a positive number",
+			)
+			continue
+		}
+		if Make_Float_Panel(g, id, pos, size) == FLOAT_NONE {
+			scene_report_add(
+				report,
+				.Warning,
+				node.line,
+				node.name,
+				"floating",
+				"the floating panel could not be made",
+			)
+		}
+	}
+}
+
+scene_vec2_finite :: proc(v: Vec2) -> bool {
+	return scene_float_finite(v.x) && scene_float_finite(v.y)
+}
+
+scene_float_finite :: proc(v: f32) -> bool {
+	return !math.is_nan(v) && !math.is_inf(v)
 }
 
 scene_apply_texture :: proc(
@@ -2202,6 +2567,50 @@ scene_style :: proc(node: Scene_Node, family: Font_Family_ID) -> Style {
 			node.padding[3],
 		}
 		style.set += bit_set[Style_Field]{.Padding}
+	}
+	if node.has_corner_radius {
+		style.box.corner_radius = node.corner_radius
+		style.set += bit_set[Style_Field]{.Corner_Radius}
+	}
+	if node.has_backdrop_blur {
+		style.box.backdrop_blur = node.backdrop_blur
+		style.set += bit_set[Style_Field]{.Backdrop_Blur}
+	}
+	if node.has_optics_refraction {
+		style.box.optics.refraction = node.optics_refraction
+		style.set += bit_set[Style_Field]{.Optics_Refraction}
+	}
+	if node.has_optics_dispersion {
+		style.box.optics.dispersion = node.optics_dispersion
+		style.set += bit_set[Style_Field]{.Optics_Dispersion}
+	}
+	if node.has_optics_fresnel {
+		style.box.optics.fresnel = node.optics_fresnel
+		style.set += bit_set[Style_Field]{.Optics_Fresnel}
+	}
+	if node.has_optics_saturation {
+		style.box.optics.saturation = node.optics_saturation
+		style.set += bit_set[Style_Field]{.Optics_Saturation}
+	}
+	if node.has_shadow {
+		style.box.shadow_color = Colour{node.shadow[0], node.shadow[1], node.shadow[2], node.shadow[3]}
+		style.set += bit_set[Style_Field]{.Shadow}
+	}
+	if node.has_shadow_size {
+		style.box.shadow_size = node.shadow_size
+		style.set += bit_set[Style_Field]{.Shadow}
+	}
+	if node.has_shadow_offset {
+		style.box.shadow_offset = Vec2{node.shadow_offset[0], node.shadow_offset[1]}
+		style.set += bit_set[Style_Field]{.Shadow}
+	}
+	if node.has_shadow_spread {
+		style.box.shadow_spread = node.shadow_spread
+		style.set += bit_set[Style_Field]{.Shadow_Spread}
+	}
+	if node.has_shadow_inset {
+		style.box.shadow_inset = node.shadow_inset
+		style.set += bit_set[Style_Field]{.Shadow_Inset}
 	}
 	if node.has_colour {
 		style.text.colour = Colour{node.colour[0], node.colour[1], node.colour[2], node.colour[3]}

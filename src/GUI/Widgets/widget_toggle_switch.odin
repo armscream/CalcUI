@@ -43,15 +43,6 @@ toggle_switch_data :: proc(g: ^GUI, id: Widget_ID) -> ^Toggle_Switch_Data {
 	return nil
 }
 
-//* Sets the switch state and emits the toggled signal when it changes.
-toggle_switch_set :: proc(g: ^GUI, id: Widget_ID, on: bool) {
-	d := toggle_switch_data(g, id)
-	if d == nil {return}
-	if d.on == on {return}
-	d.on = on
-	signal_toggled(g, id, on)
-	invalidate(g, id, Dirty_Flags{.Visual})
-}
 
 toggle_switch_is_on :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	d := toggle_switch_data(g, id)
