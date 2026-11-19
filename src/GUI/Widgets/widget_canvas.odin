@@ -17,7 +17,8 @@ Make_Canvas :: proc(g: ^GUI, parent: Widget_ID, opts: Canvas_Opts) -> Widget_ID 
 	}
 	state^ = Canvas_State{}
 	state.items = make([dynamic]Canvas_Item, 0, 8, virt.arena_allocator(&g.arena))
-	w.data = Canvas_Data{state = state}
+	state.last = make([dynamic]Canvas_Item, 0, 8, virt.arena_allocator(&g.arena))
+	w.data = Canvas_Data{state = state, repaint_rate = opts.repaint_rate}
 	return id
 }
 
@@ -63,7 +64,20 @@ canvas_set_paint :: proc(
 		return
 	}
 	d.paint = paint
+	d.next_repaint = 0
+	if d.state != nil {
+		clear(&d.state.last)
+	}
 	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
+canvas_set_repaint_rate :: proc(g: ^GUI, id: Widget_ID, rate: f32) {
+	d := canvas_data(g, id)
+	if d == nil {
+		return
+	}
+	d.repaint_rate = rate
+	d.next_repaint = 0
 }
 
 canvas_add_item :: proc(g: ^GUI, id: Widget_ID, item: Canvas_Item) {
@@ -113,14 +127,54 @@ canvas_add_text :: proc(g: ^GUI, id: Widget_ID, pos: Vec2, text: string, colour:
 	canvas_add_item(g, id, Canvas_Item{kind = .Text, pos = pos, text = text, colour = colour})
 }
 
+canvas_add_texture :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	pos, size: Vec2,
+	texture: Texture,
+	colour: Colour = {},
+) {
+	canvas_add_item(
+		g,
+		id,
+		Canvas_Item{kind = .Texture, pos = pos, size = size, texture = texture, colour = colour},
+	)
+}
+
 //* A canvas without a paint procedure retains its items.
 update_canvas :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, dt: f32) {
 	d := canvas_data(g, id)
 	if d == nil || d.state == nil || d.paint == nil {
 		return
 	}
+	if d.repaint_rate > 0 {
+		if d.next_repaint <= 0 {
+			d.next_repaint = g.time
+		}
+		if g.time < d.next_repaint {
+			wake_at(g, d.next_repaint)
+			return
+		}
+		d.next_repaint = g.time + 1 / d.repaint_rate
+		wake_at(g, d.next_repaint)
+	}
 	clear(&d.state.items)
 	d.paint(g, id, d.state)
+
+	changed := len(d.state.items) != len(d.state.last)
+	if !changed {
+		for item, i in d.state.items {
+			if item != d.state.last[i] {
+				changed = true
+				break
+			}
+		}
+	}
+	if changed {
+		clear(&d.state.last)
+		append(&d.state.last, ..d.state.items[:])
+		invalidate(g, id, Dirty_Flags{.Visual})
+	}
 }
 
 CANVAS_LINE_WIDTH     :: 2
@@ -171,6 +225,27 @@ draw_canvas :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 					h = item.size.y,
 				},
 				ink,
+			)
+		case .Texture:
+			if !atlas_region_valid(g.atlas, item.texture.region) {
+				continue
+			}
+			atlas_touch(g.atlas, item.texture.region)
+			ink := item.colour
+			if ink.a == 0 {
+				ink = RGBA(1, 1, 1, 1)
+			}
+			draw_quad(
+				g.target,
+				Rect{
+					x = item.pos.x,
+					y = item.pos.y,
+					w = item.size.x,
+					h = item.size.y,
+				},
+				item.texture.uv,
+				ink,
+				g.atlas_texture,
 			)
 		}
 	}

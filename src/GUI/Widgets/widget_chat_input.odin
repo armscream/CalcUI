@@ -13,6 +13,7 @@ Make_Chat_Input :: proc(g: ^GUI, parent: Widget_ID, opts: Chat_Input_Opts) -> Wi
 	kind_register(g, .ChatInput, chat_input_kind())
 	id := New_Widget(g, .ChatInput, parent, base_widget_opts(opts.Base_Opts))
 	w := Widget_Get(g, id)
+	w.clip_contents = opts.Base_Opts.clip_contents != .Off
 	w.data = Chat_Input_Data{}
 	w.focus_mode = .All
 	w.base_min_size.y = max(w.base_min_size.y, f32(CHAT_INPUT_FIELD_HEIGHT * 2))
@@ -94,6 +95,7 @@ chat_input_submit :: proc(g: ^GUI, id: Widget_ID) {
 	sent := d.lines[len(d.lines) - 1].text
 	delete(d.text)
 	d.text = strings.clone("")
+	undo_group_break(g, id)
 	signal_submitted(g, id, sent)
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
@@ -118,11 +120,16 @@ chat_input_layout :: proc(content: Rect) -> Chat_Input_Layout {
 	}
 }
 
-chat_input_type :: proc(g: ^GUI, id: Widget_ID, c: string) {
+chat_input_type :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	c: string,
+	kind: Undo_Kind = .Programmatic,
+) {
 	d := chat_input_data(g, id)
 	if d == nil || c == "" { return }
 
-	snapshot := undo_snapshot(g, id)
+	snapshot := undo_snapshot_kind(g, id, kind)
 	new_text := strings.concatenate({d.text, c})
 	delete(d.text)
 	d.text = new_text
@@ -141,7 +148,7 @@ chat_input_backspace :: proc(g: ^GUI, id: Widget_ID) {
 	}
 	if end > 0 { end -= 1 }
 
-	snapshot := undo_snapshot(g, id)
+	snapshot := undo_snapshot_kind(g, id, .Backspace)
 	new_text := strings.clone(d.text[:end])
 	delete(d.text)
 	d.text = new_text
@@ -178,11 +185,12 @@ key_chat_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Key_Down_Event) {
 		chat_input_backspace(g, id)
 	case:
 		c := key_character(g, e.key, shift)
-		if c != "" { chat_input_type(g, id, c) }
+		if c != "" { chat_input_type(g, id, c, .Typing) }
 	}
 }
 
 click_chat_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
+	undo_group_break(g, id)
 	layout := chat_input_layout(chat_input_content(g, w))
 	if rect_contains(layout.field, g.pointer.x, g.pointer.y) {
 		focus_set(g, id)

@@ -136,7 +136,7 @@ new_widget :: proc(
 	w.shrink_weight = opts.shrink_weight
 	if w.shrink_weight < 0 || w.shrink_weight != w.shrink_weight { w.shrink_weight = 0 }
 	w.absolute = opts.absolute
-	w.clip_contents = opts.clip_contents != .Off
+	w.clip_contents = opts.clip_contents == .On
 	w.opacity = clamp(opts.opacity > 0 ? opts.opacity : 1, 0, 1)
 	w.tooltip_text = opts.tooltip
 	w.custom_min_size = opts.custom_min_size
@@ -195,6 +195,10 @@ new_widget :: proc(
 	if kind := widget_kind(g, w); kind.construct != nil {
 		kind.construct(g, w.id, w)
 	}
+	//* The widget is new: the platform has to hear of it, and of the
+	//* parent whose children changed with it.
+	access_mark(g, w.id)
+	if parent != INVALID_WIDGET_ID { access_mark(g, parent) }
 	return w.id
 }
 
@@ -233,8 +237,10 @@ Widget_Detach :: proc(g: ^GUI, child: Widget_ID) {
 	//* less: both of them are out of date.
 	if old_parent != INVALID_WIDGET_ID {
 		invalidate(g, old_parent, DIRTY_ALL)
+		access_mark(g, old_parent)
 	}
 	invalidate(g, w.id, DIRTY_ALL)
+	access_mark(g, w.id)
 }
 
 //* A tab host that loses a tab keeps showing a tab that is there: the tab
@@ -269,6 +275,16 @@ set_tab_active :: proc(g: ^GUI, host: ^Widget, active: int) {
 	//* geometry, and the one that is showing now takes the place.
 	if changed {
 		invalidate(g, host.id, Dirty_Flags{.Measure, .Arrange, .Visual, .Hit})
+		//* The tab that was showing and the one that is showing now keep
+		//* their places, and the platform reads them anew.
+		child := host.first_child
+		for child != INVALID_WIDGET_ID {
+			c := Widget_Get(g, child)
+			if c == nil { break }
+			next := c.next_sibling
+			access_mark_subtree(g, child)
+			child = next
+		}
 	}
 }
 
@@ -298,6 +314,8 @@ Widget_Attach :: proc(g: ^GUI, parent, child: Widget_ID) {
 	//* The widget has a new place, and the parent has one child more.
 	invalidate(g, parent, DIRTY_ALL)
 	invalidate(g, w.id, DIRTY_ALL)
+	access_mark(g, parent)
+	access_mark(g, w.id)
 }
 
 //* Moves a widget under a new parent at a given place in the child
@@ -353,6 +371,8 @@ Widget_Insert_At :: proc(g: ^GUI, parent, child: Widget_ID, index: int) {
 	}
 	invalidate(g, parent, DIRTY_ALL)
 	invalidate(g, w.id, DIRTY_ALL)
+	access_mark(g, parent)
+	access_mark(g, w.id)
 }
 
 //* The place a child holds in its parent's child list, or -1.
@@ -429,6 +449,10 @@ Widget_Free :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	for gone in subtree {
 		gone_widget := Widget_Get(g, gone)
 		if gone_widget == nil { continue }
+		//* The platform lets go of the widget before its data goes, so
+		//* a screen reader does not keep a name for a widget that is
+		//* not there any more.
+		access_removed(g, gone)
 		widget_notify_destroy(g, gone, gone_widget)
 		widget_release_data(g, gone_widget)
 		slot := int(gone.index) - 1
@@ -570,6 +594,7 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 		}
 		delete(d.text)
 		delete(d.commands)
+		delete(d.matches)
 	case Segmented_Data:
 		delete(d.items)
 	case Chat_Input_Data:
@@ -598,8 +623,6 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 			delete(d.chart.series)
 			delete(d.chart.labels)
 		}
-	case Node_Graph_Data:
-		if d.graph != nil {node_graph_free_storage(d.graph)}
 	case Rich_Text_Editor_Data:
 		if d.state != nil {
 			delete(d.state.text)

@@ -11,7 +11,18 @@ Make_Combo_Box :: proc(g: ^GUI, parent: Widget_ID, opts: Combo_Box_Opts) -> Widg
 	id := New_Widget(g, .ComboBox, parent, base_widget_opts(opts.Base_Opts))
 	w := Widget_Get(g, id)
 
-	data := Combo_Box_Data{selected = -1}
+	popup := Make_Popup_Menu(g, g.root, Popup_Menu_Opts{items = opts.items})
+	pw := Widget_Get(g, popup)
+	if pw != nil {
+		Widget_Set_Z_Index(g, popup, POPUP_Z_INDEX)
+		pw.signals.on_item_selected = combo_box_popup_selected
+		#partial switch &pd in pw.data {
+		case Popup_Menu_Data:
+			pd.owner = id
+		}
+	}
+
+	data := Combo_Box_Data{selected = -1, popup = popup}
 	for text in opts.items {
 		append(&data.items, Combo_Box_Item{text = text})
 	}
@@ -22,13 +33,49 @@ Make_Combo_Box :: proc(g: ^GUI, parent: Widget_ID, opts: Combo_Box_Opts) -> Widg
 	return id
 }
 
+//* The popup of a combo box, or INVALID_WIDGET_ID.
+combo_box_popup :: proc(g: ^GUI, id: Widget_ID) -> Widget_ID {
+	d := combo_box_data(g, id)
+	if d == nil { return INVALID_WIDGET_ID }
+	return d.popup
+}
+
+//* The combo a popup menu lists for, or INVALID_WIDGET_ID.
+combo_box_popup_owner :: proc(g: ^GUI, popup: Widget_ID) -> Widget_ID {
+	w := Widget_Get(g, popup)
+	if w == nil { return INVALID_WIDGET_ID }
+	#partial switch d in w.data {
+	case Popup_Menu_Data:
+		return d.owner
+	}
+	return INVALID_WIDGET_ID
+}
+
+combo_box_popup_selected :: proc(g: ^GUI, popup: Widget_ID, index: int) {
+	owner := combo_box_popup_owner(g, popup)
+	if owner == INVALID_WIDGET_ID { return }
+	d := combo_box_data(g, owner)
+	if d == nil || index < 0 || index >= len(d.items) { return }
+	d.selected = index
+	d.open = false
+	invalidate(g, owner, Dirty_Flags{.Visual})
+}
+
 combo_box_kind :: proc() -> Widget_Kind {
 	return Widget_Kind{
 		draw    = draw_combo_box,
 		click   = click_combo_box,
 		measure = measure_combo_box,
+		destroy = destroy_combo_box,
 		theme_name = "ComboBox",
 	}
+}
+
+destroy_combo_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
+	d := combo_box_data(g, id)
+	if d == nil || d.popup == INVALID_WIDGET_ID { return }
+	if Widget_Alive(g, d.popup) { Widget_Free(g, d.popup) }
+	d.popup = INVALID_WIDGET_ID
 }
 
 measure_combo_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> Vec2 {
@@ -62,6 +109,7 @@ combo_box_add_item :: proc(g: ^GUI, id: Widget_ID, text: string, icon: Texture_I
 	d := combo_box_data(g, id)
 	if d == nil { return }
 	append(&d.items, Combo_Box_Item{text = text, icon = icon})
+	if d.popup != INVALID_WIDGET_ID { Popup_Menu_Add_Item(g, d.popup, text) }
 	invalidate(g, id, Dirty_Flags{.Measure, .Visual})
 }
 
@@ -96,20 +144,62 @@ combo_box_select :: proc(g: ^GUI, id: Widget_ID, index: int) {
 	changed := d.selected != index
 	d.selected = index
 	d.open = false
+	if d.popup != INVALID_WIDGET_ID {
+		Popup_Menu_Close(g, d.popup)
+		if pw := Widget_Get(g, d.popup); pw != nil {
+			#partial switch &pd in pw.data {
+			case Popup_Menu_Data:
+				pd.selected = index
+			}
+		}
+	}
 	if changed { signal_item_selected(g, id, index) }
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
 combo_box_is_open :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	d := combo_box_data(g, id)
-	return d != nil && d.open
+	if d == nil || d.popup == INVALID_WIDGET_ID { return false }
+	return Popup_Is_Open(g, d.popup)
+}
+
+combo_box_open :: proc(g: ^GUI, id: Widget_ID) {
+	d := combo_box_data(g, id)
+	if d == nil || d.popup == INVALID_WIDGET_ID { return }
+	w := Widget_Get(g, id)
+	if w == nil { return }
+
+	field := combo_box_field_rect(g, w)
+	host := g.root
+	if fi := float_index_of(g, id); fi != FLOAT_NONE {
+		host = g.floats[fi].widget
+	}
+	if pw := Widget_Get(g, d.popup); pw != nil && pw.parent != host {
+		Widget_Attach(g, host, d.popup)
+	}
+	popup_menu_place(g, d.popup, field)
+	if pw := Widget_Get(g, d.popup); pw != nil {
+		#partial switch &pd in pw.data {
+		case Popup_Menu_Data:
+			pd.selected = d.selected
+		}
+	}
+	Popup_Menu_Open(g, d.popup)
+	d.open = true
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
+combo_box_close :: proc(g: ^GUI, id: Widget_ID) {
+	d := combo_box_data(g, id)
+	if d == nil { return }
+	if d.popup != INVALID_WIDGET_ID { Popup_Menu_Close(g, d.popup) }
+	if !d.open { return }
+	d.open = false
+	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
 combo_box_set_open :: proc(g: ^GUI, id: Widget_ID, open: bool) {
-	d := combo_box_data(g, id)
-	if d == nil || d.open == open { return }
-	d.open = open
-	invalidate(g, id, Dirty_Flags{.Visual})
+	if open { combo_box_open(g, id) } else { combo_box_close(g, id) }
 }
 
 combo_box_content :: proc(g: ^GUI, w: ^Widget) -> Rect {
@@ -117,44 +207,25 @@ combo_box_content :: proc(g: ^GUI, w: ^Widget) -> Rect {
 	return content_rect_with(w.rect, style.box.content_margin)
 }
 
-
-combo_box_layout :: proc(content: Rect, open: bool) -> Combo_Box_Layout {
-	field_h := min(f32(COMBO_BOX_FIELD_HEIGHT), content.h)
-	layout := Combo_Box_Layout{
-		field = Rect{x = content.x, y = content.y, w = content.w, h = field_h},
-	}
-	if !open { return layout }
-
-	top := content.y + field_h + 2
-	height := content.y + content.h - top
-	if height > 0 {
-		layout.list = Rect{x = content.x, y = top, w = content.w, h = height}
-	}
-	return layout
+combo_box_field_rect :: proc(g: ^GUI, w: ^Widget) -> Rect {
+	content := combo_box_content(g, w)
+	return combo_box_layout(content, false).field
 }
 
-combo_box_item_at :: proc(list: Rect, count: int, y: f32) -> int {
-	if count <= 0 || y < list.y || y >= list.y + list.h { return -1 }
-	index := int((y - list.y) / f32(COMBO_BOX_ROW))
-	if index < 0 || index >= count { return -1 }
-	return index
+//* The field is the only part of the combo that lives inside the widget;
+//* the list is a popup of its own.
+combo_box_layout :: proc(content: Rect, open: bool) -> Combo_Box_Layout {
+	field_h := min(f32(COMBO_BOX_FIELD_HEIGHT), content.h)
+	return Combo_Box_Layout{
+		field = Rect{x = content.x, y = content.y, w = content.w, h = field_h},
+	}
 }
 
 click_combo_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
-	d := combo_box_data(g, id)
-	if d == nil { return }
-
-	layout := combo_box_layout(combo_box_content(g, w), d.open)
-	if d.open && layout.list.h > 0 && rect_contains(layout.list, g.pointer.x, g.pointer.y) {
-		if index := combo_box_item_at(layout.list, len(d.items), g.pointer.y); index >= 0 {
-			combo_box_select(g, id, index)
-		}
-		return
-	}
-	if rect_contains(layout.field, g.pointer.x, g.pointer.y) {
-		combo_box_set_open(g, id, !d.open)
+	if combo_box_is_open(g, id) {
+		combo_box_close(g, id)
 	} else {
-		combo_box_set_open(g, id, false)
+		combo_box_open(g, id)
 	}
 }
 
@@ -164,7 +235,8 @@ draw_combo_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 
 	style := resolved_style(g, w)
 	ink := resolved_text_colour(g, id, w)
-	layout := combo_box_layout(content, d.open)
+	open := combo_box_is_open(g, id)
+	field := combo_box_layout(content, false).field
 
 	text_style := style.text
 	text_style.valign = .Center
@@ -175,30 +247,9 @@ draw_combo_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 		colour = Scale_Colour(ink, 0.55)
 	}
 
-	field := layout.field
 	draw_text(g, text_style, text,
 		Rect{x = field.x + 6, y = field.y, w = field.w - 26, h = field.h}, colour)
-	draw_combo_box_arrow(g, field, d.open, ink)
-
-	if !d.open { return }
-
-	draw_rect(g, layout.list, COLLECT_PANEL, 4)
-	row_style := style.text
-	row_style.valign = .Center
-	y := layout.list.y
-
-	for item, i in d.items {
-		if y >= layout.list.y + layout.list.h { break }
-		row := Rect{x = layout.list.x + 2, y = y, w = layout.list.w - 4, h = COMBO_BOX_ROW}
-		row_ink := ink
-		if i == d.selected {
-			draw_rect(g, row, COLLECT_ACCENT, 3)
-			row_ink = RGBA(1, 1, 1, 1)
-		}
-		draw_text(g, row_style, item.text,
-			Rect{x = row.x + 6, y = row.y, w = row.w - 12, h = row.h}, row_ink)
-		y += COMBO_BOX_ROW
-	}
+	draw_combo_box_arrow(g, field, open, ink)
 }
 
 draw_combo_box_arrow :: proc(g: ^GUI, field: Rect, open: bool, colour: Colour) {

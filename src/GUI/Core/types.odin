@@ -13,7 +13,19 @@ Backend :: struct {
 	destroy_texture:        proc(ctx: rawptr, id: Texture_ID),
 	submit:                 proc(ctx: rawptr, dl: ^Draw_List),
 	submit_target:          proc(ctx: rawptr, dl: ^Draw_List, window: rawptr),
+	//* Gives back a window that the backend was rendering into, before the
+	//* window layer destroys it. A backend that keeps a swapchain or a
+	//* renderer per window releases them here; leaving them behind makes the
+	//* next window that reuses the handle fail in the graphics library.
+	release_target:         proc(ctx: rawptr, window: rawptr),
+	//* Drops anything the backend cached from an earlier frame, such as a
+	//* retained scene. The window layer calls it when the window is
+	//* exposed, so a stale picture cannot come back.
+	invalidate:             proc(ctx: rawptr),
 	supports_shapes:        bool,
+	//* Whether the backend can blur what was drawn behind a widget. A
+	//* backend that cannot leaves the glass tint and skips the blur.
+	supports_backdrop_blur: bool,
 	open_url:               proc(ctx: rawptr, url: string) -> bool,
 }
 
@@ -28,6 +40,10 @@ Rect :: struct {
 
 Vec2 :: struct {
 	x, y: f32,
+}
+
+Vec3 :: struct {
+	x, y, z: f32,
 }
 
 vec2_add :: proc(a, b: Vec2) -> Vec2 {
@@ -70,6 +86,8 @@ Float_Panel :: struct {
 	size:   Vec2,
 	title:  string,
 	draw:   Draw_List,
+	//* Asks the window system to bring the panel forward once.
+	raise:  bool,
 }
 
 Widget_Type :: enum {
@@ -136,11 +154,13 @@ Widget_Type :: enum {
 	Tooltip,
 	Chart,
 	NodeGraph,
+	NodeGraphInspector,
 	Canvas,
 	FileViewer,
 	RichTextEditor,
 	VectorDrawing,
 	AudioPlayer,
+	Gizmo,
 }
 
 Mouse_Filter :: enum {
@@ -159,13 +179,6 @@ Clip_Contents :: enum {
 	Default,
 	On,
 	Off,
-}
-
-//* How the application loop produces frames: every pass, or only when the
-//* GUI says that the tree, an animation, the caret or an upload needs one.
-Frame_Mode :: enum {
-	Continuous,
-	Event_Driven,
 }
 
 //* Layout behavior along one axis.
@@ -385,9 +398,16 @@ Style_Field :: enum {
 	Padding,
 	Corner_Radius,
 	Shadow,
+	Shadow_Spread,
+	Shadow_Inset,
 	Expand_Margin,
+	Backdrop_Blur,
 	Text,
 	Transition,
+	Optics_Refraction,
+	Optics_Dispersion,
+	Optics_Fresnel,
+	Optics_Saturation,
 }
 
 Text_Style :: struct {
@@ -534,11 +554,13 @@ Widget_Data :: union {
 	Tooltip_Data,
 	Chart_Data,
 	Node_Graph_Data,
+	Node_Graph_Inspector_Data,
 	Canvas_Data,
 	File_Viewer_Data,
 	Rich_Text_Editor_Data,
 	Vector_Drawing_Data,
 	Audio_Player_Data,
+	Gizmo_Data,
 	Custom_Data,
 }
 
@@ -634,6 +656,11 @@ Widget :: struct {
 	layout_direction: Layout_Direction,
 	signals:          Signals,
 	access:           Access_Info,
+	//* True when the bridge has been told about the widget.
+	access_in_bridge: bool,
+	//* True when the widget is in the line of the widgets whose meaning
+	//* changed and has not been told to the bridge yet.
+	access_queued:    bool,
 
 	//* Framework-maintained invalidation and style cache.
 	dirty:            Dirty_Flags,
@@ -783,9 +810,26 @@ GUI :: struct {
 	atlas_failures:            int,
 	dirty:                     Dirty_Flags,
 	full_layout:               bool,
-	frame_mode:                Frame_Mode,
 	frame_requested:           bool,
 	frame_count:               u64,
+	//* The one clock of the toolkit. The application owns it: `GUI_Tick`
+	//* adds the delta of the loop pass and nothing else moves time.
+	time:                      f32,
+	frame_time:                f32,
+	last_frame_time:           f32,
+	//* The earliest absolute time a widget asked to be woken at. The set
+	//* is rebuilt by every update pass.
+	next_wake:                 f32,
+	wake_valid:                bool,
+	wake_count:                int,
+	//* The physical rectangle of the last visual-only invalidation, and
+	//* whether it can be used for a scissored replay.
+	dirty_rect:                Rect,
+	dirty_rect_valid:          bool,
+	//* Set by an invalidation with no bounds. It refuses the scissored
+	//* replay for the build that follows, even when a visual change after
+	//* it adds a rectangle again.
+	partial_blocked:           bool,
 	draw_valid:                bool,
 	draw_epoch:                u64,
 	draw_builds:               u64,
@@ -818,6 +862,8 @@ GUI :: struct {
 	animations_updating:       bool,
 	next_animation_id:         u64,
 	caret_timer:               f32,
+	caret_blink:               i32,
+	caret_blink_valid:         bool,
 	update_scratch:            [dynamic]Widget_ID,
 	//* Storage that the hot paths reuse instead of allocating. The arrays
 	//* are used as stacks: a walk remembers the length it found, appends
@@ -829,12 +875,15 @@ GUI :: struct {
 	chain_scratch:             [dynamic]Widget_ID,
 	inspector:                 Inspector,
 	measure_cache:             map[Measure_Key]Vec2,
-	last_frame:                i64,
 	clipboard:                 Clipboard,
 	audio:                     ^Audio_State,
 	default_style:             Style,
 	access_bridge:             Access_Bridge,
 	access_epoch:              int,
+	//* The widgets whose meaning changed and have not been told to the
+	//* bridge yet, and the array that is used for the next line.
+	access_pending:            [dynamic]Widget_ID,
+	access_spare:              [dynamic]Widget_ID,
 	tooltip_id:                Widget_ID,
 	tooltip_enabled:           bool,
 	shutdown:                  bool,

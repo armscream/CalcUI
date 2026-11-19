@@ -96,7 +96,7 @@ time_picker_set_open :: proc(g: ^GUI, id: Widget_ID, open: bool) {
 	if d == nil {return}
 	if d.open == open {return}
 	d.open = open
-	invalidate(g, id, Dirty_Flags{.Measure, .Visual})
+	invalidate(g, id, Dirty_Flags{.Measure, .Arrange, .Visual})
 }
 
 
@@ -233,6 +233,11 @@ draw_time_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	cell_style.align = .Center
 	cell_style.valign = .Center
 
+	fill_colour := COLLECT_ACCENT
+	if colour := theme_color(g, w, "fill_color"); colour.a > 0 {fill_colour = colour}
+	on_fill := Colour{1, 1, 1, 1}
+	if colour := theme_color(g, w, "on_fill_color"); colour.a > 0 {on_fill = colour}
+
 	for hour in 0 ..< 24 {
 		index := hour
 		cell := Rect {
@@ -244,8 +249,8 @@ draw_time_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 		if cell.y >= layout.hours.y + layout.hours.h {break}
 		cell_ink := ink
 		if hour == d.hour {
-			draw_rect(g, cell, COLLECT_ACCENT, 4)
-			cell_ink = RGBA(1, 1, 1, 1)
+			draw_rect(g, cell, fill_colour, 4)
+			cell_ink = on_fill
 		}
 		label := fmt.aprintf("%d", hour, allocator = virt.arena_allocator(&g.frame_arena))
 		draw_text(g, cell_style, label, cell, cell_ink)
@@ -263,8 +268,8 @@ draw_time_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 		if cell.y >= layout.minutes.y + layout.minutes.h {break}
 		cell_ink := ink
 		if minute == d.minute {
-			draw_rect(g, cell, COLLECT_ACCENT, 4)
-			cell_ink = RGBA(1, 1, 1, 1)
+			draw_rect(g, cell, fill_colour, 4)
+			cell_ink = on_fill
 		}
 		label := fmt.aprintf("%02d", minute, allocator = virt.arena_allocator(&g.frame_arena))
 		draw_text(g, cell_style, label, cell, cell_ink)

@@ -83,5 +83,7 @@ Make_Split :: proc(g: ^GUI, parent: Widget_ID, opts: Split_Opts) -> Widget_ID {
 
 //* Makes a tab host that shows one child tab at a time.
 Make_Tabs :: proc(g: ^GUI, parent: Widget_ID, opts: Tabs_Opts) -> Widget_ID {
-	return New_Widget(g, .Tabs, parent, base_widget_opts(opts.Base_Opts))
+	id := New_Widget(g, .Tabs, parent, base_widget_opts(opts.Base_Opts))
+	Widget_Get(g, id).clip_contents = opts.Base_Opts.clip_contents != .Off
+	return id
 }

@@ -120,7 +120,7 @@ gauge_draw :: proc(g: ^GUI, id: GUI.Widget_ID, w: ^GUI.Widget, content: GUI.Rect
 }
 ```
 
-Children are drawn after the hook unless `owns_children` is set. Custom drawing uses the normal atlas, clipping and batching path.
+Children are drawn after the hook unless `owns_children` is set. Custom drawing uses the normal atlas, clipping and batching path. A custom draw runs inside the clip of its widget, so a rounded `clip_contents` widget cuts its glyphs, images and polygons at the rounded corners too.
 
 Available drawing and measurement helpers:
 
@@ -130,6 +130,7 @@ Available drawing and measurement helpers:
 | `Draw_Solid` | Draw a solid rectangle. |
 | `Draw_Text` | Draw styled text. |
 | `Draw_Quad` | Draw part of a texture. |
+| `Draw_Quad_Rounded` | Draw part of a texture with per-corner radii. |
 | `Draw_Line` | Draw a line between two points. |
 | `Draw_Polygon` | Draw a polygon. |
 | `Measure_Text` | Measure text as it would be drawn. |

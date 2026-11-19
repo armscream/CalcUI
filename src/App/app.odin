@@ -1,5 +1,5 @@
 //* The skeleton of an application: the window, backend, GUI,
-//* font and the loop. A program outside this repository uses this package 
+//* font and the loop. A program outside this repository uses this package
 //* instead of copying the bootstrap from the examples.
 //*   App.Run("CalcUI", 900, 600, setup, update)
 //*   App.Run_With(App.Options{title = "CalcUI"}, setup, update)
@@ -7,21 +7,17 @@ package App
 
 import "core:log"
 import "core:os"
+import "core:mem"
 import "core:strings"
 import sdl "vendor:sdl3"
 import Backend "../Backend"
 import GUI "../GUI"
 import plat "../Window"
 
-//* default font the toolkit ships with.
 DEFAULT_FONT_DATA :: #load("../../assets/fonts/Roboto-Regular.ttf")
-
-//* The family name of the built-in font.
 DEFAULT_FONT_NAME :: "Roboto"
-
 DEFAULT_FONT_SIZE :: 16
 
-// App state
 App :: struct {
 	window: plat.Window,
 	gui: ^GUI.GUI,
@@ -31,19 +27,29 @@ App :: struct {
 	family: GUI.Font_Family_ID,
 }
 
-//* The settings of an application: the window, backend and font.
+Backend_Choice :: enum {
+	Auto,
+	GPU,
+	Renderer,
+}
+
+Accessibility :: enum {
+	Default,
+	On,
+	Off,
+}
+
 Options :: struct {
 	title: string,
 	width, height: i32,
-	use_gpu: bool,
-	frame_mode: GUI.Frame_Mode,
+	backend: Backend_Choice,
 	font_path: string,
 	font_data: []u8,
 	font_name: string,
 	font_size: f32,
+	accessibility: Accessibility,
 }
 
-//* Runs an application with the given title and size. The setup function
 //* puts the widgets in the tree, and the update function is called once a
 //* frame. Gives false back when the application could not be started.
 Run :: proc(
@@ -114,9 +120,9 @@ Font :: proc(app: ^App, size: f32) -> GUI.Font_ID {
 parse_args :: proc(opts: ^Options) {
 	for arg in os.args[1:] {
 		if arg == "--gpu" {
-			opts.use_gpu = true
-		} else if arg == "--event-driven" {
-			opts.frame_mode = .Event_Driven
+			opts.backend = .GPU
+		} else if arg == "--renderer" {
+			opts.backend = .Renderer
 		} else if !strings.has_prefix(arg, "--") && opts.font_path == "" {
 			opts.font_path = arg
 		}
@@ -129,54 +135,49 @@ with_defaults :: proc(opts: ^Options) {
 	if opts.height <= 0 { opts.height = 600 }
 	if opts.font_name == "" { opts.font_name = DEFAULT_FONT_NAME }
 	if opts.font_size <= 0 { opts.font_size = DEFAULT_FONT_SIZE }
+	if opts.accessibility == .Default {
+		opts.accessibility = plat.Access_Available() ? .On : .Off
+	}
 }
 
 app_start :: proc(app: ^App, opts: Options, setup: proc(app: ^App)) -> (started, backend_made: bool) {
 	pw, ph := plat.Pixel_Size(app.window)
 	lw, lh := plat.Logical_Size(app.window)
 
-	if opts.use_gpu {
+	choice := opts.backend
+	if choice != .Renderer {
 		log.info("backend: SDL3 GPU")
-		app.backend = GUI.Backend {
-			ctx                    = cast(rawptr)&app.gpu_state,
-			create                 = Backend.gpu_create,
-			destroy                = Backend.gpu_destroy,
-			resize                 = Backend.gpu_resize,
-			upload_texture         = Backend.gpu_upload_texture,
-			upload_texture_regions = Backend.gpu_upload_texture_regions,
-			destroy_texture        = Backend.gpu_destroy_texture,
-			submit                 = Backend.gpu_submit,
-			submit_target          = Backend.gpu_submit_target,
-			open_url               = Backend.open_url,
-			supports_shapes        = true,
-		}
-	} else {
-		log.info("backend: SDL3 renderer")
-		app.backend = GUI.Backend {
-			ctx                    = cast(rawptr)&app.renderer_state,
-			create                 = Backend.renderer_create,
-			destroy                = Backend.renderer_destroy,
-			resize                 = Backend.renderer_resize,
-			upload_texture         = Backend.renderer_upload_texture,
-			upload_texture_regions = Backend.renderer_upload_texture_regions,
-			destroy_texture        = Backend.renderer_destroy_texture,
-			submit                 = Backend.renderer_submit,
-			submit_target          = Backend.renderer_submit_target,
-			open_url               = Backend.open_url,
-			supports_shapes        = false,
+		app.backend = gpu_backend(app)
+		if !GUI.Backend_Create(app.backend, cast(rawptr) app.window.handle, pw, ph) {
+			GUI.Backend_Destroy(app.backend)
+			if choice == .GPU {
+				log.error("the GPU backend could not be made")
+				return false, false
+			}
+			log.info("backend: the SDL3 GPU could not be made; using the SDL3 renderer")
+			choice = .Renderer
 		}
 	}
 
-	if !GUI.Backend_Create(app.backend, cast(rawptr) app.window.handle, pw, ph) {
-		log.error("the backend could not be made")
-		return false, false
+	if choice == .Renderer {
+		log.info("backend: SDL3 renderer")
+		app.backend = renderer_backend(app)
+		if !GUI.Backend_Create(app.backend, cast(rawptr) app.window.handle, pw, ph) {
+			log.error("the backend could not be made")
+			return false, false
+		}
 	}
 	backend_made = true
 
 	app.gui = GUI.Init_GUI(lw, lh, app.backend)
 	GUI.GUI_Set_Scale(app.gui, plat.Scale(app.window))
-	GUI.GUI_Set_Frame_Mode(app.gui, opts.frame_mode)
 	GUI.Default_Theme_Use(app.gui, true)
+
+	if opts.accessibility == .On && plat.Access_Available() {
+		if !plat.Access_Install(&app.window, app.gui) {
+			log.warn("the accessibility of the platform is not there")
+		}
+	}
 
 	app.family = load_family(app.gui, opts)
 	if app.family == GUI.INVALID_FONT_FAMILY_ID {
@@ -190,31 +191,69 @@ app_start :: proc(app: ^App, opts: Options, setup: proc(app: ^App)) -> (started,
 	return true, true
 }
 
+gpu_backend :: proc(app: ^App) -> GUI.Backend {
+	return GUI.Backend {
+		ctx                    = cast(rawptr)&app.gpu_state,
+		create                 = Backend.gpu_create,
+		destroy                = Backend.gpu_destroy,
+		resize                 = Backend.gpu_resize,
+		upload_texture         = Backend.gpu_upload_texture,
+		upload_texture_regions = Backend.gpu_upload_texture_regions,
+		destroy_texture        = Backend.gpu_destroy_texture,
+		submit                 = Backend.gpu_submit,
+		submit_target          = Backend.gpu_submit_target,
+		release_target         = Backend.gpu_release_target,
+		invalidate             = Backend.gpu_invalidate,
+		open_url               = Backend.open_url,
+		supports_shapes        = true,
+		supports_backdrop_blur = true,
+	}
+}
+
+renderer_backend :: proc(app: ^App) -> GUI.Backend {
+	return GUI.Backend {
+		ctx                    = cast(rawptr)&app.renderer_state,
+		create                 = Backend.renderer_create,
+		destroy                = Backend.renderer_destroy,
+		resize                 = Backend.renderer_resize,
+		upload_texture         = Backend.renderer_upload_texture,
+		upload_texture_regions = Backend.renderer_upload_texture_regions,
+		destroy_texture        = Backend.renderer_destroy_texture,
+		submit                 = Backend.renderer_submit,
+		submit_target          = Backend.renderer_submit_target,
+		release_target         = Backend.renderer_release_target,
+		open_url               = Backend.open_url,
+		supports_shapes        = false,
+		supports_backdrop_blur = false,
+	}
+}
+
 app_run :: proc(app: ^App, update: proc(app: ^App)) {
 	first_frame := true
+	plat.Clock_Delta()
 	for !app.gui.quit_requested {
 		plat.Sync_Scale(app.gui, app.window)
 		plat.Poll_Events(&app.window, &app.gui.events)
 		app.gui.window_rect = plat.Global_Rect(app.window)
 
+		GUI.GUI_Tick(app.gui, plat.Clock_Delta())
 		input_pending := len(app.gui.events) > 0
-		if update != nil && (input_pending || GUI.GUI_Needs_Frame(app.gui)) {
-			update(app)
-		}
-
 		GUI.Handle_Events(app.gui)
 		if app.gui.quit_requested { break }
+		plat.Access_Apply_Actions(&app.window)
 
 		if !GUI.GUI_Needs_Frame(app.gui) {
 			if !input_pending {
-				plat.Wait_Events(&app.window, &app.gui.events)
+				plat.Wait_Events(&app.window, &app.gui.events, GUI.GUI_Next_Frame_Delay_MS(app.gui))
 			}
 			continue
 		}
 
+		if update != nil { update(app) }
 		GUI.Frame(app.gui)
 
-		plat.Sync_Popups(&app.window, app.gui.floats[:])
+		plat.Sync_Popups(&app.window, app.gui.floats[:], app.backend.release_target, app.backend.ctx)
+		for &f in app.gui.floats { f.raise = false }
 		plat.Set_Cursor(&app.window, app.gui.cursor)
 		plat.Sync_Clipboard(app.gui)
 
@@ -227,6 +266,8 @@ app_run :: proc(app: ^App, update: proc(app: ^App)) {
 				cast(rawptr) app.window.popups[i],
 			)
 		}
+
+		Backend.Stats.wake_timers = app.gui.wake_count
 
 		if first_frame {
 			log.infof(
@@ -248,7 +289,7 @@ app_stop :: proc(app: ^App, backend_made: bool) {
 	if backend_made {
 		GUI.Backend_Destroy(app.backend)
 	}
-	plat.Destroy_Window(app.window)
+	plat.Destroy_Window(&app.window)
 }
 
 load_family :: proc(g: ^GUI.GUI, opts: Options) -> GUI.Font_Family_ID {

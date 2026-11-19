@@ -9,6 +9,47 @@ Draw_Rect_Radii :: proc(g: ^GUI, e: Rect, colour: Colour, radii: [4]f32) {
 	draw_rect_radii(g, e, colour, radii)
 }
 
+Draw_Glass :: proc(g: ^GUI, e: Rect, tint: Colour, radius: f32, blur: f32) {
+	if g == nil { return }
+	draw_glass(g, e, tint, {radius, radius, radius, radius}, blur)
+}
+
+Draw_Glass_Radii :: proc(
+	g: ^GUI,
+	e: Rect,
+	tint: Colour,
+	radii: [4]f32,
+	blur: f32,
+) {
+	if g == nil { return }
+	draw_glass(g, e, tint, radii, blur)
+}
+
+Draw_Glass_Optics :: proc(
+	g: ^GUI,
+	e: Rect,
+	tint: Colour,
+	radius: f32,
+	blur: f32,
+	optics: Glass_Optics,
+) {
+	if g == nil { return }
+	draw_glass(g, e, tint, {radius, radius, radius, radius}, blur, optics)
+}
+
+//* Draws a frosted box with four corner radii and the optical stack.
+Draw_Glass_Radii_Optics :: proc(
+	g: ^GUI,
+	e: Rect,
+	tint: Colour,
+	radii: [4]f32,
+	blur: f32,
+	optics: Glass_Optics,
+) {
+	if g == nil { return }
+	draw_glass(g, e, tint, radii, blur, optics)
+}
+
 Draw_Text :: proc(g: ^GUI, ts: Text_Style, text: string, e: Rect, colour: Colour) {
 	if g == nil { return }
 	draw_text(g, ts, text, e, colour)
@@ -32,6 +73,18 @@ Draw_Quad :: proc(g: ^GUI, e: Rect, uv: [4]f32, colour: Colour, texture: Texture
 Draw_Solid :: proc(g: ^GUI, e: Rect, colour: Colour) {
 	if g == nil { return }
 	draw_quad(g.target, e, g.atlas.white_uv, colour, g.atlas_texture)
+}
+
+Draw_Quad_Rounded :: proc(
+	g: ^GUI,
+	e: Rect,
+	uv: [4]f32,
+	colour: Colour,
+	texture: Texture_ID,
+	radii: [4]f32,
+) {
+	if g == nil { return }
+	draw_quad_rounded(g.target, e, uv, colour, texture, radii, g.backend.supports_shapes)
 }
 
 Draw_Line :: proc(g: ^GUI, a, b: Vec2, width: f32, colour: Colour) {

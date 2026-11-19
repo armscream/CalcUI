@@ -88,7 +88,7 @@ date_picker_set_open :: proc(g: ^GUI, id: Widget_ID, open: bool) {
 	d := date_picker_data(g, id)
 	if d == nil || d.open == open {return}
 	d.open = open
-	invalidate(g, id, Dirty_Flags{.Measure, .Visual})
+	invalidate(g, id, Dirty_Flags{.Measure, .Arrange, .Visual})
 }
 
 date_picker_months: [12]string = {
@@ -310,6 +310,11 @@ draw_date_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	day_style.align = .Center
 	day_style.valign = .Center
 
+	fill_colour := COLLECT_ACCENT
+	if colour := theme_color(g, w, "fill_color"); colour.a > 0 {fill_colour = colour}
+	on_fill := Colour{1, 1, 1, 1}
+	if colour := theme_color(g, w, "on_fill_color"); colour.a > 0 {on_fill = colour}
+
 	for day in 1 ..= count {
 		index := day - 1 + first
 		cell := Rect{
@@ -320,11 +325,11 @@ draw_date_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 		}
 		if cell.y >= layout.days.y + layout.days.h {break}
 		if day == d.day {
-			draw_rect(g, cell, COLLECT_ACCENT, 4)
+			draw_rect(g, cell, fill_colour, 4)
 		}
 
 		day_ink := ink
-		if day == d.day {day_ink = RGBA(1, 1, 1, 1)}
+		if day == d.day {day_ink = on_fill}
 		day_text := fmt.aprintf("%d", day, allocator = virt.arena_allocator(&g.frame_arena))
 		draw_text(g, day_style, day_text, cell, day_ink)
 	}

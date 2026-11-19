@@ -126,14 +126,22 @@ pointer_scroll_bar :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Pointer_Event)
 update_scroll_bar :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, dt: f32) {
 	d := scroll_bar_data(g, id)
 	if d == nil {return}
-	if d.dragging || scroll_bar_hovered(g, w) {
-		d.idle = 0
+	active := d.dragging || scroll_bar_hovered(g, w)
+	if active {
+		d.idle_until = g.time + SCROLL_BAR_FADE_DELAY
 	}
-	d.idle += dt
-	if d.idle < SCROLL_BAR_FADE_DELAY {
+	if g.time < d.idle_until {
 		d.alpha = min(1, d.alpha + dt * SCROLL_BAR_FADE_SPEED)
+		if d.alpha < 1 {
+			wake_at(g, g.time)
+		}
 	} else {
-		d.alpha = max(0, d.alpha - dt * SCROLL_BAR_FADE_SPEED)
+
+		fade := 1 - (g.time - d.idle_until) * SCROLL_BAR_FADE_SPEED
+		d.alpha = clamp(fade, 0, 1)
+		if d.alpha > 0 {
+			wake_at(g, d.idle_until + 1 / SCROLL_BAR_FADE_SPEED)
+		}
 	}
 }
 
@@ -144,11 +152,11 @@ draw_scroll_bar :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 
 	track_box, has := Theme_Get_Stylebox(g.theme, .ScrollBar, "track")
 	if !has {track_box = StyleBox{bg_color = RGBA(0.13, 0.14, 0.17, 1)}}
-	draw_rect(
+	draw_rect_radii(
 		g,
 		w.rect,
-		Scale_Colour(track_box.bg_color, d.alpha),
-		stylebox_radius(&track_box),
+		scroll_bar_fade(track_box.bg_color, d.alpha),
+		stylebox_radii(&track_box),
 	)
 
 	grab := scroll_bar_grabber(g, w, d)
@@ -161,5 +169,9 @@ draw_scroll_bar :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	}
 	box, found := Theme_Get_Stylebox(g.theme, .ScrollBar, name)
 	if !found {box = StyleBox{bg_color = RGBA(0.55, 0.58, 0.66, 1)}}
-	draw_rect(g, grab, Scale_Colour(box.bg_color, d.alpha), stylebox_radius(&box))
+	draw_rect_radii(g, grab, scroll_bar_fade(box.bg_color, d.alpha), stylebox_radii(&box))
+}
+
+scroll_bar_fade :: proc(c: Colour, alpha: f32) -> Colour {
+	return Colour{r = c.r, g = c.g, b = c.b, a = c.a * alpha}
 }

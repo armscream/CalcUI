@@ -19,6 +19,7 @@ check_box_kind :: proc() -> Widget_Kind {
 	return Widget_Kind{
 		draw = draw_check_box,
 		click = click_check_box,
+		hit_test = hit_check_box,
 		theme_name = "CheckBox",
 	}
 }
@@ -60,7 +61,7 @@ draw_check_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 		if !has {
 			box = check_box_default_box(d.on)
 		}
-		draw_stylebox_at(g, &box, square)
+		draw_stylebox_box(g, square, &box)
 		if d.on {
 			colour := style.text.colour
 			if colour.a <= 0 {
@@ -90,6 +91,11 @@ check_box_square :: proc(g: ^GUI, w: ^Widget, content: Rect) -> Rect {
 		y = 0
 	}
 	return Rect{x = content.x, y = content.y + y, w = CHECK_BOX_SIZE, h = CHECK_BOX_SIZE}
+}
+
+hit_check_box :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, p: Vec2) -> bool {
+	square := check_box_square(g, w, check_box_content(g, w))
+	return rect_contains(square, p.x, p.y)
 }
 
 check_box_style_name :: proc(on: bool, w: ^Widget) -> string {
@@ -335,6 +341,9 @@ menu_button_reposition :: proc(g: ^GUI, id: Widget_ID) {
 }
 
 menu_buttons_reposition :: proc(g: ^GUI) {
+	if len(g.popups) == 0 {
+		return
+	}
 	for w in g.widgets {
 		if w != nil && w.type == .MenuButton {
 			menu_button_reposition(g, w.id)

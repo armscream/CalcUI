@@ -117,6 +117,8 @@ focus_set :: proc(g: ^GUI, id: Widget_ID) {
 	}
 	signal_focus_entered(g, id)
 	access_focus_changed(g, id)
+	access_mark(g, old)
+	access_mark(g, id)
 	draw_invalidate(g)
 }
 
@@ -127,6 +129,7 @@ focus_clear :: proc(g: ^GUI) {
 	signal_focus_exited(g, old)
 	text_box_blur(g, old)
 	access_focus_changed(g, INVALID_WIDGET_ID)
+	access_mark(g, old)
 	draw_invalidate(g)
 }
 

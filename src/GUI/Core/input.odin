@@ -96,6 +96,9 @@ Handle_Events :: proc(g: ^GUI) {
 			}
 		case Quit_Event:
 			g.quit_requested = true
+		case Exposed_Event:
+			draw_invalidate(g)
+			Backend_Invalidate(g.backend)
 		}
 	}
 }
@@ -349,6 +352,15 @@ fire_click :: proc(g: ^GUI, id: Widget_ID) {
 		if d.on_click != nil { d.on_click(g, id) }
 	}
 	if pressed != nil { pressed(g, id) }
+}
+
+Widget_Activate :: proc(g: ^GUI, id: Widget_ID) -> bool {
+	if g == nil { return false }
+	w := Widget_Get(g, id)
+	if w == nil { return false }
+	if !(.Enabled in w.state) { return false }
+	fire_click(g, id)
+	return true
 }
 
 fire_pointer :: proc(g: ^GUI, id: Widget_ID, e: Pointer_Event) {

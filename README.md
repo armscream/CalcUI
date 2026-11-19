@@ -33,11 +33,14 @@ Interfaces can be built programmatically or described in scene files, allowing c
 
 - Retained-mode architecture – Persistent widget tree with independent widget identities and state.
 - Incremental layout engine – Dirty-driven measurement and arrangement. Only affected layout branches are recalculated.
-- Dirty-driven frame scheduling - Continuous or event-driven rendering; idle applications wait for input instead of rebuilding unchanged draw lists.
+- Event-driven frame scheduling - The application owns the clock and the core owns the wake timers; idle applications wait for input or the next timer instead of rebuilding unchanged draw lists.
 - Declarative UI – Define interfaces through serialized scene files instead of constructing every widget in code.
 - Scene serialization – Save and load widget trees, including their hierarchy and configuration.
 - Renderer-agnostic core – Integrate with different rendering backends.
 - Batched rendering – Shared texture atlas for text, images and primitives.
+- Rounded shapes – Fills, per-side borders, focus rings, headers, images and rounded content clipping, with one signed-distance field on shaped backends and a tessellated fallback elsewhere.
+- Shadows – Outer and inset shadows with blur, offset and spread, and animated shadow spread and inset.
+- Backdrop glass - Frosted, blurred panels over the content behind them, with a safe tint-only fallback.
 - Docking system – Dockspaces, movable panels, floating and detachable panels, split layouts and drag-and-drop.
 - Text rendering – Font families, glyph fallback and DPI-aware rasterization.
 - Custom widgets – Register custom drawing, measurement, input and lifecycle callbacks.
@@ -93,7 +96,7 @@ CalcUI includes a broad collection of built-in widgets and interface components.
 | Selection | Combo boxes, color picker, date picker, time picker, emoji picker |
 | Menus & Overlays | Command palette, context menus, tooltips, popups, toast notifications |
 | Data | Data tables, virtual lists, charts |
-| Visualization | Canvas, node graph editor, vector drawing |
+| Visualization | Canvas, node graph editor, vector drawing, 2D gizmo |
 | File & Content | File viewer |
 | Layout | Dockspaces, floating and detachable panels |
 
@@ -185,10 +188,11 @@ The core handles:
 - Text measurement and glyph management.
 - Clipping and texture atlas management.
 
-The included backends use SDL3:
+The included backends are:
 
-- SDL3 Renderer – Standard SDL rendering backend.
-- SDL3 GPU – GPU backend supporting Vulkan, D3D12 and Metal.
+- SDL3 Renderer - the standard SDL rendering backend, a CPU fallback for shapes.
+- SDL3 GPU - the GPU backend supporting Vulkan, D3D12 and Metal, and the default for `App` runs.
+- Software - a shared headless rasterizer in `src/Backend/software.odin` that evaluates the same SDF shapes and backdrop blur as the GPU shader and writes pixels without a window. It exists for visual verification and CPU/GPU parity checks, not for production performance.
 
 SDL3 is used by the examples and included integrations, but it is not a requirement of the GUI architecture. Other rendering systems can be integrated by implementing the necessary backend operations and wiring up window events, input, textures and presentation.
 
@@ -289,7 +293,7 @@ The "examples" directory contains standalone applications demonstrating CalcUI's
 | `02_docking` | Docking, panel movement and drag-and-drop. |
 | `03_text` | Text sizing, colours, alignment and wrapping. |
 | `04_overlays` | Detached panels and multiple windows. |
-| `05_theming` | Themes and widget styles. |
+| `05_theming` | Seven themes and widget styles: dark, light, ocean, liquid glass, neumorphism, Material 3 and Fluent. |
 | `06_scene` | Complete UI Scene loading from string. |
 | `07_custom_widget` | Demo of a custom widget. |
 | `08_custom_backend` | Demo with a custom renderer. |
@@ -316,9 +320,10 @@ Or build an individual example:
 odin build examples/01_gallery -out:gallery.exe
 odin run examples/01_gallery
 
-The SDL3 renderer is used by default. Pass "--gpu" to use the SDL3 GPU backend:
+`App` uses the SDL3 GPU backend by default and falls back to the SDL3 renderer when the GPU cannot be made. Pass `--renderer` to force the renderer, or `--gpu` to require the GPU and fail instead of falling back:
 
-odin run examples/01_gallery -- --gpu
+odin run examples/01_gallery
+odin run examples/01_gallery -- --renderer
 
 
 **Tests**

@@ -461,10 +461,7 @@ font_slot :: proc(g: ^GUI, f: ^Font, src: ^runa.Font, gid: runa.Glyph_ID, bucket
 	key := Glyph_Key{font = src, gid = gid, px_q = u32(f.px_size * 16), subpx = bucket & 3}
 	if entry, hit := g.glyphs[key]; hit {
 		if entry.px_size[0] == 0 || entry.px_size[1] == 0 {return entry, true}
-		if atlas_region_valid(g.atlas, entry.region) {
-			atlas_touch(g.atlas, entry.region)
-			return entry, true
-		}
+		if atlas_touch_if_valid(g.atlas, entry.region) {return entry, true}
 		delete_key(&g.glyphs, key)
 	}
 

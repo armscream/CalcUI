@@ -21,6 +21,17 @@ Side :: enum { Left, Top, Right, Bottom }
 //* The four corners of a box.
 Corner :: enum { Top_Left, Top_Right, Bottom_Right, Bottom_Left }
 
+Glass_Optics :: struct {
+	//* How far the backdrop is moved at the rim of the box,
+	refraction: f32,
+	//* How far the red and the blue channel drift apart at the rim, 
+	dispersion: f32,
+	//* How strong the light that the rim catches is. Zero is no rim light.
+	fresnel: f32,
+	//* How much the colour of the backdrop is pumped up. One keeps it.
+	saturation: f32,
+}
+
 StyleBox :: struct {
 	//* The colour of the background.
 	bg_color: Colour,
@@ -44,13 +55,16 @@ StyleBox :: struct {
 	shadow_color:  Colour,
 	shadow_size:   f32,
 	shadow_offset: Vec2,
+	shadow_spread: f32,
+	shadow_inset:  bool,
 
 	//* The radius of the blur of everything behind the box. Zero draws
-	//* the background as it is. A backend that cannot read its own
+
 	//* target ignores it and draws the tint alone.
 	backdrop_blur: f32,
 
-	//* Whether the corners are smoothed.
+	//* split, the rim light and the saturation of the backdrop.
+	optics: Glass_Optics,
 	anti_aliasing: bool,
 }
 
@@ -159,7 +173,8 @@ stylebox_plain :: proc(box: StyleBox) -> StyleBox {
 	out.shadow_color = Colour{}
 	out.shadow_size = 0
 	out.shadow_offset = Vec2{}
+	out.shadow_spread = 0
+	out.shadow_inset = false
 	out.expand_margin = [4]f32{}
-	out.backdrop_blur = 0
 	return out
 }

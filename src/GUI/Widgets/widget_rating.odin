@@ -103,6 +103,9 @@ draw_rating :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 
 	ink := resolved_text_colour(g, id, w)
 	dim := Scale_Colour(ink, 0.3)
+	if colour := theme_color(g, w, "track_color"); colour.a > 0 {dim = colour}
+	filled := ink
+	if colour := theme_color(g, w, "fill_color"); colour.a > 0 {filled = colour}
 	text_style := resolved_style(g, w).text
 	text_style.align = .Center
 
@@ -114,7 +117,7 @@ draw_rating :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 			h = content.h,
 		}
 		colour := dim
-		if f32(i) < d.value {colour = ink}
+		if f32(i) < d.value {colour = filled}
 		draw_text(g, text_style, d.mark, slot, colour)
 	}
 }

@@ -82,7 +82,6 @@ Init_GUI_With_Atlas_Checked :: proc(
 	}
 	init_text(g)
 	g.root = New_Widget(g, .Panel, INVALID_WIDGET_ID, Widget_Opts{name = "root"})
-	g.frame_mode = .Continuous
 	g.frame_requested = true
 	gui_alive_add(g)
 

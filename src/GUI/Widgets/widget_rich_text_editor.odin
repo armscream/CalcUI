@@ -36,6 +36,7 @@ rich_text_editor_kind :: proc() -> Widget_Kind {
 		style = Style{
 			box = StyleBox{bg_color = RGBA(0.11, 0.12, 0.15, 1), content_margin = {6, 6, 6, 6}},
 		},
+		focus_ring = true,
 		theme_name = "RichTextEditor",
 	}
 }
@@ -77,6 +78,7 @@ rich_text_editor_cursor_count :: proc(g: ^GUI, id: Widget_ID) -> int {
 rich_text_editor_add_cursor :: proc(g: ^GUI, id: Widget_ID, offset: int) -> int {
 	state := rich_text_editor_state(g, id)
 	if state == nil {return -1}
+	undo_group_break(g, id)
 
 	place := snap_offset(state.text, clamp(offset, 0, len(state.text)))
 	for cursor, i in state.cursors {
@@ -89,6 +91,7 @@ rich_text_editor_add_cursor :: proc(g: ^GUI, id: Widget_ID, offset: int) -> int 
 rich_text_editor_remove_cursor :: proc(g: ^GUI, id: Widget_ID, index: int) -> int {
 	state := rich_text_editor_state(g, id)
 	if state == nil || index < 0 || index >= len(state.cursors) {return -1}
+	undo_group_break(g, id)
 	ordered_remove(&state.cursors, index)
 	return len(state.cursors)
 }
@@ -102,6 +105,7 @@ rich_text_editor_cursor :: proc(g: ^GUI, id: Widget_ID, index: int) -> Rich_Curs
 rich_text_editor_set_caret :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: bool) {
 	state := rich_text_editor_state(g, id)
 	if state == nil {return}
+	undo_group_break(g, id)
 	for &cursor in state.cursors {
 		text_select_move(state.text, &cursor.caret, &cursor.sel_start, &cursor.sel_end, offset, extend)
 	}
@@ -111,6 +115,7 @@ rich_text_editor_set_caret :: proc(g: ^GUI, id: Widget_ID, offset: int, extend: 
 rich_text_editor_move_caret :: proc(g: ^GUI, id: Widget_ID, forward: bool, extend: bool) {
 	state := rich_text_editor_state(g, id)
 	if state == nil {return}
+	undo_group_break(g, id)
 	for &cursor in state.cursors {
 		offset := forward ? next_offset(state.text, cursor.caret) : prev_offset(state.text, cursor.caret)
 		text_select_move(state.text, &cursor.caret, &cursor.sel_start, &cursor.sel_end, offset, extend)
@@ -121,13 +126,19 @@ rich_text_editor_move_caret :: proc(g: ^GUI, id: Widget_ID, forward: bool, exten
 rich_text_editor_select_all :: proc(g: ^GUI, id: Widget_ID) {
 	state := rich_text_editor_state(g, id)
 	if state == nil {return}
+	undo_group_break(g, id)
 	for &cursor in state.cursors {
 		text_select_all(state.text, &cursor.caret, &cursor.sel_start, &cursor.sel_end)
 	}
 }
 
 
-rich_text_editor_insert :: proc(g: ^GUI, id: Widget_ID, text: string) {
+rich_text_editor_insert :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	text: string,
+	kind: Undo_Kind = .Programmatic,
+) {
 	state := rich_text_editor_state(g, id)
 	if state == nil {return}
 	if state.pending != 0 && len(text) == 1 && text[0] == state.pending {
@@ -135,10 +146,15 @@ rich_text_editor_insert :: proc(g: ^GUI, id: Widget_ID, text: string) {
 		return
 	}
 	state.pending = 0
-	rich_text_editor_insert_text(g, id, text)
+	rich_text_editor_insert_text(g, id, text, kind)
 }
 
-rich_text_editor_insert_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
+rich_text_editor_insert_text :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	text: string,
+	kind: Undo_Kind = .Programmatic,
+) {
 	state := rich_text_editor_state(g, id)
 	if state == nil || text == "" {return}
 
@@ -146,9 +162,11 @@ rich_text_editor_insert_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	defer delete(edits)
 
 	removed := 0
+	replaced := false
 	for cursor in state.cursors {
 		start := snap_offset(state.text, min(cursor.sel_start, cursor.sel_end))
 		end := snap_offset(state.text, max(max(cursor.sel_start, cursor.sel_end), start))
+		if start < end {replaced = true}
 		removed += utf8.rune_count_in_string(state.text[start:end])
 		append(&edits, Rich_Edit{start = start, end = end})
 	}
@@ -163,7 +181,11 @@ rich_text_editor_insert_text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 
 	for &edit in edits {edit.text = added}
 
-	snapshot := undo_snapshot(g, id)
+	change_kind := kind
+	if replaced && kind != .Paste {
+		change_kind = .Replace
+	}
+	snapshot := undo_snapshot_kind(g, id, change_kind)
 	rich_text_editor_apply(g, id, state, edits)
 	undo_commit(g, id, &snapshot)
 	signal_text_changed(g, id, state.text)
@@ -185,6 +207,7 @@ rich_text_editor_remove_text :: proc(g: ^GUI, id: Widget_ID, backward: bool) {
 	defer delete(edits)
 
 	removed := 0
+	replaced := false
 	for cursor in state.cursors {
 		start := snap_offset(state.text, min(cursor.sel_start, cursor.sel_end))
 		end := snap_offset(state.text, max(max(cursor.sel_start, cursor.sel_end), start))
@@ -197,6 +220,8 @@ rich_text_editor_remove_text :: proc(g: ^GUI, id: Widget_ID, backward: bool) {
 				if end >= len(state.text) {continue}
 				end = next_offset(state.text, end)
 			}
+		} else {
+			replaced = true
 		}
 
 		removed += utf8.rune_count_in_string(state.text[start:end])
@@ -207,7 +232,9 @@ rich_text_editor_remove_text :: proc(g: ^GUI, id: Widget_ID, backward: bool) {
 		return
 	}
 
-	snapshot := undo_snapshot(g, id)
+	kind := backward ? Undo_Kind.Backspace : Undo_Kind.Delete
+	if replaced {kind = .Replace}
+	snapshot := undo_snapshot_kind(g, id, kind)
 	rich_text_editor_apply(g, id, state, edits)
 	undo_commit(g, id, &snapshot)
 	signal_text_changed(g, id, state.text)
@@ -304,7 +331,7 @@ rich_text_editor_type :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	state := rich_text_editor_state(g, id)
 	if state == nil {return}
 	state.pending = text[0]
-	rich_text_editor_insert_text(g, id, text)
+	rich_text_editor_insert_text(g, id, text, .Typing)
 }
 
 rich_text_editor_command :: proc(g: ^GUI, id: Widget_ID, key: Key, shift: bool) {
@@ -332,14 +359,17 @@ rich_text_editor_copy :: proc(g: ^GUI, id: Widget_ID, cut: bool) {
 		end := max(cursor.sel_start, cursor.sel_end)
 		if start == end {continue}
 		clipboard_set(g, state.text[start:end])
-		if cut {rich_text_editor_delete(g, id)}
+		if cut {
+			rich_text_editor_delete(g, id)
+			undo_group_break(g, id)
+		}
 		return
 	}
 }
 
 rich_text_editor_paste :: proc(g: ^GUI, id: Widget_ID) {
 	text := clipboard_get(g)
-	if text != "" {rich_text_editor_insert(g, id, text)}
+	if text != "" {rich_text_editor_insert(g, id, text, .Paste)}
 }
 
 key_character :: proc(g: ^GUI, key: Key, shift: bool) -> string {
@@ -409,6 +439,7 @@ rich_text_editor_pointer :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Pointer_
 	#partial switch e.kind {
 	case .Move:
 		if !state.selection.dragging {return}
+		undo_group_break(g, id)
 		offset := rich_text_editor_offset_at_local(g, id, w, e.local)
 		for &cursor in state.cursors {
 			text_select_extend(
@@ -464,6 +495,7 @@ rich_text_editor_move_line :: proc(g: ^GUI, id: Widget_ID, down: bool, extend: b
 		h = content.h,
 	}
 
+	undo_group_break(g, id)
 	for &cursor in state.cursors {
 		index := text_line_of(lines[:], state.text, cursor.caret)
 		target := index + (down ? 1 : -1)
@@ -483,6 +515,7 @@ rich_text_editor_move_line_edge :: proc(g: ^GUI, id: Widget_ID, end: bool, exten
 	content := content_rect(g, w)
 	ts := rich_text_editor_text_style(g, w, state)
 	lines := text_lines(g, ts, state.text, content.w)
+	undo_group_break(g, id)
 	for &cursor in state.cursors {
 		index := text_line_of(lines[:], state.text, cursor.caret)
 		if index < 0 || index >= len(lines) {continue}

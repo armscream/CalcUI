@@ -20,6 +20,14 @@ texture_from_pixels :: proc(g: ^GUI, pixels: []u8, w, h: int) -> Texture {
 	return Texture{region = region, size = [2]i32{i32(w), i32(h)}, uv = region.uv}
 }
 
+texture_update :: proc(g: ^GUI, texture: Texture, pixels: []u8) -> bool {
+	if g == nil || !atlas_region_valid(g.atlas, texture.region) {return false}
+	if len(pixels) < texture.region.w * texture.region.h * 4 {return false}
+	atlas_write(g.atlas, texture.region, pixels)
+	draw_invalidate(g)
+	return true
+}
+
 texture_from_png :: proc(g: ^GUI, data: []u8) -> (Texture, bool) {
 	image, err := png.load_from_bytes(data)
 	if err != nil {return {}, false}
@@ -113,5 +121,100 @@ draw_texture :: proc(g: ^GUI, texture: Texture, rect: Rect, colour: Colour) {
 	drawn.y = rect.y + (rect.h - drawn.h) * 0.5
 
 	draw_quad(g.target, drawn, texture.uv, colour, g.atlas_texture)
+}
+
+draw_texture_rounded :: proc(
+	g: ^GUI,
+	texture: Texture,
+	rect: Rect,
+	colour: Colour,
+	radii: [4]f32,
+) {
+	if !atlas_region_valid(g.atlas, texture.region) {return}
+	if rect.w <= 0 || rect.h <= 0 {return}
+
+	atlas_touch(g.atlas, texture.region)
+
+	size := texture_logical_size(g, texture)
+	w := size.x
+	h := size.y
+	if w <= 0 || h <= 0 {return}
+	scale := min(rect.w / w, rect.h / h)
+	drawn := Rect {
+		w = w * scale,
+		h = h * scale,
+	}
+	drawn.x = rect.x + (rect.w - drawn.w) * 0.5
+	drawn.y = rect.y + (rect.h - drawn.h) * 0.5
+
+	draw_quad_rounded(g.target, drawn, texture.uv, colour, g.atlas_texture, radii, g.backend.supports_shapes)
+}
+
+draw_quad_rounded :: proc(
+	dl: ^Draw_List,
+	r: Rect,
+	uv: [4]f32,
+	c: Colour,
+	tex: Texture_ID,
+	radii: [4]f32,
+	shapes: bool,
+) {
+	if r.w <= 0 || r.h <= 0 {return}
+	clamped := clamp_corner_radii(radii, r.w, r.h)
+	if radii_are_zero(clamped) {
+		draw_quad(dl, r, uv, c, tex)
+		return
+	}
+
+	if shapes {
+		draw_quad_shape_full(
+			dl,
+			r,
+			uv,
+			c,
+			tex,
+			.Textured,
+			max_corner_radius(clamped),
+			{r.w * 0.5, r.h * 0.5},
+			0,
+			clamped,
+			{},
+		)
+		return
+	}
+
+	scaled := rect_scale(r, dl.scale)
+	scaled_radii := [4]f32 {
+		clamped[0] * dl.scale,
+		clamped[1] * dl.scale,
+		clamped[2] * dl.scale,
+		clamped[3] * dl.scale,
+	}
+	scaled_radii = clamp_corner_radii(scaled_radii, scaled.w, scaled.h)
+
+	colour := c
+	if dl.opacity != 1 {colour.a *= dl.opacity}
+
+	points: [4 * (CORNER_SEGMENTS + 1)][2]f32
+	round_rect_loop(scaled, scaled_radii, CORNER_SEGMENTS, points[:])
+	n := len(points)
+
+	clear(&dl.clip_source)
+	for i in 0 ..< n {
+		p := points[i]
+		u := uv[0] + (p[0] - scaled.x) / scaled.w * (uv[2] - uv[0])
+		v := uv[1] + (p[1] - scaled.y) / scaled.h * (uv[3] - uv[1])
+		append(
+			&dl.clip_source,
+			Draw_Vertex{pos = p, uv = {u, v}, colour = colour, opacity = dl.opacity},
+		)
+	}
+
+	if clip_needs_any(dl, scaled) {
+		clipped := clip_polygon_vertices(dl, dl.clip_source[:])
+		emit_polygon_vertices(dl, clipped, tex)
+		return
+	}
+	emit_polygon_vertices(dl, dl.clip_source[:], tex)
 }
 

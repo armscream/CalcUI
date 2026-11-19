@@ -1,46 +1,55 @@
 //* == Frame scheduling ==
-//* The core says whether a frame is worth building. An application loop
-//* asks `GUI_Needs_Frame` after it has handled the events of the window,
-//* and then either runs `Frame`, waits for the next event, or keeps going
-//* without touching the widget tree. The backends still own presentation
-//* and any waiting they do; the core only answers the question.
+//* The application owns the clock. Every pass of its loop it hands the
+//* elapsed seconds to `GUI_Tick`; the core adds them to its one clock and
+//* never reads a clock of its own. Widgets arm wake timers, and the core
+//* says when the earliest one is due. An application asks
+//* `GUI_Needs_Frame` after it has handled the events of the window, and
+//* then either runs `Frame`, waits for the next event or the next wake,
+//* or keeps going without touching the widget tree.
 package Core
 
-//* Asks for a frame. A program calls this when it changed something the
-//* setters did not see, or when a frame is needed for its own sake.
+import "core:math"
+
+//* Adds the delta of one application loop pass to the clock of the GUI.
+//* A negative or non-finite delta is ignored: time never runs backwards.
+GUI_Tick :: proc(g: ^GUI, dt: f32) {
+	if g == nil {return}
+	if math.is_nan(dt) || math.is_inf(dt) || dt < 0 {return}
+	g.time += dt
+}
+
+GUI_Next_Frame_Delay_MS :: proc(g: ^GUI) -> i32 {
+	if g == nil || !g.wake_valid {return -1}
+	if g.time >= g.next_wake {return 0}
+	ms := math.ceil((g.next_wake - g.time) * 1000)
+	if ms < 0 {return 0}
+	return i32(ms)
+}
+
+wake_at :: proc(g: ^GUI, at: f32) {
+	if g == nil {return}
+	g.wake_count += 1
+	if !g.wake_valid || at < g.next_wake {
+		g.next_wake = at
+		g.wake_valid = true
+	}
+}
+
 GUI_Request_Frame :: proc(g: ^GUI) {
 	if g == nil {return}
 	g.frame_requested = true
 	draw_invalidate(g)
 }
 
-//* Sets whether the GUI is drawn on every pass of the application loop or
-//* only when it needs to be. The change asks for a frame, so the first
-//* state of the new mode is drawn at once.
-GUI_Set_Frame_Mode :: proc(g: ^GUI, mode: Frame_Mode) {
-	if g == nil {return}
-	g.frame_mode = mode
-	g.frame_requested = true
-}
 
-//* The mode the GUI is drawing in.
-GUI_Frame_Mode :: proc(g: ^GUI) -> Frame_Mode {
-	if g == nil {return .Continuous}
-	return g.frame_mode
-}
-
-//* True when `Frame` has something to do: the GUI is in continuous mode, a
-//* frame was asked for, the tree is dirty, an animation or a style
-//* transition is running, the caret flashes, or the atlas has pixels that
-//* the backend has not taken yet.
 GUI_Needs_Frame :: proc(g: ^GUI) -> bool {
 	if g == nil {return false}
-	if g.frame_mode == .Continuous {return true}
 	if g.frame_requested {return true}
 	if g.inspector.enabled {return true}
 	if draw_needs_rebuild(g) {return true}
 	if g.full_layout {return true}
 	if g.dirty != (Dirty_Flags{}) {return true}
+	if g.wake_valid && g.time >= g.next_wake {return true}
 	if animations_need_frame(g) {return true}
 	if style_transitions_need_frame(g) {return true}
 	if caret_needs_frame(g) {return true}
@@ -60,6 +69,9 @@ Frame_Begin :: proc(g: ^GUI) {
 	if g == nil {return}
 	g.frame_requested = false
 	g.frame_count += 1
+	g.wake_count = 0
+	g.next_wake = 0
+	g.wake_valid = false
 }
 
 animations_need_frame :: proc(g: ^GUI) -> bool {
@@ -78,10 +90,7 @@ style_transitions_need_frame :: proc(g: ^GUI) -> bool {
 }
 
 caret_needs_frame :: proc(g: ^GUI) -> bool {
-	w := Widget_Get(g, g.focused)
-	if w == nil {return false}
-	if !(.Visible in w.state) || !(.Enabled in w.state) {return false}
-	return widget_takes_text(g, g.focused)
+	return false
 }
 
 atlas_needs_frame :: proc(g: ^GUI) -> bool {

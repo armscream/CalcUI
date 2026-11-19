@@ -412,8 +412,16 @@ overlay_plate_colour :: proc(g: ^GUI, w: ^Widget, name: string, fallback: Colour
 draw_overlay_plate :: proc(g: ^GUI, w: ^Widget) {
 	plate := overlay_plate_colour(g, w, "surface", RGBA(0.11, 0.12, 0.15, 1))
 	border := overlay_plate_colour(g, w, "border", RGBA(0.24, 0.26, 0.31, 1))
-	draw_rect(g, w.rect, plate, 6)
-	draw_outline(g, w.rect, border, 1)
+	box := StyleBox {
+		bg_color      = plate,
+		border_color  = {border, border, border, border},
+		border_width  = {1, 1, 1, 1},
+		corner_radius = {6, 6, 6, 6},
+		shadow_color  = RGBA(0, 0, 0, 0.45),
+		shadow_size   = 8,
+		shadow_offset = {0, 3},
+	}
+	draw_stylebox_box(g, w.rect, &box)
 }
 
 draw_dialog_buttons :: proc(

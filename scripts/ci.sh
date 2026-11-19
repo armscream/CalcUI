@@ -47,6 +47,10 @@ CALCUI_BENCH_BUILD=minimal \
 odin test src/Tests -define:ODIN_TEST_THREADS=1
 
 echo
+echo "== Testing src/Window"
+odin test src/Window -define:ODIN_TEST_THREADS=1
+
+echo
 echo "== Testing examples/09_node_graph/blueprint"
 odin test examples/09_node_graph/blueprint -define:ODIN_TEST_THREADS=1
 
@@ -108,5 +112,5 @@ odin run tools/shot_sdf -- verify
 odin run tools/shot_sdf -- parity
 
 echo
-echo "Passed: src/NodeGraph, src/GUI, src/Tests, the blueprint tests,"
-echo "the examples, src/Window, src/Backend and the three pictures."
+echo "Passed: src/NodeGraph, src/GUI, src/Tests, src/Window, the blueprint tests,"
+echo "the examples, src/Backend and the three pictures."

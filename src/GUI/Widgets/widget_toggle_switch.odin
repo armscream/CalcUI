@@ -17,6 +17,7 @@ toggle_switch_kind :: proc() -> Widget_Kind {
 		draw = draw_toggle_switch,
 		click = click_toggle_switch,
 		measure = measure_toggle_switch,
+		hit_test = hit_toggle_switch,
 		theme_name = "ToggleSwitch",
 	}
 }
@@ -63,9 +64,25 @@ toggle_switch_content :: proc(g: ^GUI, w: ^Widget) -> Rect {
 	return content_rect_with(w.rect, style.box.content_margin)
 }
 
+toggle_switch_track :: proc(content: Rect) -> Rect {
+	return Rect {
+		x = content.x,
+		y = content.y + (content.h - TOGGLE_TRACK_HEIGHT) * 0.5,
+		w = TOGGLE_TRACK_WIDTH,
+		h = TOGGLE_TRACK_HEIGHT,
+	}
+}
+
+hit_toggle_switch :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, p: Vec2) -> bool {
+	track := toggle_switch_track(toggle_switch_content(g, w))
+	return rect_contains(track, p.x, p.y)
+}
+
 click_toggle_switch :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	d := toggle_switch_data(g, id)
 	if d == nil {return}
+	track := toggle_switch_track(toggle_switch_content(g, w))
+	if !rect_contains(track, g.pointer.x, g.pointer.y) {return}
 	toggle_switch_set(g, id, !d.on)
 }
 
@@ -73,15 +90,13 @@ draw_toggle_switch :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	d := toggle_switch_data(g, id)
 	if d == nil {return}
 	style := resolved_style(g, w)
-	track := Rect {
-		x = content.x,
-		y = content.y + (content.h - TOGGLE_TRACK_HEIGHT) * 0.5,
-		w = TOGGLE_TRACK_WIDTH,
-		h = TOGGLE_TRACK_HEIGHT,
-	}
+	track := toggle_switch_track(content)
 	track_colour := style.box.bg_color
 	if track_colour.a <= 0 {track_colour = COLLECT_DIM}
-	if d.on {track_colour = COLLECT_ACCENT}
+	if d.on {
+		track_colour = COLLECT_ACCENT
+		if colour := theme_color(g, w, "fill_color"); colour.a > 0 {track_colour = colour}
+	}
 	draw_rect(g, track, track_colour, track.h * 0.5)
 
 	knob_side := track.h - 4
@@ -92,7 +107,9 @@ draw_toggle_switch :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 		h = knob_side,
 	}
 	if d.on {knob.x = track.x + track.w - knob_side - 2}
-	draw_rect(g, knob, Colour{0.95, 0.96, 0.99, 1}, knob_side * 0.5)
+	knob_colour := Colour{0.95, 0.96, 0.99, 1}
+	if colour := theme_color(g, w, "thumb_color"); colour.a > 0 {knob_colour = colour}
+	draw_rect(g, knob, knob_colour, knob_side * 0.5)
 
 	label := Rect {
 		x = track.x + track.w + TOGGLE_LABEL_GAP,

@@ -17,6 +17,17 @@ color_rect_kind :: proc() -> Widget_Kind {
 	return Widget_Kind{draw = draw_color_rect, theme_name = "ColorRect"}
 }
 
+color_rect_set_colour :: proc(g: ^GUI, id: Widget_ID, colour: Colour) {
+	w := Widget_Get(g, id)
+	if w == nil {return}
+	#partial switch &d in w.data {
+	case Color_Rect_Data:
+		if d.colour == colour {return}
+		d.colour = colour
+	}
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
 draw_color_rect :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	#partial switch d in w.data {
 	case Color_Rect_Data:
@@ -46,7 +57,8 @@ draw_texture_rect :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	#partial switch d in w.data {
 	case Texture_Rect_Data:
 		if !atlas_region_valid(g.atlas, d.texture.region) {return}
-		draw_texture(g, d.texture, content, RGBA(1, 1, 1, 1))
+		radii := resolved_style(g, w).box.corner_radius
+		draw_texture_rounded(g, d.texture, content, RGBA(1, 1, 1, 1), radii)
 	}
 }
 
@@ -58,9 +70,18 @@ Make_Nine_Patch_Rect :: proc(g: ^GUI, parent: Widget_ID, opts: Nine_Patch_Opts) 
 	kind_register(g, .NinePatchRect, nine_patch_rect_kind())
 	id := New_Widget(g, .NinePatchRect, parent, base_widget_opts(opts.Base_Opts))
 	w := Widget_Get(g, id)
+	tint := opts.tint
+	if tint == (Colour{}) {
+		tint = RGBA(1, 1, 1, 1)
+	}
 	w.data = Nine_Patch_Data {
 		texture = opts.texture,
 		patch   = opts.patch,
+		source  = opts.source,
+		tint    = tint,
+		horizontal_edge = opts.horizontal_edge,
+		vertical_edge   = opts.vertical_edge,
+		centre_mode     = opts.centre_mode,
 	}
 	return id
 }
@@ -69,80 +90,344 @@ nine_patch_rect_kind :: proc() -> Widget_Kind {
 	return Widget_Kind{draw = draw_nine_patch_rect, theme_name = "NinePatchRect"}
 }
 
+//* Changes the texture that the widget shows.
+Nine_Patch_Set_Texture :: proc(g: ^GUI, id: Widget_ID, texture: Texture) {
+	w := Widget_Get(g, id)
+	if w == nil {return}
+	#partial switch &d in w.data {
+	case Nine_Patch_Data:
+		d.texture = texture
+	}
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
+//* Changes the sizes of the four borders, in source pixels. The order is
+//* left, top, right and bottom.
+Nine_Patch_Set_Patch :: proc(g: ^GUI, id: Widget_ID, patch: [4]f32) {
+	w := Widget_Get(g, id)
+	if w == nil {return}
+	#partial switch &d in w.data {
+	case Nine_Patch_Data:
+		d.patch = patch
+	}
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
+//* Changes the sub-rectangle of the texture that the widget shows. An
+//* empty rectangle means the whole texture.
+Nine_Patch_Set_Source :: proc(g: ^GUI, id: Widget_ID, source: Rect) {
+	w := Widget_Get(g, id)
+	if w == nil {return}
+	#partial switch &d in w.data {
+	case Nine_Patch_Data:
+		d.source = source
+	}
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
+//* Changes the colour that is multiplied into the texture.
+Nine_Patch_Set_Tint :: proc(g: ^GUI, id: Widget_ID, tint: Colour) {
+	w := Widget_Get(g, id)
+	if w == nil {return}
+	#partial switch &d in w.data {
+	case Nine_Patch_Data:
+		d.tint = tint
+	}
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
+//* Changes how the edges and the centre fill their room.
+Nine_Patch_Set_Modes :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	horizontal_edge: Nine_Patch_Edge_Mode,
+	vertical_edge: Nine_Patch_Edge_Mode,
+	centre_mode: Nine_Patch_Centre_Mode,
+) {
+	w := Widget_Get(g, id)
+	if w == nil {return}
+	#partial switch &d in w.data {
+	case Nine_Patch_Data:
+		d.horizontal_edge = horizontal_edge
+		d.vertical_edge = vertical_edge
+		d.centre_mode = centre_mode
+	}
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
 draw_nine_patch_rect :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	#partial switch d in w.data {
 	case Nine_Patch_Data:
-		draw_nine_patch(g, d.texture, d.patch, content)
+		draw_nine_patch(g, d, content)
 	}
 }
 
-//* Draws corners at their original size, stretches edges along one axis
-//* and stretches the centre to fill the remaining space.
-draw_nine_patch :: proc(g: ^GUI, texture: Texture, patch: [4]f32, content: Rect) {
-	if !atlas_region_valid(g.atlas, texture.region) {return}
+
+draw_nine_patch :: proc(g: ^GUI, data: Nine_Patch_Data, content: Rect) {
+	if !atlas_region_valid(g.atlas, data.texture.region) {return}
 	if content.w <= 0 || content.h <= 0 {return}
-	atlas_touch(g.atlas, texture.region)
+
+	texture_w := data.texture.size[0]
+	texture_h := data.texture.size[1]
+	if texture_w <= 0 || texture_h <= 0 {return}
+	source := data.source
+	if source.w <= 0 || source.h <= 0 {
+		source = Rect{0, 0, f32(texture_w), f32(texture_h)}
+	}
+	limit_w := min(f32(texture_w), f32(data.texture.region.w))
+	limit_h := min(f32(texture_h), f32(data.texture.region.h))
+	if source.x < 0 || source.y < 0 {return}
+	if source.x + source.w > limit_w {return}
+	if source.y + source.h > limit_h {return}
 
 	scale := g.scale
 	if !(scale > 0) {scale = 1}
 
-	pw := f32(texture.size[0])
-	ph := f32(texture.size[1])
-	if pw <= 0 || ph <= 0 {return}
+	layout := nine_patch_layout(source, content, data.patch, scale)
+	if !layout.valid {return}
 
-	left := max(patch[0], 0)
-	top := max(patch[1], 0)
-	right := max(patch[2], 0)
-	bottom := max(patch[3], 0)
-	if left + right > pw {right = max(pw - left, 0); left = max(pw - right, 0)}
-	if top + bottom > ph {bottom = max(ph - top, 0); top = max(ph - bottom, 0)}
+	atlas_touch(g.atlas, data.texture.region)
 
-	ml := left / scale
-	mt := top / scale
-	mr := right / scale
-	mb := bottom / scale
-	if ml + mr > content.w {mr = max(content.w - ml, 0); ml = max(content.w - mr, 0)}
-	if mt + mb > content.h {mb = max(content.h - mt, 0); mt = max(content.h - mb, 0)}
+	tint := data.tint
 
-	sx := left
-	sy := top
-	sw := pw - left - right
-	sh := ph - top - bottom
-	mx := content.x + ml
-	my := content.y + mt
-	mw := content.w - ml - mr
-	mh := content.h - mt - mb
+	nine_patch_draw_cell(g, data.texture, &layout, .Top_Left, tint)
+	nine_patch_draw_cell(g, data.texture, &layout, .Top_Right, tint)
+	nine_patch_draw_cell(g, data.texture, &layout, .Bottom_Left, tint)
+	nine_patch_draw_cell(g, data.texture, &layout, .Bottom_Right, tint)
 
-	nine_patch_part(g, texture, {sx, sy, left, top}, {content.x, content.y, ml, mt})
-	nine_patch_part(g, texture, {sx + sw, sy, right, top}, {content.x + content.w - mr, content.y, mr, mt})
-	nine_patch_part(g, texture, {sx, sy + sh, left, bottom}, {content.x, content.y + content.h - mb, ml, mb})
-	nine_patch_part(
+	nine_patch_draw_edge(
 		g,
-		texture,
-		{sx + sw, sy + sh, right, bottom},
-		{content.x + content.w - mr, content.y + content.h - mb, mr, mb},
+		data.texture,
+		layout.sources[int(Nine_Patch_Cell.Top)],
+		layout.dests[int(Nine_Patch_Cell.Top)],
+		tint,
+		data.horizontal_edge,
+		scale,
+	)
+	nine_patch_draw_edge(
+		g,
+		data.texture,
+		layout.sources[int(Nine_Patch_Cell.Bottom)],
+		layout.dests[int(Nine_Patch_Cell.Bottom)],
+		tint,
+		data.horizontal_edge,
+		scale,
+	)
+	nine_patch_draw_edge_vertical(
+		g,
+		data.texture,
+		layout.sources[int(Nine_Patch_Cell.Left)],
+		layout.dests[int(Nine_Patch_Cell.Left)],
+		tint,
+		data.vertical_edge,
+		scale,
+	)
+	nine_patch_draw_edge_vertical(
+		g,
+		data.texture,
+		layout.sources[int(Nine_Patch_Cell.Right)],
+		layout.dests[int(Nine_Patch_Cell.Right)],
+		tint,
+		data.vertical_edge,
+		scale,
 	)
 
-	nine_patch_part(g, texture, {sx, sy, sw, top}, {mx, content.y, mw, mt})
-	nine_patch_part(g, texture, {sx, sy + sh, sw, bottom}, {mx, content.y + content.h - mb, mw, mb})
-	nine_patch_part(g, texture, {sx, sy, left, sh}, {content.x, my, ml, mh})
-	nine_patch_part(g, texture, {sx + sw, sy, right, sh}, {content.x + content.w - mr, my, mr, mh})
-
-	nine_patch_part(g, texture, {sx, sy, sw, sh}, {mx, my, mw, mh})
+	#partial switch data.centre_mode {
+	case .Disabled:
+	//* The centre is empty: the borders make a frame.
+	case .Tile:
+		nine_patch_draw_tiled_2d(
+			g,
+			data.texture,
+			layout.sources[int(Nine_Patch_Cell.Centre)],
+			layout.dests[int(Nine_Patch_Cell.Centre)],
+			tint,
+			scale,
+		)
+	case .Stretch:
+		nine_patch_draw_cell(g, data.texture, &layout, .Centre, tint)
+	}
 }
 
-nine_patch_part :: proc(g: ^GUI, texture: Texture, source: Rect, dest: Rect) {
+NINE_PATCH_EPSILON :: 0.0001
+
+//* Draws one cell at the size of its destination.
+nine_patch_draw_cell :: proc(
+	g: ^GUI,
+	texture: Texture,
+	layout: ^Nine_Patch_Layout,
+	cell: Nine_Patch_Cell,
+	tint: Colour,
+) {
+	nine_patch_draw_part(
+		g,
+		texture,
+		layout.sources[int(cell)],
+		layout.dests[int(cell)],
+		tint,
+	)
+}
+
+//* Draws one textured region of the source into one destination region.
+nine_patch_draw_part :: proc(g: ^GUI, texture: Texture, source, dest: Rect, tint: Colour) {
 	if source.w <= 0 || source.h <= 0 {return}
 	if dest.w <= 0 || dest.h <= 0 {return}
-	uv := atlas_region_uv_inside(
+	uv := atlas_region_uv_inside_f(
 		g.atlas,
 		texture.region,
-		int(source.x),
-		int(source.y),
-		int(source.w),
-		int(source.h),
+		source.x,
+		source.y,
+		source.w,
+		source.h,
 	)
-	draw_quad(g.target, dest, uv, RGBA(1, 1, 1, 1), g.atlas_texture)
+	draw_quad(g.target, dest, uv, tint, g.atlas_texture)
+}
+
+//* Draws a horizontal edge, either stretched over the destination or repeated along it.
+nine_patch_draw_edge :: proc(
+	g: ^GUI,
+	texture: Texture,
+	source, dest: Rect,
+	tint: Colour,
+	mode: Nine_Patch_Edge_Mode,
+	scale: f32,
+) {
+	if mode == .Tile {
+		nine_patch_draw_tiled_h(g, texture, source, dest, tint, scale)
+		return
+	}
+	nine_patch_draw_part(g, texture, source, dest, tint)
+}
+
+//* Draws a vertical edge, either stretched over the destination or repeated along it.
+nine_patch_draw_edge_vertical :: proc(
+	g: ^GUI,
+	texture: Texture,
+	source, dest: Rect,
+	tint: Colour,
+	mode: Nine_Patch_Edge_Mode,
+	scale: f32,
+) {
+	if mode == .Tile {
+		nine_patch_draw_tiled_v(g, texture, source, dest, tint, scale)
+		return
+	}
+	nine_patch_draw_part(g, texture, source, dest, tint)
+}
+
+//* Repeats a source region along the horizontal axis. The last repetition
+//* shows only the part of the source that fits, so the pattern is never
+//* stretched or cut off by the destination.
+nine_patch_draw_tiled_h :: proc(
+	g: ^GUI,
+	texture: Texture,
+	source, dest: Rect,
+	tint: Colour,
+	scale: f32,
+) {
+	if source.w <= 0 || source.h <= 0 {return}
+	if dest.w <= 0 || dest.h <= 0 {return}
+	tile_w := source.w / scale
+	if !(tile_w > NINE_PATCH_EPSILON) {return}
+
+	remaining := dest.w
+	x := dest.x
+	for remaining > NINE_PATCH_EPSILON {
+		width := min(tile_w, remaining)
+		if remaining - width <= NINE_PATCH_EPSILON {
+			width = remaining
+		}
+		source_w := source.w * (width / tile_w)
+		nine_patch_draw_part(
+			g,
+			texture,
+			Rect{source.x, source.y, source_w, source.h},
+			Rect{x, dest.y, width, dest.h},
+			tint,
+		)
+		x += width
+		remaining -= width
+	}
+}
+
+//* Repeats a source region along the vertical axis.
+nine_patch_draw_tiled_v :: proc(
+	g: ^GUI,
+	texture: Texture,
+	source, dest: Rect,
+	tint: Colour,
+	scale: f32,
+) {
+	if source.w <= 0 || source.h <= 0 {return}
+	if dest.w <= 0 || dest.h <= 0 {return}
+	tile_h := source.h / scale
+	if !(tile_h > NINE_PATCH_EPSILON) {return}
+
+	remaining := dest.h
+	y := dest.y
+	for remaining > NINE_PATCH_EPSILON {
+		height := min(tile_h, remaining)
+		if remaining - height <= NINE_PATCH_EPSILON {
+			height = remaining
+		}
+		source_h := source.h * (height / tile_h)
+		nine_patch_draw_part(
+			g,
+			texture,
+			Rect{source.x, source.y, source.w, source_h},
+			Rect{dest.x, y, dest.w, height},
+			tint,
+		)
+		y += height
+		remaining -= height
+	}
+}
+
+//* Repeats a source region along both axes.
+nine_patch_draw_tiled_2d :: proc(
+	g: ^GUI,
+	texture: Texture,
+	source, dest: Rect,
+	tint: Colour,
+	scale: f32,
+) {
+	if source.w <= 0 || source.h <= 0 {return}
+	if dest.w <= 0 || dest.h <= 0 {return}
+	tile_w := source.w / scale
+	tile_h := source.h / scale
+	if !(tile_w > NINE_PATCH_EPSILON) || !(tile_h > NINE_PATCH_EPSILON) {return}
+
+	remaining_x := dest.w
+	x := dest.x
+	for remaining_x > NINE_PATCH_EPSILON {
+		width := min(tile_w, remaining_x)
+		if remaining_x - width <= NINE_PATCH_EPSILON {
+			width = remaining_x
+		}
+		source_w := source.w * (width / tile_w)
+
+		remaining_y := dest.h
+		y := dest.y
+		for remaining_y > NINE_PATCH_EPSILON {
+			height := min(tile_h, remaining_y)
+			if remaining_y - height <= NINE_PATCH_EPSILON {
+				height = remaining_y
+			}
+			source_h := source.h * (height / tile_h)
+			nine_patch_draw_part(
+				g,
+				texture,
+				Rect{source.x, source.y, source_w, source_h},
+				Rect{x, y, width, height},
+				tint,
+			)
+			y += height
+			remaining_y -= height
+		}
+
+		x += width
+		remaining_x -= width
+	}
 }
 
 //* == The reference rectangle ==

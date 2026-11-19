@@ -276,6 +276,7 @@ color_picker_offset_at :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, layout: Color
 color_picker_begin_edit :: proc(g: ^GUI, id: Widget_ID, caret: int) {
 	d := color_picker_data(g, id)
 	if d == nil { return }
+	undo_group_break(g, id)
 	if d.edit_text == "" {
 		d.edit_text = strings.clone(colour_to_hex(g, d.colour))
 	}
@@ -328,14 +329,23 @@ color_picker_selection :: proc(d: ^Color_Picker_Data) -> (start, end: int) {
 	return min(d.sel_start, d.sel_end), max(d.sel_start, d.sel_end)
 }
 
-color_picker_type :: proc(g: ^GUI, id: Widget_ID, text: string) {
+color_picker_type :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	text: string,
+	kind: Undo_Kind = .Programmatic,
+) {
 	d := color_picker_data(g, id)
 	if d == nil || !d.editing || text == "" { return }
 	typed := color_picker_clean(g, text)
 	if typed == "" { return }
 
 	start, end := color_picker_selection(d)
-	snapshot := undo_snapshot(g, id)
+	change_kind := kind
+	if start < end && kind != .Paste {
+		change_kind = .Replace
+	}
+	snapshot := undo_snapshot_kind(g, id, change_kind)
 	code := strings.concatenate({d.edit_text[:start], typed, d.edit_text[end:]})
 	delete(d.edit_text)
 	d.edit_text = code
@@ -351,12 +361,13 @@ color_picker_backspace :: proc(g: ^GUI, id: Widget_ID) {
 	d := color_picker_data(g, id)
 	if d == nil { return }
 	start, end := color_picker_selection(d)
+	had_selection := start < end
 	if start == end {
 		if d.caret <= 0 { return }
 		start = prev_offset(d.edit_text, d.caret)
 	}
 
-	snapshot := undo_snapshot(g, id)
+	snapshot := undo_snapshot_kind(g, id, had_selection ? .Replace : .Backspace)
 	code := strings.concatenate({d.edit_text[:start], d.edit_text[end:]})
 	delete(d.edit_text)
 	d.edit_text = code
@@ -372,12 +383,13 @@ color_picker_delete :: proc(g: ^GUI, id: Widget_ID) {
 	d := color_picker_data(g, id)
 	if d == nil { return }
 	start, end := color_picker_selection(d)
+	had_selection := start < end
 	if start == end {
 		if d.caret >= len(d.edit_text) { return }
 		end = next_offset(d.edit_text, d.caret)
 	}
 
-	snapshot := undo_snapshot(g, id)
+	snapshot := undo_snapshot_kind(g, id, had_selection ? .Replace : .Delete)
 	code := strings.concatenate({d.edit_text[:start], d.edit_text[end:]})
 	delete(d.edit_text)
 	d.edit_text = code
@@ -392,6 +404,7 @@ color_picker_delete :: proc(g: ^GUI, id: Widget_ID) {
 color_picker_move_caret :: proc(g: ^GUI, id: Widget_ID, forward, extend: bool) {
 	d := color_picker_data(g, id)
 	if d == nil { return }
+	undo_group_break(g, id)
 	offset := prev_offset(d.edit_text, d.caret)
 	if forward { offset = next_offset(d.edit_text, d.caret) }
 	text_select_move(d.edit_text, &d.caret, &d.sel_start, &d.sel_end, offset, extend)
@@ -402,6 +415,7 @@ color_picker_move_caret :: proc(g: ^GUI, id: Widget_ID, forward, extend: bool) {
 color_picker_move_caret_to_edge :: proc(g: ^GUI, id: Widget_ID, forward, extend: bool) {
 	d := color_picker_data(g, id)
 	if d == nil { return }
+	undo_group_break(g, id)
 	offset := 0
 	if forward { offset = len(d.edit_text) }
 	text_select_move(d.edit_text, &d.caret, &d.sel_start, &d.sel_end, offset, extend)
@@ -411,6 +425,7 @@ color_picker_move_caret_to_edge :: proc(g: ^GUI, id: Widget_ID, forward, extend:
 color_picker_select_all :: proc(g: ^GUI, id: Widget_ID) {
 	d := color_picker_data(g, id)
 	if d == nil { return }
+	undo_group_break(g, id)
 	text_select_all(d.edit_text, &d.caret, &d.sel_start, &d.sel_end)
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
@@ -429,11 +444,12 @@ color_picker_cut :: proc(g: ^GUI, id: Widget_ID) {
 	if start >= end { return }
 	clipboard_set(g, d.edit_text[start:end])
 	color_picker_delete(g, id)
+	undo_group_break(g, id)
 }
 
 color_picker_paste :: proc(g: ^GUI, id: Widget_ID) {
 	text := clipboard_get(g)
-	if text != "" { color_picker_type(g, id, text) }
+	if text != "" { color_picker_type(g, id, text, .Paste) }
 }
 
 //* Input
@@ -500,7 +516,7 @@ key_color_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Key_Down_Event) 
 
 text_color_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, text: string) {
 	d := color_picker_data(g, id)
-	if d != nil && d.editing { color_picker_type(g, id, text) }
+	if d != nil && d.editing { color_picker_type(g, id, text, .Typing) }
 }
 
 pointer_color_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Pointer_Event) {
@@ -518,6 +534,7 @@ pointer_color_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Pointer_Even
 
 		code := color_picker_code_rect(g, id, w, layout)
 		if !rect_contains(code, e.pos.x, e.pos.y) { return }
+		undo_group_break(g, id)
 		offset := color_picker_offset_at(g, id, w, layout, e.pos.x)
 		if !d.editing { color_picker_begin_edit(g, id, offset) }
 		text_select_click(d.edit_text, &d.caret, &d.sel_start, &d.sel_end, &d.selection, offset, e.clicks)
@@ -530,6 +547,7 @@ pointer_color_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Pointer_Even
 			return
 		}
 		if !d.editing || !d.selection.dragging { return }
+		undo_group_break(g, id)
 		layout := color_picker_layout(color_picker_content(g, w), d.open)
 		offset := color_picker_offset_at(g, id, w, layout, e.pos.x)
 		text_select_extend(d.edit_text, &d.caret, &d.sel_start, &d.sel_end, &d.selection, offset)
@@ -558,6 +576,7 @@ color_picker_pick_at :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, layout: Color_P
 click_color_picker :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 	d := color_picker_data(g, id)
 	if d == nil { return }
+	undo_group_break(g, id)
 
 	layout := color_picker_layout(color_picker_content(g, w), d.open)
 	if rect_contains(color_picker_code_rect(g, id, w, layout), g.pointer.x, g.pointer.y) { return }

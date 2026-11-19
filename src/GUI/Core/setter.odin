@@ -9,11 +9,11 @@ import "core:log"
 import "core:mem"
 import "core:strings"
 
-//* == Text ==
 
-//* Sets widget text and invalidates measurement and drawing when it changes.
-//* Widget-owned buffers are copied before the old text is released, so the
-//* input may refer to the widget's current text.
+text_storage_shared :: proc(a, b: string) -> bool {
+	return len(a) > 0 && len(b) > 0 && raw_data(a) == raw_data(b)
+}
+
 Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
@@ -21,10 +21,10 @@ Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 	reset_palette := false
 	#partial switch &d in w.data {
 	case Label_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Button_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Text_Box_Data:
 		if d.text != text {
@@ -37,16 +37,16 @@ Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 			changed = true
 		}
 	case Check_Box_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Link_Button_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Menu_Button_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Rich_Text_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Search_Field_Data:
 		if d.text != text {
@@ -72,16 +72,16 @@ Widget_Set_Text :: proc(g: ^GUI, id: Widget_ID, text: string) {
 			reset_palette = true
 		}
 	case Toast_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Tooltip_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Toggle_Switch_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Dialog_Data:
-		changed = d.text != text
+		changed = d.text != text || text_storage_shared(d.text, text)
 		d.text = text
 	case Rich_Text_Editor_Data:
 		if d.state != nil && d.state.text != text {
@@ -307,9 +307,9 @@ Widget_Set_Visible :: proc(g: ^GUI, id: Widget_ID, visible: bool) {
 	if g.active == id { g.active = INVALID_WIDGET_ID }
 	if g.slider_active == id { g.slider_active = INVALID_WIDGET_ID }
 	invalidate(g, id, Dirty_Flags{.Visual, .Hit})
+	access_mark_subtree(g, id)
 }
 
-//* Enables or disables a widget's interaction.
 Widget_Set_Enabled :: proc(g: ^GUI, id: Widget_ID, enabled: bool) {
 	w := Widget_Get(g, id)
 	if w == nil { return }

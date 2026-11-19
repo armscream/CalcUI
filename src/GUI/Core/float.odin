@@ -6,14 +6,20 @@ package Core
 //* The index of no floating panel.
 FLOAT_NONE :: -1
 
-//* Tears a panel out of the tree and gives it a window of its own.
-//* Returns the index of the new floating panel.
 Make_Float_Panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> int {
 	w := Widget_Get(g, widget)
 	if w == nil { return FLOAT_NONE }
 	if size.x <= 0 || size.y <= 0 { return FLOAT_NONE }
 
-	//* The panel leaves the tree, but keeps its children and its look.
+	index := float_of(g, widget)
+	if index != FLOAT_NONE {
+		g.floats[index].pos = pos
+		g.floats[index].size = size
+		g.floats[index].title = w.name
+		g.floats[index].raise = true
+		invalidate(g, widget, DIRTY_ALL)
+		return index
+	}
 	Widget_Detach(g, widget)
 
 	f := Float_Panel{
@@ -26,6 +32,13 @@ Make_Float_Panel :: proc(g: ^GUI, widget: Widget_ID, pos: Vec2, size: Vec2) -> i
 	//* The panel is a window of its own now, so it is laid out in its own space.
 	invalidate(g, widget, DIRTY_ALL)
 	return len(g.floats) - 1
+}
+
+Float_Raise :: proc(g: ^GUI, widget: Widget_ID) -> bool {
+	index := float_of(g, widget)
+	if index == FLOAT_NONE { return false }
+	g.floats[index].raise = true
+	return true
 }
 
 Widget_Close_Panel :: proc(g: ^GUI, id: Widget_ID) -> bool {

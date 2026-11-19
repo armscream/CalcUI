@@ -18,12 +18,14 @@ Make_Grid_Container :: proc(g: ^GUI, parent: Widget_ID, opts: Grid_Opts) -> Widg
 	if v_sep <= 0 { v_sep = opts.Base_Opts.separation }
 
 	w.data = Grid_Data{
-		columns      = opts.columns,
-		h_separation = h_sep,
-		v_separation = v_sep,
-		margin       = opts.margin,
-		show_lines   = opts.show_lines,
-		line_colour  = opts.line_colour,
+		columns       = opts.columns,
+		h_separation  = h_sep,
+		v_separation  = v_sep,
+		margin        = opts.margin,
+		show_lines    = opts.show_lines,
+		line_colour   = opts.line_colour,
+		column_tracks = grid_tracks_clone(g, opts.column_tracks),
+		row_tracks    = grid_tracks_clone(g, opts.row_tracks),
 	}
 	return id
 }
@@ -43,7 +45,8 @@ draw_grid_container :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 
 draw_grid_lines :: proc(g: ^GUI, w: ^Widget, d: Grid_Data) {
 	cells := d.cells[:d.cell_count]
-	columns := max(d.columns, 1)
+	columns := len(d.column_tracks)
+	if columns <= 0 { columns = max(d.columns, 1) }
 	if len(cells) < columns { return }
 	rows := len(cells) / columns
 
@@ -54,16 +57,20 @@ draw_grid_lines :: proc(g: ^GUI, w: ^Widget, d: Grid_Data) {
 	bottom := cells[(rows - 1) * columns].y + cells[(rows - 1) * columns].h
 
 	for col in 0 ..< columns - 1 {
-		cell := cells[col]
-		draw_rect(g, Rect{x = cell.x + cell.w, y = cell.y, w = 1, h = bottom - cell.y}, colour, 0)
+		a := cells[col]
+		b := cells[col + 1]
+		x := a.x < b.x ? a.x + a.w : b.x + b.w
+		draw_rect(g, Rect{x = x, y = a.y, w = 1, h = bottom - a.y}, colour, 0)
 	}
 	for row in 0 ..< rows - 1 {
 		first := cells[row * columns]
 		last := cells[row * columns + columns - 1]
+		left := min(first.x, last.x)
+		right := max(first.x + first.w, last.x + last.w)
 		draw_rect(g, Rect{
-			x = first.x,
+			x = left,
 			y = first.y + first.h,
-			w = last.x + last.w - first.x,
+			w = right - left,
 			h = 1,
 		}, colour, 0)
 	}
@@ -117,6 +124,7 @@ make_scroll_container :: proc(
 	widget_type: Widget_Type,
 ) -> Widget_ID {
 	id := New_Widget(g, widget_type, parent, base_widget_opts(opts.Base_Opts))
+	Widget_Get(g, id).clip_contents = opts.Base_Opts.clip_contents != .Off
 	Widget_Get(g, id).data = Scroll_Data{
 		offset = Vec2{},
 		bar    = opts.scroll_bar,
@@ -150,7 +158,7 @@ scroll_bar_sync :: proc(g: ^GUI, id: Widget_ID) {
 
 	container := scroll_data(g, id)
 	if container == nil { return }
-	d.idle = 0
+	d.idle_until = g.time + SCROLL_BAR_FADE_DELAY
 	d.offset = container.offset.y if d.vertical else container.offset.x
 }
 
@@ -225,6 +233,7 @@ Make_Aspect_Container :: proc(g: ^GUI, parent: Widget_ID, opts: Aspect_Container
 
 Make_Tab_Container :: proc(g: ^GUI, parent: Widget_ID, opts: Tab_Container_Opts) -> Widget_ID {
 	id := New_Widget(g, .TabContainer, parent, base_widget_opts(opts.Base_Opts))
+	Widget_Get(g, id).clip_contents = opts.Base_Opts.clip_contents != .Off
 	Widget_Get(g, id).data = Tab_Container_Data{active = 0}
 	return id
 }

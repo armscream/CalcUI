@@ -89,13 +89,17 @@ draw_segmented :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	if count == 0 {return}
 	style := resolved_style(g, w)
 	ink := resolved_text_colour(g, id, w)
+	fill := COLLECT_ACCENT
+	if colour := theme_color(g, w, "fill_color"); colour.a > 0 {fill = colour}
+	on_fill := Colour{1, 1, 1, 1}
+	if colour := theme_color(g, w, "on_fill_color"); colour.a > 0 {on_fill = colour}
 	text_style := style.text
 	text_style.align = .Center
 	for i in 0 ..< count {
 		piece := segmented_piece_rect(content, count, i)
 		if i == d.selected {
-			draw_rect(g, piece, COLLECT_ACCENT, stylebox_radius(&style.box))
-			draw_text(g, text_style, d.items[i].text, piece, Colour{1, 1, 1, 1})
+			draw_rect_radii(g, piece, fill, stylebox_radii(&style.box))
+			draw_text(g, text_style, d.items[i].text, piece, on_fill)
 		} else {
 			draw_text(g, text_style, d.items[i].text, piece, ink)
 		}

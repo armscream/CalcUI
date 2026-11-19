@@ -13,8 +13,15 @@ Each benchmark has a stable ID, group, scene, and performance budget. Scenes are
 | `draw.buttons_200` | draw | Draw-list generation for 200 buttons. |
 | `draw.panels_400` | draw | Draw-list generation for 400 panels with backgrounds and borders. |
 | `draw.labels_60` | draw | Draw-list generation for 60 long-text labels, including shaping and placement. |
+| `draw.clip_labels_60` | draw | The same labels inside a rounded clip they never cross, so the shape clipper stays on the fast path. |
+| `draw.pack_vertices_5000` | draw | Packing the vertices of a draw list into the compact GPU form, without uploading them. |
+| `draw.shadow_panels_200` | draw | 200 rounded panels, each with one outer SDF shadow with spread. |
+| `draw.side_borders_200` | draw | 200 rounded panels whose four borders have four colours, which needs strip geometry. |
 | `draw.rounded_panels_200` | draw | Draw-list generation for 200 rounded panels using shader-based corners. |
 | `draw.rounded_panels_200_cpu` | draw | The same scene using CPU-based rounded corners. |
+| `draw.glass_panels_200` | draw | 200 glass panels with the optical stack, each a standalone command. |
+| `draw.glass_nested_100` | draw | 100 glass panels, each with a smaller glass panel inside, so the backdrop plan splits the captures per nesting level. |
+| `draw.theming_wallpaper_24` | draw | A wallpaper canvas of 100 items under 24 glass surfaces, shaped like the theming example. |
 | `layout.panels_400` | layout | Full layout of 400 panels with every widget marked dirty. |
 | `layout.panels_400_one` | layout | Incremental layout after one widget changes. |
 | `style.panels_400` | style | Style resolution for 400 panels. |
@@ -36,6 +43,8 @@ Each benchmark has a stable ID, group, scene, and performance budget. Scenes are
 | `widgets.virtual_list_mixed_100000` | widgets | Draw-list generation for a 100,000-row virtual list with variable row heights. |
 | `node_graph.draw_500` | node_graph | Draw-list generation for a graph with 500 nodes and 1,000 wires. |
 | `node_graph.drag_500` | node_graph | Pointer movement over a graph with 500 nodes and 1,000 wires. |
+| `node_graph.draw_2000` | node_graph | Draw-list generation for a graph with 2,000 nodes and 4,000 wires. |
+| `node_graph.hover_empty_2000` | node_graph | A pointer over the empty canvas of a graph with 2,000 nodes and 4,000 wires, which exercises the wire hit test and the spatial index. |
 
 ## Running the suite
 
@@ -48,10 +57,10 @@ odin test src/Tests -define:ODIN_TEST_THREADS=1
 Each benchmark prints a result line:
 
 ```text
-bench draw.buttons_200: 200 x 8216600 ns (mean 8210026, least 6822900), 3184 vertices, 1 commands
+bench draw.buttons_200: 200 x 8216600 ns (mean 8210026, least 6822900), 3184 vertices, 305664 logical bytes, 191040 packed bytes, 1 commands
 ```
 
-The output includes the benchmark ID, run count, median, mean, fastest run, and final draw-list vertex and command counts.
+The output includes the benchmark ID, run count, median, mean, fastest run, the final draw-list vertex and command counts, and the vertex bytes in the logical `Draw_Vertex` form and the compact `Packed_Vertex` form.
 
 ### Environment variables
 
@@ -79,43 +88,49 @@ Budgets are calibrated against the default build, so both default and optimized 
 
 The reference run used:
 
-- **OS:** Windows 11 Pro (10.0.26200)
-- **CPU:** Intel Pentium Silver N5030 (4 cores)
+- **OS:** Windows 11 Pro
+- **CPU:** Intel64 Family 6 Model 122 Stepping 8, GenuineIntel
 - **Compiler:** Odin `dev-2026-10`
 - **Build:** `-o:speed`
 
-The N5030 is a low-power processor, so faster desktop CPUs should produce lower timings.
+The reference machine is a laptop, so faster desktop CPUs should produce lower timings.
 
-All times are in milliseconds. Median represents typical performance, while minimum shows the fastest recorded run.
+All times are in milliseconds. Median represents typical performance, while minimum shows the fastest recorded run. Logical bytes are the `Draw_Vertex` size of the list and packed bytes are the `Packed_Vertex` size the GPU uploads.
 
-| ID | Runs | Median (ms) | Min (ms) | Vertices | Commands |
-|---|---:|---:|---:|---:|---:|
-| `draw.buttons_200` | 200 | 2.17 | 1.91 | 3184 | 1 |
-| `draw.panels_400` | 200 | 1.85 | 1.50 | 8000 | 1 |
-| `draw.labels_60` | 50 | 2.59 | 2.10 | 8400 | 1 |
-| `draw.rounded_panels_200` | 100 | 0.539 | 0.488 | 800 | 1 |
-| `draw.rounded_panels_200_cpu` | 100 | 1.14 | 1.01 | 5000 | 1 |
-| `layout.panels_400` | 200 | 0.339 | 0.287 | 8000 | 1 |
-| `layout.panels_400_one` | 200 | 0.142 | 0.132 | 8000 | 1 |
-| `style.panels_400` | 200 | 0.175 | 0.158 | 8000 | 1 |
-| `style.panels_400_colour` | 200 | 0.921 | 0.661 | 8000 | 1 |
-| `frame.buttons_200` | 100 | 2.33 | 1.73 | 3184 | 1 |
-| `frame.buttons_200_idle` | 100 | 0.0347 | 0.0343 | 3184 | 1 |
-| `lifecycle.gui_100_widgets` | 20 | 12.60 | 9.69 | 0 | 0 |
-| `lifecycle.atlas` | 20 | 13.39 | 12.65 | 0 | 0 |
-| `lifecycle.atlas_16` | 2000 | 0.0005 | 0.0004 | 0 | 0 |
-| `lifecycle.atlas_64` | 2000 | 0.0005 | 0.0004 | 0 | 0 |
-| `widgets.virtual_list_1000` | 50 | 0.194 | 0.185 | 480 | 1 |
-| `widgets.virtual_list_10000` | 50 | 0.209 | 0.193 | 480 | 1 |
-| `widgets.virtual_list_100000` | 50 | 0.198 | 0.189 | 480 | 1 |
-| `widgets.virtual_list_1000000` | 50 | 0.228 | 0.194 | 480 | 1 |
-| `widgets.data_table_1000` | 50 | 0.184 | 0.172 | 500 | 1 |
-| `widgets.data_table_10000` | 50 | 0.221 | 0.176 | 500 | 1 |
-| `widgets.data_table_100000` | 50 | 0.192 | 0.169 | 500 | 1 |
-| `widgets.data_table_1000000` | 50 | 0.177 | 0.159 | 500 | 1 |
-| `widgets.virtual_list_mixed_100000` | 50 | 0.160 | 0.138 | 384 | 1 |
-| `node_graph.draw_500` | 20 | 35.56 | 33.49 | 136215 | 1 |
-| `node_graph.drag_500` | 200 | 0.0091 | 0.0082 | 0 | 0 |
+| ID | Runs | Median (ms) | Min (ms) | Vertices | Logical bytes | Packed bytes | Commands |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `draw.buttons_200` | 200 | 3.30 | 2.80 | 3184 | 305664 | 191040 | 1 |
+| `draw.panels_400` | 200 | 2.56 | 2.27 | 8000 | 768000 | 480000 | 1 |
+| `draw.labels_60` | 50 | 3.20 | 2.92 | 8400 | 806400 | 504000 | 1 |
+| `draw.clip_labels_60` | 50 | 4.86 | 4.36 | 8406 | 806976 | 504360 | 1 |
+| `draw.pack_vertices_5000` | 100 | 0.737 | 0.654 | 5000 | 480000 | 300000 | 1 |
+| `draw.shadow_panels_200` | 100 | 0.937 | 0.752 | 1600 | 153600 | 96000 | 1 |
+| `draw.side_borders_200` | 50 | 4.11 | 3.74 | 27362 | 2626752 | 1641720 | 1 |
+| `draw.rounded_panels_200` | 100 | 0.784 | 0.617 | 800 | 76800 | 48000 | 1 |
+| `draw.rounded_panels_200_cpu` | 100 | 1.65 | 1.44 | 5000 | 480000 | 300000 | 1 |
+| `layout.panels_400` | 200 | 0.418 | 0.329 | 8000 | 768000 | 480000 | 1 |
+| `layout.panels_400_one` | 200 | 0.159 | 0.144 | 8000 | 768000 | 480000 | 1 |
+| `style.panels_400` | 200 | 0.199 | 0.178 | 8000 | 768000 | 480000 | 1 |
+| `style.panels_400_colour` | 200 | 1.10 | 0.745 | 8000 | 768000 | 480000 | 1 |
+| `frame.buttons_200` | 100 | 3.49 | 2.76 | 3184 | 305664 | 191040 | 1 |
+| `frame.buttons_200_idle` | 100 | 0.0394 | 0.0386 | 3184 | 305664 | 191040 | 1 |
+| `lifecycle.gui_100_widgets` | 20 | 18.38 | 15.68 | 0 | 0 | 0 | 0 |
+| `lifecycle.atlas` | 20 | 15.38 | 13.73 | 0 | 0 | 0 | 0 |
+| `lifecycle.atlas_16` | 2000 | 0.0005 | 0.0004 | 0 | 0 | 0 | 0 |
+| `lifecycle.atlas_64` | 2000 | 0.0005 | 0.0004 | 0 | 0 | 0 | 0 |
+| `widgets.virtual_list_1000` | 50 | 0.245 | 0.240 | 480 | 46080 | 28800 | 1 |
+| `widgets.virtual_list_10000` | 50 | 0.246 | 0.217 | 480 | 46080 | 28800 | 1 |
+| `widgets.virtual_list_100000` | 50 | 0.275 | 0.222 | 480 | 46080 | 28800 | 1 |
+| `widgets.virtual_list_1000000` | 50 | 0.271 | 0.225 | 480 | 46080 | 28800 | 1 |
+| `widgets.data_table_1000` | 50 | 0.238 | 0.205 | 500 | 48000 | 30000 | 1 |
+| `widgets.data_table_10000` | 50 | 0.255 | 0.212 | 500 | 48000 | 30000 | 1 |
+| `widgets.data_table_100000` | 50 | 0.223 | 0.208 | 500 | 48000 | 30000 | 1 |
+| `widgets.data_table_1000000` | 50 | 0.273 | 0.215 | 500 | 48000 | 30000 | 1 |
+| `widgets.virtual_list_mixed_100000` | 50 | 0.225 | 0.178 | 384 | 36864 | 23040 | 1 |
+| `node_graph.draw_500` | 20 | 28.88 | 24.89 | 29855 | 2866080 | 1791300 | 1 |
+| `node_graph.drag_500` | 200 | 0.0123 | 0.0115 | 0 | 0 | 0 | 0 |
+| `node_graph.draw_2000` | 10 | 61.28 | 56.93 | 64800 | 6220800 | 3888000 | 1 |
+| `node_graph.hover_empty_2000` | 50 | 0.0179 | 0.0171 | 0 | 0 | 0 | 0 |
 
 ### Scaling checks
 
@@ -124,6 +139,8 @@ The virtual list and data table benchmarks each test four row counts, from 1,000
 The slowest result in each series must remain within 4× the fastest. This checks that performance scales with visible rows rather than total row count.
 
 The rounded panel benchmarks also verify the CPU fallback: it must generate more than 4× the vertices of the shader-based implementation.
+
+`draw.clip_labels_60` measures the fast path of rounded clipping: every glyph stays inside the safe interior, so the clipper must not be entered. `draw.pack_vertices_5000` measures only the packing step the GPU does when a list changes. Packing turns 96 logical bytes per vertex into 60, which is 62.5% of the logical size.
 
 ## Interpreting results
 

@@ -42,10 +42,9 @@ Make_Toast :: proc(g: ^GUI, parent: Widget_ID, opts: Toast_Opts) -> Widget_ID {
 	duration := opts.duration
 	if duration <= 0 {duration = TOAST_DURATION}
 	w.data = Toast_Data {
-		text      = opts.text,
-		kind      = opts.kind,
-		duration  = duration,
-		remaining = duration,
+		text     = opts.text,
+		kind     = opts.kind,
+		duration = duration,
 	}
 	w.focus_mode = .None
 	w.mouse_filter = .Ignore
@@ -64,7 +63,7 @@ Toast_Show :: proc(g: ^GUI, id: Widget_ID, text: string, kind: Toast_Kind, durat
 		d.text = text
 		d.kind = kind
 		d.duration = time
-		d.remaining = time
+		d.until = g.time + time
 	}
 	w.state += Widget_State{.Visible}
 	invalidate(g, id, Dirty_Flags{.Visual, .Hit})
@@ -100,10 +99,15 @@ update_toast :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, dt: f32) {
 	if !(.Visible in w.state) {return}
 	#partial switch &d in w.data {
 	case Toast_Data:
-		d.remaining -= dt
-		if d.remaining <= 0 {
-			d.remaining = 0
+		if d.until <= 0 {
+			d.until = g.time + d.duration
+		}
+		if g.time >= d.until {
+			d.until = 0
 			w.state -= Widget_State{.Visible}
+			invalidate(g, id, Dirty_Flags{.Visual, .Hit})
+		} else {
+			wake_at(g, d.until)
 		}
 	}
 }

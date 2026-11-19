@@ -59,6 +59,13 @@ style_transition_blend :: proc(a, b: Style, t: f32) -> Style {
 	out.box.shadow_color = style_colour_lerp(a.box.shadow_color, b.box.shadow_color, t)
 	out.box.shadow_size = a.box.shadow_size + (b.box.shadow_size - a.box.shadow_size) * t
 	out.box.shadow_offset = style_vec2_lerp(a.box.shadow_offset, b.box.shadow_offset, t)
+	out.box.shadow_spread = a.box.shadow_spread + (b.box.shadow_spread - a.box.shadow_spread) * t
+	out.box.shadow_inset = t >= 0.5 ? b.box.shadow_inset : a.box.shadow_inset
+	out.box.backdrop_blur = a.box.backdrop_blur + (b.box.backdrop_blur - a.box.backdrop_blur) * t
+	out.box.optics.refraction = a.box.optics.refraction + (b.box.optics.refraction - a.box.optics.refraction) * t
+	out.box.optics.dispersion = a.box.optics.dispersion + (b.box.optics.dispersion - a.box.optics.dispersion) * t
+	out.box.optics.fresnel = a.box.optics.fresnel + (b.box.optics.fresnel - a.box.optics.fresnel) * t
+	out.box.optics.saturation = a.box.optics.saturation + (b.box.optics.saturation - a.box.optics.saturation) * t
 	out.text = style_text_lerp(a.text, b.text, t)
 	return out
 }

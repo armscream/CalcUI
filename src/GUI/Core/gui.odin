@@ -1,8 +1,6 @@
 //* The life of a GUI: it is made, it is fed one frame at a time, and it
 //* is given back. It knows nothing of the window or of the backend, and
-//* the backend is made first.
 package Core
-import "core:time"
 
 import "core:log"
 import "core:os"
@@ -91,6 +89,8 @@ Shutdown_GUI :: proc(g: ^GUI) {
 	delete(g.signal_scratch)
 	delete(g.hit_scratch)
 	delete(g.chain_scratch)
+	delete(g.access_pending)
+	delete(g.access_spare)
 	delete(g.kinds)
 	delete(g.classes)
 	delete(g.signal_conns)
@@ -112,18 +112,6 @@ report_atlas_failures :: proc(g: ^GUI) {
 		"the atlas is full: %d region(s) could not be put into it",
 		g.atlas_failures,
 	)
-}
-
-frame_time :: proc(g: ^GUI) -> f32 {
-	now := time.time_to_unix_nano(time.now())
-	if g.last_frame == 0 {
-		g.last_frame = now
-		return 0
-	}
-	dt := f32(now - g.last_frame) / 1e9
-	g.last_frame = now
-	if dt > 0.25 { return 0 }
-	return dt
 }
 
 init_text :: proc(g: ^GUI) {

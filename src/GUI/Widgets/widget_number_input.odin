@@ -135,14 +135,16 @@ key_number_input :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Key_Down_Event) 
 	}
 
 	if !d.editing {return}
-	snapshot := undo_snapshot(g, id)
+	snapshot: Undo_Snapshot
 
 	#partial switch e.key {
 	case .Backspace:
+		snapshot = undo_snapshot_kind(g, id, .Backspace)
 		number_input_set(g, id, math.floor(d.value / 10))
 	case:
 		c := key_character(g, e.key, false)
 		if c == "" {return}
+		snapshot = undo_snapshot_kind(g, id, .Typing)
 		digit := int(c[0] - '0')
 		number_input_set(g, id, d.value * 10 + f32(digit))
 	}

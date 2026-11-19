@@ -38,6 +38,7 @@ search_field_kind :: proc() -> Widget_Kind {
 		key = key_search_field,
 		measure = measure_search_field,
 		uses_arrow_keys = true,
+		focus_ring = true,
 		theme_name = "SearchField",
 	}
 }
@@ -94,6 +95,7 @@ search_field_caret :: proc(g: ^GUI, id: Widget_ID) -> int {
 search_field_set_caret :: proc(g: ^GUI, id: Widget_ID, offset: int) {
 	d := search_field_data(g, id)
 	if d == nil {return}
+	undo_group_break(g, id)
 	d.caret = snap_offset(d.text, clamp(offset, 0, len(d.text)))
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
@@ -168,12 +170,17 @@ search_field_offset_at :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, x: f32) -> in
 	return text_box_offset_at(lines, f.scale, x - search_field_text_left(g, id, w), len(d.text))
 }
 
-search_field_type :: proc(g: ^GUI, id: Widget_ID, c: string) {
+search_field_type :: proc(
+	g: ^GUI,
+	id: Widget_ID,
+	c: string,
+	kind: Undo_Kind = .Programmatic,
+) {
 	d := search_field_data(g, id)
 	if d == nil {return}
 	if c == "" {return}
 	caret := snap_offset(d.text, clamp(d.caret, 0, len(d.text)))
-	snapshot := undo_snapshot(g, id)
+	snapshot := undo_snapshot_kind(g, id, kind)
 	text := strings.concatenate({d.text[:caret], c, d.text[caret:]})
 	delete(d.text)
 	d.text = text
@@ -190,7 +197,7 @@ search_field_backspace :: proc(g: ^GUI, id: Widget_ID) {
 	caret := snap_offset(d.text, clamp(d.caret, 0, len(d.text)))
 	if caret == 0 {return}
 	start := prev_offset(d.text, caret)
-	snapshot := undo_snapshot(g, id)
+	snapshot := undo_snapshot_kind(g, id, .Backspace)
 	text := strings.concatenate({d.text[:start], d.text[caret:]})
 	delete(d.text)
 	d.text = text
@@ -207,7 +214,7 @@ search_field_delete :: proc(g: ^GUI, id: Widget_ID) {
 	caret := snap_offset(d.text, clamp(d.caret, 0, len(d.text)))
 	if caret >= len(d.text) {return}
 	end := next_offset(d.text, caret)
-	snapshot := undo_snapshot(g, id)
+	snapshot := undo_snapshot_kind(g, id, .Delete)
 	text := strings.concatenate({d.text[:caret], d.text[end:]})
 	delete(d.text)
 	d.text = text
@@ -221,6 +228,7 @@ search_field_delete :: proc(g: ^GUI, id: Widget_ID) {
 search_field_move_caret :: proc(g: ^GUI, id: Widget_ID, forward: bool) {
 	d := search_field_data(g, id)
 	if d == nil {return}
+	undo_group_break(g, id)
 	caret := clamp(d.caret, 0, len(d.text))
 	d.caret = forward ? next_offset(d.text, caret) : prev_offset(d.text, caret)
 	invalidate(g, id, Dirty_Flags{.Visual})
@@ -230,6 +238,7 @@ search_field_move_caret :: proc(g: ^GUI, id: Widget_ID, forward: bool) {
 search_field_move_caret_to_edge :: proc(g: ^GUI, id: Widget_ID, forward: bool) {
 	d := search_field_data(g, id)
 	if d == nil {return}
+	undo_group_break(g, id)
 	d.caret = forward ? len(d.text) : 0
 	invalidate(g, id, Dirty_Flags{.Visual})
 	caret_reset(g)
@@ -284,7 +293,7 @@ key_search_field :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, e: Key_Down_Event) 
 		return
 	case:
 		c := key_character(g, e.key, .Shift in e.mods)
-		if c != "" {search_field_type(g, id, c)}
+		if c != "" {search_field_type(g, id, c, .Typing)}
 	}
 }
 
@@ -299,6 +308,7 @@ click_search_field :: proc(g: ^GUI, id: Widget_ID, w: ^Widget) {
 			return
 		}
 	}
+	undo_group_break(g, id)
 	d.caret = search_field_offset_at(g, id, w, g.pointer.x)
 	focus_set(g, id)
 	invalidate(g, id, Dirty_Flags{.Visual})
