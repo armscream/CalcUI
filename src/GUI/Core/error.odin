@@ -42,6 +42,7 @@ Init_GUI_With_Atlas_Checked :: proc(
 
 	g := new(GUI)
 	g^ = GUI{}
+	g.measure_allocator = context.allocator
 	if err := virt.arena_init_growing(&g.arena); err != nil {
 		free(cast(rawptr)g)
 		return nil, Error {

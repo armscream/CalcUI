@@ -12,9 +12,8 @@
 //* text that is measured again at the same width is not shaped again.
 
 package Core
-//* The preferred size of a widget when it is given `width` on the
-//* outside. The measured size is stored in the widget, so the layout that
-//* follows reads it from `min_size`.
+import "core:strings"
+
 Widget_Measure_At_Width :: proc(g: ^GUI, id: Widget_ID, width: f32) -> Vec2 {
 	if g == nil {return {}}
 	w := Widget_Get(g, id)
@@ -365,4 +364,68 @@ clamp_measured_size :: proc(w: ^Widget) {
 	if w.custom_max_size.y > 0 && w.min_size.y > w.custom_max_size.y {
 		w.min_size.y = w.custom_max_size.y
 	}
+}
+
+
+Measure_Key :: struct {
+	font:      Font_ID,
+	size:      f32,
+	text:      string,
+	width:     f32,
+	spacing:   f32,
+	wrap:      Text_Wrap,
+	transform: Text_Transform,
+}
+
+//* How many measurements are kept. The cache is emptied when it is full: a
+//* cache that grows without end is a leak.
+MEASURE_CACHE_LIMIT :: 2048
+
+//* The size of a text, and whether it is in the cache.
+measure_cache_get :: proc(g: ^GUI, key: Measure_Key) -> (Vec2, bool) {
+	if g.measure_cache == nil {return {}, false}
+	size, ok := g.measure_cache[key]
+	return size, ok
+}
+
+//* Remembers the size of a text.
+measure_cache_put :: proc(g: ^GUI, key: Measure_Key, size: Vec2) {
+	if g.measure_cache == nil {
+		g.measure_cache = make(map[Measure_Key]Vec2)
+	}
+	if len(g.measure_cache) >= MEASURE_CACHE_LIMIT {
+		measure_cache_clear(g)
+	}
+	if g.measure_allocator.procedure == nil {
+		g.measure_allocator = context.allocator
+	}
+	owned, err := strings.clone(key.text, g.measure_allocator)
+	if err != nil {return}
+	stored := key
+	stored.text = owned
+	g.measure_cache[stored] = size
+}
+
+measure_cache_drop_keys :: proc(g: ^GUI) {
+	if g.measure_cache == nil {return}
+	for key in g.measure_cache {
+		if len(key.text) > 0 {
+			delete(key.text, g.measure_allocator)
+		}
+	}
+}
+
+//* Forgets every measurement. It is needed when the typeface itself
+//* changes, which happens when a font file is loaded again.
+measure_cache_clear :: proc(g: ^GUI) {
+	if g.measure_cache == nil {return}
+	measure_cache_drop_keys(g)
+	clear(&g.measure_cache)
+}
+
+measure_cache_destroy :: proc(g: ^GUI) {
+	if g.measure_cache == nil {return}
+	measure_cache_drop_keys(g)
+	delete(g.measure_cache)
+	g.measure_cache = nil
 }

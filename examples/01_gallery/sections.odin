@@ -1,13 +1,14 @@
 //* Every section shows one group of the widgets of the toolkit. The
 //* widgets are filled with something that shows what they do: a list
 //* has items in it, a tree has branches, a table has rows and columns,
-//* a chart has a series, and the graph has nodes and a wire between
-//* them.
+//* a chart has a series and a canvas has items.
 
 package main
 
 import "core:fmt"
+import "core:math"
 import GUI "../../src/GUI"
+
 
 //* The colours that the sections share.
 SECTION_BG :: GUI.Colour{0.11, 0.12, 0.15, 1}
@@ -31,6 +32,9 @@ file_dialog: GUI.Widget_ID
 date_picker: GUI.Widget_ID
 time_picker: GUI.Widget_ID
 emoji_picker: GUI.Widget_ID
+gallery_gizmo: GUI.Widget_ID
+gallery_gizmo_status: GUI.Widget_ID
+gallery_gizmo_text: [128]u8
 
 //* A menu of a menu bar: the name of the menu and the items it holds.
 Menu :: struct {
@@ -807,7 +811,7 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Date_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "date_picker", preset = .Top_Left, offsets = Place(rows, 0, 4, COLUMN_WIDTH, 240)},
+			Base_Opts = GUI.Base_Opts{name = "date_picker", preset = .Top_Left, offsets = Place(rows, 0, 4, COLUMN_WIDTH, 30)},
 			year = 2026,
 			month = 11,
 			day = 9,
@@ -818,7 +822,7 @@ Section_Overlays :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Time_Picker_Opts{
-			Base_Opts = GUI.Base_Opts{name = "time_picker", preset = .Top_Left, offsets = Place(rows, 0, 5, COLUMN_WIDTH, 240)},
+			Base_Opts = GUI.Base_Opts{name = "time_picker", preset = .Top_Left, offsets = Place(rows, 0, 5, COLUMN_WIDTH, 30)},
 			hour = 14,
 			minute = 30,
 		},
@@ -941,9 +945,11 @@ Section_Motion :: proc(parent: GUI.Widget_ID) -> f32 {
 		GUI.Label_Opts{
 			Base_Opts = GUI.Base_Opts{
 				name = "motion_card_text",
-				preset = .Top_Left,
+				preset = .Fill,
 				offsets = GUI.Offset{left = 10, top = 10, right = -10, bottom = -10},
-				style = GUI.Style{text = GUI.Text_Style{colour = GUI.RGBA(0.90, 0.94, 1, 1), wrap = .Word}},
+				size_flags_h = GUI.Size_Flags{.Fill},
+				size_flags_v = GUI.Size_Flags{.Fill},
+				style = GUI.Style{text = GUI.Text_Style{colour = GUI.RGBA(0.90, 0.94, 1, 1), wrap = .Word, valign = .Center}},
 			},
 			text = "The box and its border are tweened.",
 		},
@@ -1377,6 +1383,18 @@ Section_Containers :: proc(parent: GUI.Widget_ID) -> f32 {
 			Base_Opts = GUI.Base_Opts{
 				name = "aspect_label",
 				min_size = GUI.Vec2{160, 80},
+				size_flags_h = GUI.Size_Flags{.Fill},
+				size_flags_v = GUI.Size_Flags{.Fill},
+				style = GUI.Style {
+					text = GUI.Text_Style {
+						colour = INK,
+						size = 13,
+						family = family,
+						wrap = .Word,
+						align = .Center,
+						valign = .Center,
+					},
+				},
 			},
 			text = "Twice as wide as it is high",
 		},
@@ -1446,7 +1464,26 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Texture_Rect_Opts{
-			Base_Opts = GUI.Base_Opts{name = "texture_rect", preset = .Top_Left, offsets = Place(rows, 2, 0, 120, 96), tooltip = "texture rect demo"},
+			Base_Opts = GUI.Base_Opts {
+				name = "texture_rect",
+				preset = .Top_Left,
+				offsets = Place(rows, 2, 0, 120, 96),
+				tooltip = "rounded image card",
+				style = GUI.Style {
+					box = GUI.StyleBox {
+						bg_color = GUI.RGBA(0.10, 0.11, 0.14, 1),
+						border_color = {
+							GUI.RGBA(0.28, 0.30, 0.36, 1),
+							GUI.RGBA(0.28, 0.30, 0.36, 1),
+							GUI.RGBA(0.28, 0.30, 0.36, 1),
+							GUI.RGBA(0.28, 0.30, 0.36, 1),
+						},
+						border_width = {1, 1, 1, 1},
+						corner_radius = {16, 16, 16, 16},
+						content_margin = {6, 6, 6, 6},
+					},
+				},
+			},
 			texture = icon,
 		},
 	)
@@ -1547,6 +1584,193 @@ Section_Drawings :: proc(parent: GUI.Widget_ID) -> f32 {
 	return Rows_Height(rows)
 }
 
+Section_Gizmo :: proc(parent: GUI.Widget_ID) -> f32 {
+	rows := Make_Rows(200, 26)
+	panel := Section(parent, "2D gizmo", rows)
+	area := Place(rows, 0, 0, COLUMN_WIDTH, 200)
+
+	canvas := GUI.Make_Canvas(
+		g,
+		panel,
+		GUI.Canvas_Opts {
+			Base_Opts = GUI.Base_Opts {
+				name = "gizmo_canvas",
+				preset = .Top_Left,
+				offsets = area,
+				style = GUI.Style {
+					box = GUI.StyleBox {
+						bg_color = DEMO_BG,
+						border_color = {DEMO_BORDER, DEMO_BORDER, DEMO_BORDER, DEMO_BORDER},
+						border_width = {1, 1, 1, 1},
+						corner_radius = {8, 8, 8, 8},
+					},
+				},
+			},
+		},
+	)
+
+	gallery_gizmo = GUI.Make_Gizmo(
+		g,
+		panel,
+		GUI.Gizmo_Opts {
+			Base_Opts = GUI.Base_Opts {
+				name = "gizmo",
+				preset = .Top_Left,
+				offsets = area,
+				use_theme = true,
+				tooltip = "Drag a gizmo handle",
+			},
+			transform = GUI.Gizmo_Transform {
+				rotation = f32(math.PI / 8),
+				scale    = GUI.Vec2{1.15, 0.9},
+			},
+			snap_angle = f32(math.PI / 12),
+			snap_position = 8,
+			on_changed = gallery_gizmo_changed,
+		},
+	)
+
+	GUI.canvas_set_paint(g, canvas, gallery_gizmo_paint)
+
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts {
+			Base_Opts = GUI.Base_Opts {
+				name = "gizmo_help",
+				preset = .Top_Left,
+				offsets = Place(rows, 1, 0, COLUMN_WIDTH, 120),
+				style = GUI.Style {
+					text = GUI.Text_Style {
+						colour = DIM,
+						size = 13,
+						family = family,
+						wrap = .Word,
+					},
+				},
+			},
+			text = "Drag an axis to move.\nDrag the ring to rotate.\nDrag a corner to scale.\nShift snaps the angle, Ctrl the position.",
+		},
+	)
+
+	gallery_gizmo_status = GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts {
+			Base_Opts = GUI.Base_Opts {
+				name = "gizmo_status",
+				preset = .Top_Left,
+				offsets = Place(rows, 2, 0, COLUMN_WIDTH, 80),
+				style = GUI.Style {
+					text = GUI.Text_Style {
+						colour = INK,
+						size = 13,
+						family = family,
+					},
+				},
+			},
+			text = "move 0, 0\nrotate 0 deg\nscale 1.00, 1.00",
+		},
+	)
+
+	GUI.Make_Label(
+		g,
+		panel,
+		GUI.Label_Opts {
+			Base_Opts = GUI.Base_Opts {
+				name = "gizmo_hint",
+				preset = .Top_Left,
+				offsets = Place(rows, 0, 1, COLUMN_WIDTH, 26),
+				style = GUI.Style {
+					text = GUI.Text_Style {colour = DIM, size = 13, family = family},
+				},
+			},
+			text = "The square follows the gizmo.",
+		},
+	)
+
+	gallery_gizmo_changed(g, gallery_gizmo, GUI.gizmo_transform(g, gallery_gizmo))
+
+	return Rows_Height(rows)
+}
+
+gallery_gizmo_changed :: proc(
+	gui: ^GUI.GUI,
+	id: GUI.Widget_ID,
+	transform: GUI.Gizmo_Transform,
+) {
+	if gallery_gizmo_status == GUI.INVALID_WIDGET_ID {return}
+	degrees := transform.rotation * 180.0 / f32(math.PI)
+	text := fmt.bprintf(
+		gallery_gizmo_text[:],
+		"move %.0f, %.0f\nrotate %.0f deg\nscale %.2f, %.2f",
+		transform.position.x,
+		transform.position.y,
+		degrees,
+		transform.scale.x,
+		transform.scale.y,
+	)
+	GUI.Widget_Set_Text(gui, gallery_gizmo_status, text)
+}
+
+gallery_gizmo_paint :: proc(
+	gui: ^GUI.GUI,
+	id: GUI.Widget_ID,
+	state: ^GUI.Canvas_State,
+) {
+	gizmo := GUI.Widget_Get(gui, gallery_gizmo)
+	if gizmo == nil {return}
+	transform := GUI.gizmo_transform(gui, gallery_gizmo)
+	content := GUI.content_rect(gui, gizmo)
+	pivot := GUI.Vec2 {
+		x = content.x + content.w * 0.5 + transform.position.x,
+		y = content.y + content.h * 0.5 + transform.position.y,
+	}
+	half := GUI.Vec2 {
+		x = transform.scale.x * f32(GUI.GIZMO_BASE_SIZE),
+		y = transform.scale.y * f32(GUI.GIZMO_BASE_SIZE),
+	}
+	signs := [4]GUI.Vec2{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}
+	corners: [4]GUI.Vec2
+	cosine := math.cos(transform.rotation)
+	sine := math.sin(transform.rotation)
+	for sign, i in signs {
+		local := GUI.Vec2 {
+			x = sign.x * half.x,
+			y = sign.y * half.y,
+		}
+		corners[i] = GUI.Vec2 {
+			x = pivot.x + local.x * cosine - local.y * sine,
+			y = pivot.y + local.x * sine + local.y * cosine,
+		}
+	}
+
+	edge := GUI.RGBA(0.36, 0.64, 1, 1)
+	for i in 0 ..< 4 {
+		a := corners[i]
+		b := corners[(i + 1) % 4]
+		append(&state.items, GUI.Canvas_Item {
+			kind = .Line,
+			pos = a,
+			size = GUI.Vec2{x = b.x - a.x, y = b.y - a.y},
+			colour = edge,
+		})
+	}
+	a := corners[0]
+	append(&state.items, GUI.Canvas_Item {
+		kind = .Line,
+		pos = GUI.Vec2{pivot.x, pivot.y},
+		size = GUI.Vec2{x = a.x - pivot.x, y = a.y - pivot.y},
+		colour = INK,
+	})
+	append(&state.items, GUI.Canvas_Item {
+		kind = .Circle,
+		pos = GUI.Vec2{pivot.x - 4, pivot.y - 4},
+		size = GUI.Vec2{8, 8},
+		colour = INK,
+	})
+}
+
 //* == Nine-patch images ==
 
 //* A nine-patch panel and the caption under it. The same texture is shown
@@ -1585,7 +1809,8 @@ Nine_Patch_Demo :: proc(
 
 	label_offsets := offsets
 	label_offsets.top = offsets.top + height + 6
-	label_offsets.bottom = label_offsets.top + 20
+	label_offsets.right = offsets.left + 210
+	label_offsets.bottom = label_offsets.top + 32
 	GUI.Make_Label(
 		g,
 		panel,
@@ -1595,7 +1820,7 @@ Nine_Patch_Demo :: proc(
 				preset = .Top_Left,
 				offsets = label_offsets,
 				style = GUI.Style {
-					text = GUI.Text_Style{colour = DIM, size = 13, family = family},
+					text = GUI.Text_Style{colour = DIM, size = 13, family = family, wrap = .Word},
 				},
 			},
 			text = caption,
@@ -1790,19 +2015,6 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 	GUI.chart_add_series(g, chart, "Tuesday", {8, 14, 12, 19, 11}, GUI.RGBA(0.95, 0.55, 0.20, 1))
 	GUI.chart_set_labels(g, chart, {"Mon", "Tue", "Wed", "Thu", "Fri"})
 
-	graph := GUI.Make_Node_Graph(
-		g,
-		panel,
-		GUI.Node_Graph_Opts{
-			Base_Opts = GUI.Base_Opts{name = "node_graph", preset = .Top_Left, offsets = Place(rows, 1, 0, COLUMN_WIDTH, 170), tooltip = "Node Graph"},
-		},
-	)
-	first := GUI.node_graph_add_node(g, graph, "Read", GUI.Vec2{30, 30})
-	second := GUI.node_graph_add_node(g, graph, "Shape", GUI.Vec2{150, 100})
-	out_port := GUI.node_graph_add_port(g, graph, first, "out", .Output)
-	in_port := GUI.node_graph_add_port(g, graph, second, "in", .Input)
-	GUI.node_graph_connect(g, graph, first, out_port, second, in_port)
-
 	canvas := GUI.Make_Canvas(
 		g,
 		panel,
@@ -1841,7 +2053,18 @@ Section_Heavy :: proc(parent: GUI.Widget_ID) -> f32 {
 		g,
 		panel,
 		GUI.Audio_Player_Opts{
-			Base_Opts = GUI.Base_Opts{name = "audio_player", preset = .Top_Left, offsets = Place(rows, 2, 1, COLUMN_WIDTH, 60), tooltip = "audio player"},
+			Base_Opts = GUI.Base_Opts{
+				name = "audio_player",
+				preset = .Top_Left,
+				offsets = Place(rows, 2, 1, COLUMN_WIDTH, 60),
+				tooltip = "audio player",
+				style = GUI.Style {
+					box = GUI.StyleBox {
+						bg_color = {0, 0, 0, 0},
+						content_margin = {0, 0, 0, 0},
+					},
+				},
+			},
 			path = "assets/sounds/beep.wav",
 			volume = 0.8,
 			loops = true,

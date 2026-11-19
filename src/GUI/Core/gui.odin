@@ -98,7 +98,7 @@ Shutdown_GUI :: proc(g: ^GUI) {
 	if g.class_by_name != nil { delete(g.class_by_name) }
 	delete(g.scene_constructors)
 	delete(g.commands.list)
-	if g.measure_cache != nil { delete(g.measure_cache) }
+	measure_cache_destroy(g)
 	virt.arena_destroy(&g.frame_arena)
 	virt.arena_destroy(&g.arena)
 	free(cast(rawptr) g)

@@ -7,23 +7,37 @@ Toast_Kind :: enum {
 }
 
 Toast_Data :: struct {
-	text:      string,
-	duration:  f32,
-	remaining:  f32,
-	kind:      Toast_Kind,
+	text:     string,
+	duration: f32,
+	//* The absolute time at which the toast goes away.
+	until:    f32,
+	kind:     Toast_Kind,
 }
 
 Palette_Command :: struct {
 	label:    string,
 	action:   proc(g: ^GUI, id: Widget_ID),
 	keywords: string,
+	tag:      int,
+	detail:   string,
+}
+
+Palette_Match :: struct {
+	index: int,
+	score: int,
 }
 
 Command_Palette_Data :: struct {
 	text:     string,
 	commands: [dynamic]Palette_Command,
+	matches:  [dynamic]Palette_Match,
 	selected: int,
+	scroll:   int,
 	visible:  bool,
+	owner:    Widget_ID,
+	last_tag: int,
+	commands_owned: bool,
+	matches_dirty:  bool,
 }
 
 Rating_Data :: struct {
@@ -56,6 +70,7 @@ Combo_Box_Data :: struct {
 	items:    [dynamic]Combo_Box_Item,
 	selected: int,
 	open:     bool,
+	popup:    Widget_ID,
 }
 
 Virtual_List_Pick :: struct {
@@ -227,7 +242,8 @@ Tooltip_Data :: struct {
 	text:    string,
 	target:  Widget_ID,
 	visible: bool,
-	timer:   f32,
+	//* The absolute time at which the tooltip appears.
+	show_at: f32,
 }
 
 Chart_Kind :: enum {
@@ -255,63 +271,23 @@ Chart_Data :: struct {
 	chart: ^Chart,
 }
 
-Graph_Port :: struct {
-	name:      string,
-	direction: Graph_Port_Direction,
-	wire:      int,
-}
-
-Graph_Port_Direction :: enum {
-	Input,
-	Output,
-	Both,
-}
-
-Graph_Node :: struct {
-	title:    string,
-	pos:      Vec2,
-	size:     Vec2,
-	ports:    [dynamic]Graph_Port,
-	colour:   Colour,
-	selected: bool,
-}
-
-Graph_Wire :: struct {
-	from_node: int,
-	from_port: int,
-	to_node:   int,
-	to_port:   int,
-	colour:    Colour,
-}
-
-Node_Graph :: struct {
-	nodes:        [dynamic]Graph_Node,
-	wires:        [dynamic]Graph_Wire,
-	selected:     int,
-	scroll:       Vec2,
-	zoom:         f32,
-	pan:          Vec2,
-	dragging:     int,
-	moving_node:  int,
-	drag_offset:  Vec2,
-	panning:      bool,
-	pan_last:     Vec2,
-}
-
 Node_Graph_Data :: struct {
-	graph: ^Node_Graph,
+	graph: rawptr,
+	menu:  Widget_ID,
 }
 
 Canvas_State :: struct {
 	items: [dynamic]Canvas_Item,
+	last:  [dynamic]Canvas_Item,
 }
 
 Canvas_Item :: struct {
-	kind:   Canvas_Item_Kind,
-	pos:    Vec2,
-	size:   Vec2,
-	colour: Colour,
-	text:   string,
+	kind:    Canvas_Item_Kind,
+	pos:     Vec2,
+	size:    Vec2,
+	colour:  Colour,
+	text:    string,
+	texture: Texture,
 }
 
 Canvas_Item_Kind :: enum {
@@ -319,12 +295,60 @@ Canvas_Item_Kind :: enum {
 	Circle,
 	Line,
 	Text,
+	Texture,
 }
 
 Canvas_Data :: struct {
-	state: ^Canvas_State,
-	paint: proc(g: ^GUI, id: Widget_ID, state: ^Canvas_State),
+	state:        ^Canvas_State,
+	paint:        proc(g: ^GUI, id: Widget_ID, state: ^Canvas_State),
+	repaint_rate: f32,
+	//* The absolute time of the next repaint. Zero means "at once".
+	next_repaint: f32,
 }
+
+Gizmo_Mode :: enum {
+	All,
+	Move,
+	Rotate,
+	Scale,
+}
+
+Gizmo_Handle :: enum {
+	None,
+	Move_X,
+	Move_Y,
+	Move_Free,
+	Rotate,
+	Scale_Top_Left,
+	Scale_Top_Right,
+	Scale_Bottom_Right,
+	Scale_Bottom_Left,
+}
+
+Gizmo_Transform :: struct {
+	position: Vec2,
+	rotation: f32,
+	scale:    Vec2,
+}
+
+Gizmo_Data :: struct {
+	transform:      Gizmo_Transform,
+	mode:           Gizmo_Mode,
+	hover:          Gizmo_Handle,
+	active:         Gizmo_Handle,
+	drag_start:     Vec2,
+	drag_transform: Gizmo_Transform,
+	drag_angle:     f32,
+	snap_position:  f32,
+	snap_angle:     f32,
+	min_scale:      f32,
+	max_scale:      f32,
+	base_size:      f32,
+	on_changed:     proc(g: ^GUI, id: Widget_ID, transform: Gizmo_Transform),
+	on_begin:       proc(g: ^GUI, id: Widget_ID, handle: Gizmo_Handle),
+	on_end:         proc(g: ^GUI, id: Widget_ID, handle: Gizmo_Handle),
+}
+
 
 File_Entry :: struct {
 	name:      string,
@@ -488,8 +512,24 @@ Link_Button_Opts :: struct {
 }
 
 Canvas_Opts :: struct {
-	Base_Opts: Base_Opts,
+	Base_Opts:    Base_Opts,
+	repaint_rate: f32,
 }
+
+Gizmo_Opts :: struct {
+	Base_Opts:     Base_Opts,
+	transform:     Gizmo_Transform,
+	mode:          Gizmo_Mode,
+	base_size:     f32,
+	min_scale:     f32,
+	max_scale:     f32,
+	snap_position: f32,
+	snap_angle:    f32,
+	on_changed:    proc(g: ^GUI, id: Widget_ID, transform: Gizmo_Transform),
+	on_begin:      proc(g: ^GUI, id: Widget_ID, handle: Gizmo_Handle),
+	on_end:        proc(g: ^GUI, id: Widget_ID, handle: Gizmo_Handle),
+}
+
 
 Chart_Opts :: struct {
 	Base_Opts: Base_Opts,
@@ -694,7 +734,14 @@ File_Viewer_Opts :: struct {
 }
 
 Node_Graph_Opts :: struct {
-	Base_Opts: Base_Opts,
+	Base_Opts:    Base_Opts,
+	zoom:         f32,
+	min_zoom:     f32,
+	max_zoom:     f32,
+	grid_visible: bool,
+	grid_size:    f32,
+	grid_major:   f32,
+	snap:         bool,
 }
 
 Number_Input_Opts :: struct {
@@ -831,9 +878,9 @@ Scroll_Bar_Data :: struct {
 	content:  f32,
 	view:     f32,
 	offset:   f32,
-	dragging: bool,
-	idle:     f32,
-	alpha:    f32,
+	dragging:   bool,
+	idle_until: f32,
+	alpha:      f32,
 	grab:     f32,
 }
 
@@ -861,8 +908,9 @@ Color_Rect_Opts :: struct {
 }
 
 Texture_Rect_Data :: struct {
-	texture: Texture,
-	region:  Rect,
+	texture:      Texture,
+	texture_path: string,
+	region:       Rect,
 }
 
 Texture_Rect_Opts :: struct {
@@ -872,6 +920,7 @@ Texture_Rect_Opts :: struct {
 
 Nine_Patch_Data :: struct {
 	texture:         Texture,
+	texture_path:    string,
 	patch:           [4]f32,
 	//* A sub-rectangle of the texture, in pixels. An empty rectangle
 	//* means the whole texture.
@@ -1002,4 +1051,133 @@ Virtual_List_Opts :: struct {
 	Base_Opts: Base_Opts,
 	source:     List_Source,
 	row_height: f32,
+}
+
+
+//* The inspector view keeps its state in the node graph package, so the
+//* core only carries the handle to it.
+Node_Graph_Inspector_Data :: struct {
+	state: rawptr,
+}
+
+//* == widget options ==
+//*   GUI.Make_Button(g, parent, GUI.Button_Opts{
+//*       Base_Opts = GUI.Base_Opts{name = "ok"},
+//       text = "OK",
+//   })
+
+//* The shared options are in Base_Opts, so
+//* a program only has to name the ones that are different.
+
+Base_Opts :: struct {
+	name:          string,
+	preset:        Anchor_Preset,
+	anchors:       Anchor,
+	offsets:       Offset,
+	min_size:      Vec2,
+	max_size:      Vec2,
+	weight:        f32,
+	fixed:         bool,
+	separation:    f32,
+	draggable:     bool,
+	style:         Style,
+	use_theme:     bool,
+	variation:     string,
+	hidden:        bool,
+
+	//* The control features.
+	interactive:   bool,
+	mouse_filter:  Mouse_Filter,
+	focus_mode:    Focus_Mode,
+	tab_index:     int,
+	//* How the widget takes the room of its parent along the horizontal
+	//* axis, and along the vertical one. A widget that expands takes a
+	//* share of the room that is left over, and a widget that does not
+	//* expand takes only its minimum size. A widget that fills takes the
+	//* room it is given, and a widget that shrinks takes only its
+	//* minimum size and is centred in the room it would have had. The
+	//* default of a widget is `.Fill` and `.Expand` on both axes, and a
+	//* set of flags with nothing in it means the program says nothing
+	//* about that axis.
+	size_flags_h:  Size_Flags,
+	size_flags_v:  Size_Flags,
+	//* The share of the space of the parent the widget takes when there
+	//* is room left over: the weight of the widget times this ratio. A
+	//* ratio of 0 in the options is the same as saying nothing: the
+	//* ratio of 1 is used. A ratio of 0 is set with
+	//* `Widget_Set_Stretch_Ratio`.
+	stretch_ratio: f32,
+	//* The share of a deficit the widget takes when the children of a
+	//* container do not fit. The children that have a weight give way
+	//* until they reach their floor, which is the size asked for with
+	//* `min_size` or `Widget_Set_Custom_Min_Size`. A weight of 0, the
+	//* default, keeps the widget at its preferred size and lets the
+	//* container overflow.
+	shrink_weight: f32,
+	//* Takes the widget out of the flow of its container: it is placed by
+	//* its anchors and offsets instead, and takes no share of the room of
+	//* the container. The built-in containers honour it; a container of
+	//* a custom class that lays itself out decides what it means.
+	absolute:      bool,
+	grid_placement: Grid_Placement,
+	//* The direction the widget grows in: from the left to the right or
+	//* from the right to the left. A container that stacks its children
+	//* along the horizontal axis puts them in the other order when the
+	//* direction is from the right to the left. The default is to take
+	//* the direction of the parent.
+	layout_direction: Layout_Direction,
+	clip_contents: Clip_Contents,
+	tooltip:       string,
+	z_index:       int,
+	access_role:        Access_Role,
+	access_name:        string,
+	access_description: string,
+}
+
+base_widget_opts :: proc(base: Base_Opts) -> Widget_Opts {
+	return Widget_Opts {
+		name = base.name,
+		preset = base.preset,
+		anchors = base.anchors,
+		offsets = base.offsets,
+		min_size = base.min_size,
+		custom_max_size = base.max_size,
+		weight = base.weight,
+		fixed = base.fixed,
+		separation = base.separation,
+		draggable = base.draggable,
+		style = base.style,
+		use_theme = base.use_theme,
+		variation = base.variation,
+		hidden = base.hidden,
+		interactive = base.interactive,
+		mouse_filter = base.mouse_filter,
+		focus_mode = base.focus_mode,
+		tab_index = base.tab_index,
+		size_flags_h = base.size_flags_h,
+		size_flags_v = base.size_flags_v,
+		stretch_ratio = base.stretch_ratio,
+		shrink_weight = base.shrink_weight,
+		absolute = base.absolute,
+		grid_placement = grid_placement_normalize(base.grid_placement),
+		layout_direction = base.layout_direction,
+		clip_contents = base.clip_contents,
+		tooltip = base.tooltip,
+		z_index = base.z_index,
+		access_role = base.access_role,
+		access_name = base.access_name,
+		access_description = base.access_description,
+	}
+}
+
+//* A style with a background, a border and a margin on every side.
+base_style :: proc(bg: Colour, border: Colour, width: f32, margin: f32) -> Style {
+	return Style {
+		box = StyleBox {
+			bg_color = bg,
+			border_color = {border, border, border, border},
+			border_width = {width, width, width, width},
+			content_margin = {margin, margin, margin, margin},
+		},
+	}
 }

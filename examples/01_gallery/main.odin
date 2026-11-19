@@ -8,7 +8,6 @@ package main
 import "core:log"
 import App "../../src/App"
 import Backend "../../src/Backend"
-import GUI "../../src/GUI"
 
 import "core:mem"
 import "core:fmt"
@@ -39,7 +38,7 @@ main :: proc() {
 
     App.Run("CalcUI - Gallery", 1000, 700, setup, nil)
     log.info("the gallery is done")
-}    
+}
 
 //* The gallery widget setup proc.
 setup :: proc(app: ^App.App) {

@@ -74,6 +74,9 @@ Widget_Kind :: struct {
 	access_role: Access_Role,
 	//* change the metadata of the widget.
 	access: proc(g: ^GUI, id: Widget_ID, w: ^Widget, info: ^Access_Info),
+	//* The text a scene file writes for the widget. A widget without this
+	//* hook writes its text property.
+	scene_save_text: proc(g: ^GUI, id: Widget_ID, w: ^Widget) -> string,
 }
 
 //* The hooks of a kind are the hooks of a class as well, so a program that

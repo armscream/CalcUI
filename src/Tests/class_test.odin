@@ -23,6 +23,21 @@ gauge_typed: int
 gauge_signalled: int
 gauge_signalled_value: f32
 
+//* The counters reach a test from the one before it, so each test starts
+//* them again.
+gauge_reset :: proc() {
+	gauge_made = 0
+	gauge_destroyed = 0
+	gauge_freed = 0
+	gauge_drawn = 0
+	gauge_clicked = 0
+	gauge_pointed = 0
+	gauge_keyed = 0
+	gauge_typed = 0
+	gauge_signalled = 0
+	gauge_signalled_value = 0
+}
+
 //* Register the class once; instances are made with GUI.Make_Custom_Widget.
 gauge_class :: proc(g: ^GUI.GUI) -> GUI.Widget_Class_ID {
 	return GUI.Widget_Register_Class(g, GUI.Widget_Class_Desc{
@@ -169,18 +184,9 @@ gauge_scene_constructor :: proc(
 @(test)
 test_a_widget_of_a_program_s_own_works_like_the_ones_that_are_built_in :: proc(t: ^testing.T) {
 	g := test_gui(t)
+	defer test_gui_destroy(g)
+	gauge_reset()
 	g.backend = mock_backend
-
-	gauge_made = 0
-	gauge_destroyed = 0
-	gauge_freed = 0
-	gauge_drawn = 0
-	gauge_clicked = 0
-	gauge_pointed = 0
-	gauge_keyed = 0
-	gauge_typed = 0
-	gauge_signalled = 0
-	gauge_signalled_value = 0
 
 	class := gauge_class(g)
 	testing.expect_value(t, GUI.Widget_Class_Name(g, class), "Gauge")
@@ -229,16 +235,13 @@ test_a_widget_of_a_program_s_own_works_like_the_ones_that_are_built_in :: proc(t
 	append(&g.events, mouse_move({100, 20}))
 	GUI.Handle_Events(g)
 	testing.expect_value(t, gauge_pointed > 0, true)
-
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_widget_of_a_program_s_own_is_destroyed_with_its_data :: proc(t: ^testing.T) {
 	g := test_gui(t)
-	gauge_made = 0
-	gauge_destroyed = 0
-	gauge_freed = 0
+	defer test_gui_destroy(g)
+	gauge_reset()
 
 	gauge := GUI.Make_Custom_Widget(g, g.root, gauge_class(g), GUI.Base_Opts{name = "gauge"})
 	testing.expect_value(t, gauge_made, 1)
@@ -248,13 +251,13 @@ test_the_widget_of_a_program_s_own_is_destroyed_with_its_data :: proc(t: ^testin
 	testing.expect_value(t, gauge_destroyed, 1)
 	testing.expect_value(t, gauge_freed, 1)
 	testing.expect_value(t, GUI.Widget_Alive(g, gauge), false)
-
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_theme_can_style_the_class_of_a_program_s_own :: proc(t: ^testing.T) {
 	g := test_gui(t)
+	defer test_gui_destroy(g)
+	gauge_reset()
 	gauge := GUI.Make_Custom_Widget(g, g.root, gauge_class(g), GUI.Base_Opts{name = "gauge"})
 
 	testing.expect_value(t, GUI.Widget_Style(g, gauge).box.bg_color, GUI.RGBA(0.15, 0.16, 0.20, 1))
@@ -268,12 +271,12 @@ test_the_theme_can_style_the_class_of_a_program_s_own :: proc(t: ^testing.T) {
 	GUI.GUI_Set_Theme(g, theme)
 
 	testing.expect_value(t, GUI.Widget_Style(g, gauge).box.bg_color, GUI.RGBA(0.9, 0.2, 0.1, 1))
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_widgets_that_are_built_in_are_classes_as_well :: proc(t: ^testing.T) {
 	g := test_gui(t)
+	defer test_gui_destroy(g)
 
 	box := GUI.Make_Check_Box(g, g.root, GUI.Check_Box_Opts{text = "agree"})
 	class := GUI.Widget_Class_Of(g, box)
@@ -290,15 +293,14 @@ test_the_widgets_that_are_built_in_are_classes_as_well :: proc(t: ^testing.T) {
 	})
 	testing.expect_value(t, GUI.Widget_Class_Name(g, class), "CheckBox")
 	testing.expect_value(t, GUI.Widget_Class_Of(g, box), class)
-
-	test_gui_destroy(g)
 }
 
 @(test)
 test_a_scene_file_can_name_the_class_of_a_program_s_own :: proc(t: ^testing.T) {
 	g := test_gui(t)
+	defer test_gui_destroy(g)
+	gauge_reset()
 	g.backend = mock_backend
-	gauge_made = 0
 
 	gauge_class(g)
 	root := GUI.Scene_Load(g, `
@@ -313,6 +315,4 @@ test_a_scene_file_can_name_the_class_of_a_program_s_own :: proc(t: ^testing.T) {
 	testing.expect_value(t, gauge != GUI.INVALID_WIDGET_ID, true)
 	testing.expect_value(t, gauge_made, 1)
 	testing.expect_value(t, GUI.Widget_Class_Name(g, GUI.Widget_Class_Of(g, gauge)), "Gauge")
-
-	test_gui_destroy(g)
 }

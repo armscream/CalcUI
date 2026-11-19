@@ -317,3 +317,22 @@ render_into :: proc(st: ^Renderer_State, renderer_index: int, dl: ^GUI.Draw_List
 	}
 
 }
+
+//* The GUI backend that draws through the SDL renderer.
+renderer_backend :: proc(ctx: rawptr) -> GUI.Backend {
+	return GUI.Backend {
+		ctx                    = ctx,
+		create                 = renderer_create,
+		destroy                = renderer_destroy,
+		resize                 = renderer_resize,
+		upload_texture         = renderer_upload_texture,
+		upload_texture_regions = renderer_upload_texture_regions,
+		destroy_texture        = renderer_destroy_texture,
+		submit                 = renderer_submit,
+		submit_target          = renderer_submit_target,
+		release_target         = renderer_release_target,
+		open_url               = open_url,
+		supports_shapes        = false,
+		supports_backdrop_blur = false,
+	}
+}

@@ -1,6 +1,7 @@
 //* The tree is walked and every widget is drawn into the list of the window it belongs to.
 //* A floating panel is a window of its own and gets a list of its own.
 package Core
+import "core:fmt"
 import "core:math"
 
 build_draw_list :: proc(g: ^GUI) {
@@ -8,9 +9,24 @@ build_draw_list :: proc(g: ^GUI) {
 	epoch := g.draw_epoch
 	g.draw_builds += 1
 	atlas_build_begin(g.atlas)
+
+	partial := g.dirty_rect_valid && !g.partial_blocked
+	dirty_rect := g.dirty_rect
+	partial_clear(g)
+	g.partial_blocked = false
+	if partial {
+		root := Widget_Get(g, g.root)
+		if root == nil {
+			partial = false
+		} else if style := resolved_style(g, root); style == nil || style.box.bg_color.a < 0.999 {
+			partial = false
+		}
+	}
+
 	g.target = &g.draw
 	g.draw.scale = g.scale
 	draw_list_clear(g.target, g.viewport)
+	g.draw.white_uv = [2]f32{g.atlas.white_uv[0], g.atlas.white_uv[1]}
 	if g.root != INVALID_WIDGET_ID {
 		draw_widget(g, g.root)
 		draw_drag_overlay(g)
@@ -27,10 +43,15 @@ build_draw_list :: proc(g: ^GUI) {
 		g.target = &f.draw
 		f.draw.scale = g.scale
 		draw_list_clear(g.target, rect)
+		f.draw.white_uv = [2]f32{g.atlas.white_uv[0], g.atlas.white_uv[1]}
 		draw_widget(g, f.widget)
 	}
 	g.target = &g.draw
 	g.draw_valid = g.draw_epoch == epoch
+	if partial && g.draw_valid {
+		g.draw.dirty_rect = dirty_rect
+		g.draw.partial = true
+	}
 }
 
 draw_widget :: proc(g: ^GUI, id: Widget_ID) {
@@ -48,19 +69,20 @@ draw_widget :: proc(g: ^GUI, id: Widget_ID) {
 	g.target.opacity = previous_opacity * clamp(w.opacity, 0, 1)
 	defer g.target.opacity = previous_opacity
 
-	if shadow_visible(&style.box) {
-		draw_shadow(g, w.rect, &style.box)
+	box := style.box
+	box.bg_color = resolved_bg(g, id, w)
+	if w.type != .Tooltip {
+		draw_stylebox_box(g, w.rect, &box)
 	}
 
 	clipped := w.clip_contents
-	if clipped {draw_push_clip(g.target, w.rect)}
-
-	bg := resolved_bg(g, id, w)
-	if bg.a > 0 {
-		draw_rect_radii(g, w.rect, bg, stylebox_radii(&style.box))
-	}
-	if stylebox_has_border(&style.box) {
-		draw_border(g, w, style^)
+	if clipped {
+		radii := clamp_corner_radii(stylebox_radii(&style.box), w.rect.w, w.rect.h)
+		if radii_are_zero(radii) {
+			draw_push_clip(g.target, w.rect)
+		} else {
+			draw_push_clip_radii(g.target, w.rect, radii)
+		}
 	}
 
 	content := content_rect_with(w.rect, style.box.content_margin)
@@ -124,36 +146,18 @@ draw_focus_ring :: proc(g: ^GUI, w: ^Widget) {
 	style := resolved_style(g, w)
 	colour := style.text.focus_colour
 	if colour.a == 0 {colour = RGBA(0.35, 0.74, 1.0, 0.9)}
+
 	r := w.rect
-	t := f32(2)
-	draw_quad(
-		g.target,
-		Rect{x = r.x - 1, y = r.y - 1, w = r.w + 2, h = t},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
-	draw_quad(
-		g.target,
-		Rect{x = r.x - 1, y = r.y + r.h + 1 - t, w = r.w + 2, h = t},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
-	draw_quad(
-		g.target,
-		Rect{x = r.x - 1, y = r.y - 1, w = t, h = r.h + 2},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
-	draw_quad(
-		g.target,
-		Rect{x = r.x + r.w + 1 - t, y = r.y - 1, w = t, h = r.h + 2},
-		g.atlas.white_uv,
-		colour,
-		g.atlas_texture,
-	)
+	radii := stylebox_radii(&style.box)
+	for i in 0 ..< 4 {
+		if radii[i] > 0 {radii[i] += 1}
+	}
+	box := StyleBox {
+		border_width = {2, 2, 2, 2},
+		border_color = {colour, colour, colour, colour},
+		corner_radius = radii,
+	}
+	draw_stylebox_border(g, Rect{x = r.x - 1, y = r.y - 1, w = r.w + 2, h = r.h + 2}, &box)
 }
 
 draw_resize_grip :: proc(g: ^GUI, id: Widget_ID, edges: Resize_Edges) {
@@ -203,7 +207,10 @@ draw_resize_grip :: proc(g: ^GUI, id: Widget_ID, edges: Resize_Edges) {
 draw_header :: proc(g: ^GUI, w: ^Widget, style: Style) {
 	h := header_rect(w)
 	bg := Scale_Colour(style.box.bg_color, 1.6)
-	draw_quad(g.target, h, g.atlas.white_uv, bg, g.atlas_texture)
+	radii := style.box.corner_radius
+	draw_push_clip(g.target, h)
+	draw_rect_radii(g, w.rect, bg, {radii[0], radii[1], 0, 0})
+	draw_pop_clip(g.target)
 	if style.box.border_color[3].a > 0 {
 		draw_quad(
 			g.target,
@@ -224,7 +231,11 @@ draw_header :: proc(g: ^GUI, w: ^Widget, style: Style) {
 
 draw_tab_bar :: proc(g: ^GUI, w: ^Widget) {
 	bar := tab_bar_rect(w)
-	draw_quad(g.target, bar, g.atlas.white_uv, RGBA(0.08, 0.09, 0.11, 1), g.atlas_texture)
+	style := resolved_style(g, w)
+	radii := style.box.corner_radius
+	draw_push_clip(g.target, bar)
+	draw_rect_radii(g, w.rect, RGBA(0.08, 0.09, 0.11, 1), {radii[0], radii[1], 0, 0})
+	draw_pop_clip(g.target)
 
 	rects: [MAX_TABS]Rect
 	n := tab_button_rects(g, w, &rects)
@@ -430,14 +441,33 @@ draw_outline :: proc(g: ^GUI, r: Rect, c: Colour, t: f32) {
 	)
 }
 
-draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
-	r := w.rect
-	widths := style.box.border_width
-	colours := style.box.border_color
-	box := style.box
-	if !stylebox_has_border(&box) {return}
+draw_stylebox_box :: proc(g: ^GUI, r: Rect, box: ^StyleBox) {
+	if box == nil {return}
+	if shadow_visible(box) && !box.shadow_inset {draw_shadow(g, r, box)}
 
-	radii := stylebox_radii(&box)
+	radii := stylebox_radii(box)
+	if box.backdrop_blur > 0 && g.backend.supports_shapes && g.backend.supports_backdrop_blur {
+		draw_glass(g, r, box.bg_color, radii, box.backdrop_blur, box.optics)
+	} else {
+		draw_rect_radii(g, r, box.bg_color, radii)
+	}
+
+	if stylebox_has_border(box) {draw_stylebox_border(g, r, box)}
+	if shadow_visible(box) && box.shadow_inset {draw_shadow(g, r, box)}
+}
+
+draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
+	box := style.box
+	draw_stylebox_border(g, w.rect, &box)
+}
+
+draw_stylebox_border :: proc(g: ^GUI, r: Rect, box: ^StyleBox) {
+	if box == nil || !stylebox_has_border(box) {return}
+
+	widths := box.border_width
+	colours := box.border_color
+	radii := stylebox_radii(box)
+
 	if border_colour_is_uniform(colours) {
 		radius := max_corner_radius(radii)
 		if radius > 0 && g.backend.supports_shapes {
@@ -461,7 +491,13 @@ draw_border :: proc(g: ^GUI, w: ^Widget, style: Style) {
 			return
 		}
 	}
-	draw_border_rects(g, r, widths, colours)
+
+	clamped := clamp_corner_radii(radii, r.w, r.h)
+	if radii_are_zero(clamped) {
+		draw_border_rects(g, r, widths, colours)
+		return
+	}
+	draw_side_border_radii(g, r, widths, colours, clamped)
 }
 
 draw_border_rects :: proc(g: ^GUI, r: Rect, widths: [4]f32, colours: [4]Colour) {
@@ -503,6 +539,137 @@ draw_border_rects :: proc(g: ^GUI, r: Rect, widths: [4]f32, colours: [4]Colour) 
 	}
 }
 
+BORDER_ARC_SEGMENTS :: 3
+
+Border_Arc :: struct {
+	corner: int,
+	a0, a1: f32,
+}
+
+Border_Side_Arcs :: struct {
+	first, second: Border_Arc,
+}
+
+BORDER_SIDE_ARCS := [4]Border_Side_Arcs {
+	{{3, 135, 180}, {0, 180, 225}},
+	{{0, 225, 270}, {1, 270, 315}},
+	{{1, 315, 360}, {2, 0, 45}},
+	{{2, 45, 90}, {3, 90, 135}},
+}
+
+draw_side_border_radii :: proc(
+	g: ^GUI,
+	r: Rect,
+	widths: [4]f32,
+	colours: [4]Colour,
+	radii: [4]f32,
+) {
+	w := [4]f32{max(widths[0], 0), max(widths[1], 0), max(widths[2], 0), max(widths[3], 0)}
+	inner := Rect {
+		x = r.x + w[0],
+		y = r.y + w[1],
+		w = r.w - w[0] - w[2],
+		h = r.h - w[1] - w[3],
+	}
+	if inner.w <= 0 || inner.h <= 0 {
+		draw_round_polygon_radii(g, r, colours[0], radii)
+		return
+	}
+
+	inner_radii := [4]f32 {
+		max(radii[0] - max(w[0], w[1]), 0),
+		max(radii[1] - max(w[1], w[2]), 0),
+		max(radii[2] - max(w[2], w[3]), 0),
+		max(radii[3] - max(w[3], w[0]), 0),
+	}
+	inner_radii = clamp_corner_radii(inner_radii, inner.w, inner.h)
+
+	for side in 0 ..< 4 {
+		if w[side] <= 0 || colours[side].a <= 0 {continue}
+
+		side_radius := max(
+			max(radii[BORDER_SIDE_ARCS[side].first.corner], radii[BORDER_SIDE_ARCS[side].second.corner]),
+			max(inner_radii[BORDER_SIDE_ARCS[side].first.corner], inner_radii[BORDER_SIDE_ARCS[side].second.corner]),
+		)
+		segments := BORDER_ARC_SEGMENTS
+		if side_radius > 192 {
+			segments = 1
+		} else if side_radius > 64 {
+			segments = 2
+		}
+
+		outer_points: [2 * (BORDER_ARC_SEGMENTS + 1)][2]f32
+		inner_points: [2 * (BORDER_ARC_SEGMENTS + 1)][2]f32
+		count := 0
+		count += append_border_arc(outer_points[:], count, r, radii, BORDER_SIDE_ARCS[side].first, segments)
+		count += append_border_arc(outer_points[:], count, r, radii, BORDER_SIDE_ARCS[side].second, segments)
+		inner_count := 0
+		inner_count += append_border_arc(inner_points[:], inner_count, inner, inner_radii, BORDER_SIDE_ARCS[side].first, segments)
+		inner_count += append_border_arc(inner_points[:], inner_count, inner, inner_radii, BORDER_SIDE_ARCS[side].second, segments)
+		if count < 2 || inner_count != count {continue}
+
+		for i in 0 ..< count - 1 {
+			piece := [4][2]f32{outer_points[i], outer_points[i + 1], inner_points[i + 1], inner_points[i]}
+			if polygon_area2(piece) <= 0.0001 {continue}
+			draw_polygon(g.target, piece[:], colours[side], g.atlas_texture)
+		}
+	}
+}
+
+append_border_arc :: proc(
+	points: [][2]f32,
+	at: int,
+	r: Rect,
+	radii: [4]f32,
+	arc: Border_Arc,
+	segments: int,
+) -> int {
+	radius := radii[arc.corner]
+	centre := border_corner_centre(r, arc.corner, radius)
+	if radius <= 0 {
+		points[at] = border_corner_point(r, arc.corner)
+		return 1
+	}
+	written := 0
+	for i in 0 ..= segments {
+		a := (arc.a0 + (arc.a1 - arc.a0) * f32(i) / f32(segments)) * math.PI / 180
+		points[at + i] = [2]f32 {
+			centre[0] + radius * math.cos(a),
+			centre[1] + radius * math.sin(a),
+		}
+		written += 1
+	}
+	return written
+}
+
+border_corner_centre :: proc(r: Rect, corner: int, radius: f32) -> [2]f32 {
+	switch corner {
+	case 0:
+		return {r.x + radius, r.y + radius}
+	case 1:
+		return {r.x + r.w - radius, r.y + radius}
+	case 2:
+		return {r.x + r.w - radius, r.y + r.h - radius}
+	case 3:
+		return {r.x + radius, r.y + r.h - radius}
+	}
+	return {r.x, r.y}
+}
+
+border_corner_point :: proc(r: Rect, corner: int) -> [2]f32 {
+	switch corner {
+	case 0:
+		return {r.x, r.y}
+	case 1:
+		return {r.x + r.w, r.y}
+	case 2:
+		return {r.x + r.w, r.y + r.h}
+	case 3:
+		return {r.x, r.y + r.h}
+	}
+	return {r.x, r.y}
+}
+
 border_colour_is_uniform :: proc(colours: [4]Colour) -> bool {
 	if !(colours[0].a > 0) {return false}
 	for i in 1 ..< 4 {
@@ -511,7 +678,7 @@ border_colour_is_uniform :: proc(colours: [4]Colour) -> bool {
 	return true
 }
 
-BORDER_CORNER_SEGMENTS :: 4
+BORDER_CORNER_SEGMENTS :: 3
 
 draw_round_border :: proc(g: ^GUI, r: Rect, width: f32, colour: Colour, radius: f32) {
 	draw_round_border_radii(
@@ -608,16 +775,24 @@ polygon_area2 :: proc(points: [4][2]f32) -> f32 {
 	return abs(area)
 }
 
-SHADOW_LAYERS :: 6
+SHADOW_LAYERS :: 4
+INSET_SHADOW_LAYERS :: 3
 
 shadow_visible :: proc(box: ^StyleBox) -> bool {
 	if box == nil {return false}
 	if box.shadow_color.a <= 0 {return false}
-	return box.shadow_size > 0 || box.shadow_offset != (Vec2{})
+	return box.shadow_size > 0 ||
+	       box.shadow_offset != (Vec2{}) ||
+	       box.shadow_spread != 0 ||
+	       box.shadow_inset
 }
 
 draw_shadow :: proc(g: ^GUI, r: Rect, box: ^StyleBox) {
 	if !shadow_visible(box) {return}
+	if box.shadow_inset {
+		draw_inset_shadow(g, r, box)
+		return
+	}
 	base := Rect {
 		x = r.x + box.shadow_offset.x,
 		y = r.y + box.shadow_offset.y,
@@ -626,28 +801,38 @@ draw_shadow :: proc(g: ^GUI, r: Rect, box: ^StyleBox) {
 	}
 	if base.w <= 0 || base.h <= 0 {return}
 	radii := stylebox_radii(box)
-	radius := max_corner_radius(radii)
 	blur := max(box.shadow_size, 0)
+	spread := box.shadow_spread
 	if g.backend.supports_shapes {
-		draw_shadow_sdf(g, base, radius, radii, blur, box.shadow_color)
+		draw_shadow_sdf(g, base, radii, blur, spread, box.shadow_color)
 	} else {
-		draw_shadow_layers(g, base, radii, blur, box.shadow_color)
+		draw_shadow_layers(g, base, radii, blur, spread, box.shadow_color)
 	}
 }
 
 draw_shadow_sdf :: proc(
 	g: ^GUI,
 	base: Rect,
-	radius: f32,
 	radii: [4]f32,
-	blur: f32,
+	blur, spread: f32,
 	colour: Colour,
 ) {
+	half := [2]f32{base.w * 0.5 + spread, base.h * 0.5 + spread}
+	if half[0] <= 0 || half[1] <= 0 {return}
+
+	grown := [4]f32{}
+	for corner in 0 ..< 4 {
+		if radii[corner] > 0 {
+			grown[corner] = radii[corner] + spread
+		}
+	}
+	clamped := clamp_corner_radii(grown, half[0] * 2, half[1] * 2)
+
 	outer := Rect {
-		x = base.x - blur,
-		y = base.y - blur,
-		w = base.w + blur * 2,
-		h = base.h + blur * 2,
+		x = base.x - spread - blur,
+		y = base.y - spread - blur,
+		w = base.w + (spread + blur) * 2,
+		h = base.h + (spread + blur) * 2,
 	}
 	draw_quad_shape_full(
 		g.target,
@@ -656,16 +841,22 @@ draw_shadow_sdf :: proc(
 		colour,
 		g.atlas_texture,
 		.Shadow,
-		radius,
-		{base.w * 0.5, base.h * 0.5},
+		max_corner_radius(clamped),
+		half,
 		blur,
-		clamp_corner_radii(radii, base.w, base.h),
-		{},
+		clamped,
+		{spread, 0, 0, 0},
 	)
 }
 
-draw_shadow_layers :: proc(g: ^GUI, base: Rect, radii: [4]f32, blur: f32, colour: Colour) {
-	if blur <= 0 {
+draw_shadow_layers :: proc(
+	g: ^GUI,
+	base: Rect,
+	radii: [4]f32,
+	blur, spread: f32,
+	colour: Colour,
+) {
+	if blur <= 0 && spread == 0 {
 		if !radii_are_zero(radii) {
 			draw_round_polygon_radii(g, base, colour, radii)
 		} else {
@@ -679,7 +870,7 @@ draw_shadow_layers :: proc(g: ^GUI, base: Rect, radii: [4]f32, blur: f32, colour
 		prev := colour.a * (k - 1) / f32(SHADOW_LAYERS)
 		cur := colour.a * k / f32(SHADOW_LAYERS)
 		alpha := (cur - prev) / max(1 - prev, 0.0001)
-		grow := blur * (1 - f32(i) / f32(SHADOW_LAYERS - 1))
+		grow := spread + blur * (1 - f32(i) / f32(SHADOW_LAYERS - 1))
 		r := Rect {
 			x = base.x - grow,
 			y = base.y - grow,
@@ -703,8 +894,156 @@ draw_shadow_layers :: proc(g: ^GUI, base: Rect, radii: [4]f32, blur: f32, colour
 	}
 }
 
+draw_inset_shadow :: proc(g: ^GUI, r: Rect, box: ^StyleBox) {
+	widths := box.border_width
+	inner := Rect {
+		x = r.x + max(widths[0], 0),
+		y = r.y + max(widths[1], 0),
+		w = r.w - max(widths[0], 0) - max(widths[2], 0),
+		h = r.h - max(widths[1], 0) - max(widths[3], 0),
+	}
+	if inner.w <= 0 || inner.h <= 0 {return}
+
+	radii := stylebox_radii(box)
+	inner_radii := [4]f32 {
+		max(radii[0] - max(widths[0], widths[1]), 0),
+		max(radii[1] - max(widths[1], widths[2]), 0),
+		max(radii[2] - max(widths[2], widths[3]), 0),
+		max(radii[3] - max(widths[3], widths[0]), 0),
+	}
+	inner_radii = clamp_corner_radii(inner_radii, inner.w, inner.h)
+
+	blur := max(box.shadow_size, 0)
+	spread := box.shadow_spread
+	if g.backend.supports_shapes {
+		draw_quad_shape_full(
+			g.target,
+			inner,
+			g.atlas.white_uv,
+			box.shadow_color,
+			g.atlas_texture,
+			.Shadow,
+			max_corner_radius(inner_radii),
+			{inner.w * 0.5, inner.h * 0.5},
+			-blur,
+			inner_radii,
+			{spread, box.shadow_offset.x, box.shadow_offset.y, 0},
+		)
+		return
+	}
+	draw_inset_shadow_layers(g, inner, inner_radii, blur, spread, box.shadow_color)
+}
+
+draw_inset_shadow_layers :: proc(
+	g: ^GUI,
+	inner: Rect,
+	radii: [4]f32,
+	blur, spread: f32,
+	colour: Colour,
+) {
+	depth := spread + blur
+	if depth <= 0 {return}
+
+	for i in 0 ..< INSET_SHADOW_LAYERS {
+		d0 := i == 0 ? 0 : spread + blur * f32(i) / f32(INSET_SHADOW_LAYERS)
+		d1 := spread + blur * f32(i + 1) / f32(INSET_SHADOW_LAYERS)
+		r0 := inset_rect(inner, d0)
+		r1 := inset_rect(inner, d1)
+		if r1.w <= 0 || r1.h <= 0 {return}
+		radii0 := shrink_radii(radii, d0)
+		radii1 := shrink_radii(radii, d1)
+		c := colour
+		c.a *= 1 - 0.8 * f32(i) / f32(INSET_SHADOW_LAYERS)
+		emit_round_ring(g, r0, radii0, r1, radii1, c)
+	}
+}
+
+inset_rect :: proc(r: Rect, d: f32) -> Rect {
+	return Rect{x = r.x + d, y = r.y + d, w = r.w - d * 2, h = r.h - d * 2}
+}
+
+shrink_radii :: proc(radii: [4]f32, d: f32) -> [4]f32 {
+	return [4]f32{max(radii[0] - d, 0), max(radii[1] - d, 0), max(radii[2] - d, 0), max(radii[3] - d, 0)}
+}
+
+emit_round_ring :: proc(
+	g: ^GUI,
+	outer: Rect,
+	outer_radii: [4]f32,
+	inner: Rect,
+	inner_radii: [4]f32,
+	colour: Colour,
+) {
+	if outer.w <= 0 || outer.h <= 0 {return}
+	if inner.w <= 0 || inner.h <= 0 {return}
+
+	outer_clamped := clamp_corner_radii(outer_radii, outer.w, outer.h)
+	inner_clamped := clamp_corner_radii(inner_radii, inner.w, inner.h)
+	if radii_are_zero(outer_clamped) && radii_are_zero(inner_clamped) {
+		draw_border_rects(
+			g,
+			outer,
+			{
+				inner.x - outer.x,
+				inner.y - outer.y,
+				outer.x + outer.w - inner.x - inner.w,
+				outer.y + outer.h - inner.y - inner.h,
+			},
+			{colour, colour, colour, colour},
+		)
+		return
+	}
+
+	outer_points: [4 * (CORNER_SEGMENTS + 1)][2]f32
+	inner_points: [4 * (CORNER_SEGMENTS + 1)][2]f32
+	round_rect_loop(outer, outer_clamped, CORNER_SEGMENTS, outer_points[:])
+	round_rect_loop(inner, inner_clamped, CORNER_SEGMENTS, inner_points[:])
+
+	n := len(outer_points)
+	for i in 0 ..< n {
+		j := (i + 1) % n
+		piece := [4][2]f32{outer_points[i], outer_points[j], inner_points[j], inner_points[i]}
+		if polygon_area2(piece) <= 0.0001 {continue}
+		draw_polygon(g.target, piece[:], colour, g.atlas_texture)
+	}
+}
+
 draw_rect :: proc(g: ^GUI, r: Rect, colour: Colour, radius: f32) {
 	draw_rect_radii(g, r, colour, {radius, radius, radius, radius})
+}
+
+draw_glass :: proc(
+	g: ^GUI,
+	r: Rect,
+	colour: Colour,
+	radii: [4]f32,
+	blur: f32,
+	optics: Glass_Optics = {},
+) {
+	if r.w <= 0 || r.h <= 0 {return}
+	if blur <= 0 {
+		draw_rect_radii(g, r, colour, radii)
+		return
+	}
+	clamped := clamp_corner_radii(radii, r.w, r.h)
+	if !g.backend.supports_shapes {
+		draw_round_polygon_radii(g, r, colour, clamped)
+		return
+	}
+	draw_quad_shape_full(
+		g.target,
+		r,
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+		.Glass,
+		max_corner_radius(clamped),
+		{r.w * 0.5, r.h * 0.5},
+		blur,
+		clamped,
+		{optics.refraction, optics.dispersion, optics.fresnel, optics.saturation},
+		true,
+	)
 }
 
 draw_rect_radii :: proc(g: ^GUI, r: Rect, colour: Colour, radii: [4]f32) {
@@ -734,7 +1073,7 @@ draw_rect_radii :: proc(g: ^GUI, r: Rect, colour: Colour, radii: [4]f32) {
 	draw_round_polygon_radii(g, r, colour, clamped)
 }
 
-CORNER_SEGMENTS :: 5
+CORNER_SEGMENTS :: 4
 
 draw_round_polygon :: proc(g: ^GUI, r: Rect, colour: Colour, radius: f32) {
 	draw_round_polygon_radii(g, r, colour, {radius, radius, radius, radius})
@@ -756,7 +1095,11 @@ draw_round_polygon_radii :: proc(g: ^GUI, r: Rect, colour: Colour, radii: [4]f32
 
 draw_tab_container_bar :: proc(g: ^GUI, w: ^Widget) {
 	bar := Rect{x = w.rect.x, y = w.rect.y, w = w.rect.w, h = TAB_BAR_HEIGHT}
-	draw_quad(g.target, bar, g.atlas.white_uv, RGBA(0.08, 0.09, 0.11, 1), g.atlas_texture)
+	style := resolved_style(g, w)
+	radii := style.box.corner_radius
+	draw_push_clip(g.target, bar)
+	draw_rect_radii(g, w.rect, RGBA(0.08, 0.09, 0.11, 1), {radii[0], radii[1], 0, 0})
+	draw_pop_clip(g.target)
 
 	rects: [MAX_TABS]Rect
 	n := tab_button_rects(g, w, &rects)
@@ -800,3 +1143,110 @@ tab_container_active :: proc(w: ^Widget) -> int {
 	return 0
 }
 
+//* An overlay that says what the program is doing: how long the frame
+//* took, how many things were drawn, and what is under the pointer.
+
+
+Inspector :: struct {
+	enabled:    bool,
+	inspecting: bool,
+}
+
+inspector_enable :: proc(g: ^GUI, enabled: bool) {
+	g.inspector.enabled = enabled
+	draw_invalidate(g)
+}
+
+inspector_is_enabled :: proc(g: ^GUI) -> bool {
+	return g.inspector.enabled
+}
+
+inspector_inspect :: proc(g: ^GUI, inspecting: bool) {
+	g.inspector.inspecting = inspecting
+	draw_invalidate(g)
+}
+
+draw_inspector :: proc(g: ^GUI) {
+	if !g.inspector.enabled {return}
+
+	lines: [dynamic]string
+	defer delete(lines)
+
+	append(&lines, fmt.tprintf("%.1f ms", f64(g.dt) * 1000))
+	append(&lines, fmt.tprintf("%d widgets", len(g.widgets)))
+	append(&lines, fmt.tprintf("%d commands", len(g.draw.commands)))
+	append(&lines, fmt.tprintf("%d vertices", len(g.draw.vertices)))
+	append(&lines, fmt.tprintf("atlas %d MiB", atlas_bytes(g)))
+
+	if g.inspector.inspecting {
+		id := hit_test(g, g.root, g.pointer)
+		if w := Widget_Get(g, id); w != nil {
+			append(&lines, fmt.tprintf("%s", w.name))
+			append(
+				&lines,
+				fmt.tprintf(
+					"%d %d %d %d",
+					int(w.rect.x),
+					int(w.rect.y),
+					int(w.rect.w),
+					int(w.rect.h),
+				),
+			)
+		}
+	}
+
+	width := f32(0)
+	for line in lines {
+		size := Font_Measure(g, Font_Of(g, Widget_Get(g, g.root)), line).x
+		if size > width {width = size}
+	}
+	height := f32(len(lines)) * 16 + 12
+	rect := Rect {
+		x = 8,
+		y = 8,
+		w = width + 16,
+		h = height,
+	}
+
+	draw_rect(g, rect, RGBA(0.05, 0.05, 0.07, 0.85), 4)
+	draw_border_box(g, rect, RGBA(0.30, 0.32, 0.38, 0.9))
+
+	y := rect.y + 6
+	for line in lines {
+		Font_Draw(
+			g,
+			Font_Of(g, Widget_Get(g, g.root)),
+			line,
+			Rect{x = rect.x + 8, y = y, w = rect.w - 16, h = 16},
+			RGBA(0.85, 0.88, 0.94, 1),
+			.Left,
+		)
+		y += 16
+	}
+}
+
+//* How much of the atlas is in use, in MiB.
+atlas_bytes :: proc(g: ^GUI) -> int {
+	if g.atlas == nil {return 0}
+	return (g.atlas.width * g.atlas.height * 4) / (1024 * 1024)
+}
+
+draw_border_box :: proc(g: ^GUI, rect: Rect, colour: Colour) {
+	t := f32(1)
+	draw_quad(g.target, Rect{rect.x, rect.y, rect.w, t}, g.atlas.white_uv, colour, g.atlas_texture)
+	draw_quad(
+		g.target,
+		Rect{rect.x, rect.y + rect.h - t, rect.w, t},
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+	)
+	draw_quad(g.target, Rect{rect.x, rect.y, t, rect.h}, g.atlas.white_uv, colour, g.atlas_texture)
+	draw_quad(
+		g.target,
+		Rect{rect.x + rect.w - t, rect.y, t, rect.h},
+		g.atlas.white_uv,
+		colour,
+		g.atlas_texture,
+	)
+}

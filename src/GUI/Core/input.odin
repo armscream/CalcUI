@@ -711,3 +711,189 @@ color_picker_end_edit :: proc(g: ^GUI, id: Widget_ID) {
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
+
+//* The events the window layer hands to the GUI: the pointer, the keys, the
+//* text that was typed and the size of the window.
+//* A position is given twice: once in the window of the GUI and once on the
+//* screen.
+Mouse_Button :: enum { Left, Middle, Right }
+
+//* Ordered so letters and digits can be mapped arithmetically from the
+//* platform's key codes.
+Key :: enum {
+	None,
+	A, B, C, D, E, F, G, H, I, J, K, L, M,
+	N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+	Digit0, Digit1, Digit2, Digit3, Digit4,
+	Digit5, Digit6, Digit7, Digit8, Digit9,
+	Space, Enter, Escape, Tab, Backspace, Delete,
+	Left, Right, Up, Down, Home, End,
+	Page_Up, Page_Down,
+}
+
+Mod :: enum { Shift, Ctrl, Alt }
+Mods :: bit_set[Mod]
+
+Mouse_Down_Event :: struct {
+	pos:    Vec2,
+	global: Vec2,
+	button: Mouse_Button,
+	clicks: int, // 1 for a single click, 2 for a double click
+}
+
+Mouse_Up_Event :: struct {
+	pos:    Vec2,
+	global: Vec2,
+	button: Mouse_Button,
+}
+
+Mouse_Move_Event :: struct {
+	pos:    Vec2,
+	global: Vec2,
+}
+
+Wheel_Event :: struct {
+	amount: f32,
+}
+
+Key_Down_Event :: struct {
+	key:    Key,
+	mods:   Mods,
+	repeat: bool,
+}
+
+Key_Up_Event :: struct {
+	key:  Key,
+	mods: Mods,
+}
+
+//* A character was typed. The producer allocates `text` with the heap
+//* allocator; the core frees it once it has been handled.
+Text_Input_Event :: struct {
+	text: string,
+}
+
+//* An IME composition in progress. The text is the pre-edit string.
+Ime_Editing_Event :: struct {
+	text:  string,
+	start: int,
+	length: int,
+}
+
+Resized_Event :: struct {
+	size: Vec2,
+}
+
+//* The window was uncovered or restored and has to be painted again.
+Exposed_Event :: struct {}
+
+Quit_Event :: struct {}
+
+Event :: union {
+	Mouse_Down_Event,
+	Mouse_Up_Event,
+	Mouse_Move_Event,
+	Wheel_Event,
+	Key_Down_Event,
+	Key_Up_Event,
+	Text_Input_Event,
+	Ime_Editing_Event,
+	Resized_Event,
+	Exposed_Event,
+	Quit_Event,
+}
+
+Shortcut :: struct {
+	key:    Key,
+	mods:   Mods,
+//* Whether the command is done even when a widget that takes text has the keyboard.
+	always: bool,
+}
+
+Command :: struct {
+	name:     string,
+	shortcut: Shortcut,
+	action:   proc(g: ^GUI, id: Widget_ID),
+	enabled:  bool,
+}
+
+Commands :: struct {
+	list: [dynamic]Command,
+}
+
+//* Adds a command to the program and gives back its number.
+Command_Add :: proc(
+	g: ^GUI,
+	name: string,
+	shortcut: Shortcut,
+	action: proc(g: ^GUI, id: Widget_ID),
+) -> int {
+	command := Command {
+		name     = name,
+		shortcut = shortcut,
+		action   = action,
+		enabled  = true,
+	}
+	append(&g.commands.list, command)
+	return len(g.commands.list) - 1
+}
+
+Command_Set_Enabled :: proc(g: ^GUI, index: int, enabled: bool) {
+	if index < 0 || index >= len(g.commands.list) {return}
+	g.commands.list[index].enabled = enabled
+}
+
+// returns -1 when there is no command with that name.
+Command_Find :: proc(g: ^GUI, name: string) -> int {
+	for command, i in g.commands.list {
+		if command.name == name {return i}
+	}
+	return -1
+}
+
+//* True when the key and the modifiers are the shortcut of a command.
+shortcut_matches :: proc(shortcut: Shortcut, key: Key, mods: Mods) -> bool {
+	if shortcut.key != key {return false}
+	if (mods & shortcut.mods) != shortcut.mods {return false}
+	if (mods & ~shortcut.mods) != (Mods{}) {return false}
+	return true
+}
+
+//* The command of a key, if there is one. A command that is turned off
+//* is passed over.
+command_for_key :: proc(g: ^GUI, key: Key, mods: Mods, has_text: bool) -> int {
+	for command, i in g.commands.list {
+		if !command.enabled {continue}
+		if !shortcut_matches(command.shortcut, key, mods) {continue}
+		if has_text && !command.shortcut.always {continue}
+		return i
+	}
+	return -1
+}
+
+//* Executes the key command, if valid; returns result.
+shortcut_fire :: proc(g: ^GUI, key: Key, mods: Mods) -> bool {
+	has_text := widget_takes_text(g, g.focused)
+	index := command_for_key(g, key, mods, has_text)
+	if index < 0 {return false}
+	command := g.commands.list[index]
+	if command.action != nil {command.action(g, g.focused)}
+	return true
+}
+
+//* Whether the widget takes the text that is typed: a field of text, a
+//* search field, a chat field, a field of numbers or the palette. A
+//* colour picker takes the text of its code while that code is being
+//* typed.
+widget_takes_text :: proc(g: ^GUI, id: Widget_ID) -> bool {
+	w := Widget_Get(g, id)
+	if w == nil { return false }
+	#partial switch d in w.data {
+	case Text_Box_Data, Rich_Text_Editor_Data, Search_Field_Data,
+		Chat_Input_Data, Number_Input_Data, Command_Palette_Data:
+		return true
+	case Color_Picker_Data:
+		return d.editing
+	}
+	return false
+}

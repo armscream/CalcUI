@@ -175,7 +175,7 @@ app_start :: proc(app: ^App, opts: Options, setup: proc(app: ^App)) -> (started,
 
 	if opts.accessibility == .On && plat.Access_Available() {
 		if !plat.Access_Install(&app.window, app.gui) {
-			log.warn("the accessibility of the platform is not there")
+			log.warn("platform accessibility not available")
 		}
 	}
 

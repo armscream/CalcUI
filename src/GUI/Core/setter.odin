@@ -654,6 +654,35 @@ Widget_Set_Aspect_Ratio :: proc(g: ^GUI, id: Widget_ID, ratio: f32) {
 	}
 }
 
+//* Sets the state of a check box and emits the toggled signal when it changes.
+check_box_set :: proc(g: ^GUI, id: Widget_ID, on: bool) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	#partial switch &d in w.data {
+	case Check_Box_Data:
+		if d.on == on { return }
+		d.on = on
+	}
+	signal_toggled(g, id, on)
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
+//* Sets the state of a toggle switch and emits the toggled signal when it changes.
+toggle_switch_set :: proc(g: ^GUI, id: Widget_ID, on: bool) {
+	w := Widget_Get(g, id)
+	if w == nil { return }
+	matched := false
+	#partial switch &d in w.data {
+	case Toggle_Switch_Data:
+		if d.on == on { return }
+		d.on = on
+		matched = true
+	}
+	if !matched { return }
+	signal_toggled(g, id, on)
+	invalidate(g, id, Dirty_Flags{.Visual})
+}
+
 //* Invalidates the entire tree after direct widget field changes.
 GUI_Invalidate_All :: proc(g: ^GUI) {
 	invalidate_full(g)

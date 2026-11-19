@@ -16,9 +16,28 @@ Window :: struct {
 	pixel_w: i32,
 	pixel_h: i32,
 	popups: [dynamic]^sdl.Window,
+	popup_widgets: [dynamic]GUI.Widget_ID,
 	popup_pos: [dynamic]GUI.Vec2,
 	cursors: [dynamic]^sdl.Cursor,
 	cursor:  GUI.Cursor,
+	access:  ^Access_Tree,
+}
+
+clock_last: u64
+clock_started: bool
+
+Clock_Delta :: proc() -> f32 {
+	now := sdl.GetPerformanceCounter()
+	freq := sdl.GetPerformanceFrequency()
+	if freq == 0 { return 0 }
+	if !clock_started {
+		clock_started = true
+		clock_last = now
+		return 0
+	}
+	dt := f32(f64(now - clock_last) / f64(freq))
+	clock_last = now
+	return dt
 }
 
 Init_SDL :: proc() -> bool {
@@ -38,11 +57,13 @@ Create_Window :: proc(w, h: i32, title: string) -> (Window, bool) {
 	return window, true
 }
 
-Destroy_Window :: proc(w: Window) {
+Destroy_Window :: proc(w: ^Window) {
+	Access_Remove(w)
 	for popup in w.popups {
 		if popup != nil { sdl.DestroyWindow(popup) }
 	}
 	delete(w.popups)
+	delete(w.popup_widgets)
 	delete(w.popup_pos)
 	for cursor in w.cursors {
 		if cursor != nil { sdl.DestroyCursor(cursor) }
@@ -150,35 +171,74 @@ Sync_Clipboard :: proc(g: ^GUI.GUI) {
 	if text != "" { delete(text) }
 }
 
-Sync_Popups :: proc(w: ^Window, floats: []GUI.Float_Panel) {
-	for len(w.popups) < len(floats) {
-		f := floats[len(w.popups)]
-		popup := sdl.CreateWindow(
-			strings.clone_to_cstring(f.title, context.temp_allocator),
-			i32(f.size.x),
-			i32(f.size.y),
-			sdl.WindowFlags{.BORDERLESS},
-		)
-		if popup == nil {
-			log.warnf("could not create a window for '%s': %s", f.title, sdl.GetError())
-			break
+Sync_Popups :: proc(
+	w: ^Window,
+	floats: []GUI.Float_Panel,
+	release_target: proc(ctx: rawptr, window: rawptr) = nil,
+	ctx: rawptr = nil,
+) {
+	for i := len(w.popups) - 1; i >= 0; i -= 1 {
+		widget := GUI.INVALID_WIDGET_ID
+		if i < len(w.popup_widgets) {widget = w.popup_widgets[i]}
+		still_open := false
+		for f in floats {
+			if f.widget == widget {
+				still_open = true
+				break
+			}
 		}
-		if !sdl.StartTextInput(popup) {
-			log.warnf("could not start text input: %s", sdl.GetError())
+		if still_open {continue}
+		if w.popups[i] != nil && release_target != nil {
+			release_target(ctx, cast(rawptr) w.popups[i])
 		}
-		append(&w.popups, popup)
+		if w.popups[i] != nil {sdl.DestroyWindow(w.popups[i])}
+		ordered_remove(&w.popups, i)
+		if i < len(w.popup_widgets) {ordered_remove(&w.popup_widgets, i)}
 	}
 
-	for popup, i in w.popups {
-		if i >= len(floats) {
-			sdl.HideWindow(popup)
-			continue
+	next_popups: [dynamic]^sdl.Window
+	next_widgets: [dynamic]GUI.Widget_ID
+	defer delete(next_popups)
+	defer delete(next_widgets)
+	for f in floats {
+		popup: ^sdl.Window
+		for i in 0 ..< len(w.popups) {
+			if i >= len(w.popup_widgets) {continue}
+			if w.popup_widgets[i] != f.widget {continue}
+			popup = w.popups[i]
+			break
 		}
-		f := floats[i]
+		if popup == nil {
+			popup = sdl.CreateWindow(
+				strings.clone_to_cstring(f.title, context.temp_allocator),
+				i32(f.size.x),
+				i32(f.size.y),
+				sdl.WindowFlags{.BORDERLESS},
+			)
+			if popup == nil {
+				log.warnf("could not create a window for '%s': %s", f.title, sdl.GetError())
+				break
+			}
+			if !sdl.StartTextInput(popup) {
+				log.warnf("could not start text input: %s", sdl.GetError())
+			}
+		}
+		append(&next_popups, popup)
+		append(&next_widgets, f.widget)
 		sdl.SetWindowPosition(popup, i32(f.pos.x), i32(f.pos.y))
 		sdl.SetWindowSize(popup, i32(f.size.x), i32(f.size.y))
 		sdl.ShowWindow(popup)
+		if f.raise {
+			sdl.RaiseWindow(popup)
+		}
 	}
+
+	delete(w.popups)
+	delete(w.popup_widgets)
+	w.popups = next_popups
+	w.popup_widgets = next_widgets
+	next_popups = nil
+	next_widgets = nil
 
 	clear(&w.popup_pos)
 	for f in floats {

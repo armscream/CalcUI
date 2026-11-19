@@ -12,7 +12,7 @@ import GUI "../../src/GUI"
 import "core:os"
 
 GALLERY_WIDTH :: 740
-GALLERY_GAP :: 12
+GALLERY_GAP :: 16
 ROW_TOP :: 44
 ROW_BOTTOM :: 14
 COLUMN_WIDTH :: 228
@@ -26,7 +26,6 @@ emoji_font: bool
 
 gallery_scroll: GUI.Widget_ID
 gallery_column: GUI.Widget_ID
-gallery_height: f32
 
 motion_card: GUI.Widget_ID
 motion_bar: GUI.Widget_ID
@@ -74,7 +73,8 @@ Init_Gallery :: proc(gui: ^GUI.GUI, body: GUI.Font_Family_ID) {
 	family = body
 	gallery_scroll = GUI.INVALID_WIDGET_ID
 	gallery_column = GUI.INVALID_WIDGET_ID
-	gallery_height = 0
+	gallery_gizmo = GUI.INVALID_WIDGET_ID
+	gallery_gizmo_status = GUI.INVALID_WIDGET_ID
 
 	emoji_font = Load_Emoji_Font(gui, body)
 
@@ -103,29 +103,25 @@ Init_Gallery :: proc(gui: ^GUI.GUI, body: GUI.Font_Family_ID) {
 		},
 	)
 
-	height := f32(0)
-	height += Section_Buttons(gallery_column)
-	height += Section_Inputs(gallery_column)
-	height += Section_Ranges(gallery_column)
-	height += Section_Choices(gallery_column)
-	height += Section_Popups(gallery_column)
-	height += Section_Overlays(gallery_column)
-	height += Section_Motion(gallery_column)
-	height += Section_Containers(gallery_column)
-	height += Section_Drawings(gallery_column)
-	height += Section_Nine_Patch(gallery_column)
-	height += Section_Data(gallery_column)
-	height += Section_Heavy(gallery_column)
+	Section_Buttons(gallery_column)
+	Section_Inputs(gallery_column)
+	Section_Ranges(gallery_column)
+	Section_Choices(gallery_column)
+	Section_Popups(gallery_column)
+	Section_Overlays(gallery_column)
+	Section_Motion(gallery_column)
+	Section_Containers(gallery_column)
+	Section_Drawings(gallery_column)
+	Section_Gizmo(gallery_column)
+	Section_Nine_Patch(gallery_column)
+	Section_Data(gallery_column)
+	Section_Heavy(gallery_column)
 
-	//* The text showcase is the last section: it shows the sizes, the
-	//* colours, the alignment and the wrapping of the text.
 	showcase := Init_Demo_Text(g, body)
-	GUI.Widget_Set_Min_Size(g, showcase, GUI.Vec2{GALLERY_WIDTH, 240})
+	GUI.Widget_Set_Min_Size(g, showcase, GUI.Vec2{GALLERY_WIDTH, 0})
 	GUI.Widget_Attach(g, gallery_column, showcase)
-	height += 240
 
-	gallery_height = height + f32(GALLERY_GAP) * 13
-	GUI.Widget_Set_Min_Size(g, gallery_column, GUI.Vec2{GALLERY_WIDTH, gallery_height})
+	GUI.Widget_Set_Min_Size(g, gallery_column, GUI.Vec2{GALLERY_WIDTH, 0})
 	gallery_theme(g, body)
 }
 

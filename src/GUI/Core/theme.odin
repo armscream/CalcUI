@@ -8,10 +8,21 @@ style_fields_of :: proc(s: ^Style) -> bit_set[Style_Field] {
 	if s.box.content_margin != ([4]f32{}) {fields += bit_set[Style_Field]{.Padding}}
 	if s.box.corner_radius != ([4]f32{}) {fields += bit_set[Style_Field]{.Corner_Radius}}
 	if s.box.expand_margin != ([4]f32{}) {fields += bit_set[Style_Field]{.Expand_Margin}}
+	if s.box.backdrop_blur > 0 {fields += bit_set[Style_Field]{.Backdrop_Blur}}
+	if s.box.optics.refraction != 0 {fields += bit_set[Style_Field]{.Optics_Refraction}}
+	if s.box.optics.dispersion != 0 {fields += bit_set[Style_Field]{.Optics_Dispersion}}
+	if s.box.optics.fresnel != 0 {fields += bit_set[Style_Field]{.Optics_Fresnel}}
+	if s.box.optics.saturation != 0 {fields += bit_set[Style_Field]{.Optics_Saturation}}
 	if s.box.shadow_color != (Colour{}) ||
 	   s.box.shadow_size != 0 ||
 	   s.box.shadow_offset != (Vec2{}) {
 		fields += bit_set[Style_Field]{.Shadow}
+	}
+	if s.box.shadow_spread != 0 {
+		fields += bit_set[Style_Field]{.Shadow_Spread}
+	}
+	if s.box.shadow_inset {
+		fields += bit_set[Style_Field]{.Shadow_Inset}
 	}
 	if text_fields_of(&s.text) != (bit_set[Text_Field]{}) {fields += bit_set[Style_Field]{.Text}}
 	if s.transition.duration > 0 || s.transition.easing != .Linear {
@@ -75,9 +86,37 @@ apply_style :: proc(base: ^Style, over: ^Style) -> bit_set[Style_Field] {
 		base.box.shadow_offset = over.box.shadow_offset
 		applied += bit_set[Style_Field]{.Shadow}
 	}
+	if .Shadow_Spread in fields {
+		base.box.shadow_spread = over.box.shadow_spread
+		applied += bit_set[Style_Field]{.Shadow_Spread}
+	}
+	if .Shadow_Inset in fields {
+		base.box.shadow_inset = over.box.shadow_inset
+		applied += bit_set[Style_Field]{.Shadow_Inset}
+	}
 	if .Expand_Margin in fields {
 		base.box.expand_margin = over.box.expand_margin
 		applied += bit_set[Style_Field]{.Expand_Margin}
+	}
+	if .Backdrop_Blur in fields {
+		base.box.backdrop_blur = over.box.backdrop_blur
+		applied += bit_set[Style_Field]{.Backdrop_Blur}
+	}
+	if .Optics_Refraction in fields {
+		base.box.optics.refraction = over.box.optics.refraction
+		applied += bit_set[Style_Field]{.Optics_Refraction}
+	}
+	if .Optics_Dispersion in fields {
+		base.box.optics.dispersion = over.box.optics.dispersion
+		applied += bit_set[Style_Field]{.Optics_Dispersion}
+	}
+	if .Optics_Fresnel in fields {
+		base.box.optics.fresnel = over.box.optics.fresnel
+		applied += bit_set[Style_Field]{.Optics_Fresnel}
+	}
+	if .Optics_Saturation in fields {
+		base.box.optics.saturation = over.box.optics.saturation
+		applied += bit_set[Style_Field]{.Optics_Saturation}
 	}
 	if .Text in fields {
 		apply_text_style(&base.text, &over.text)
@@ -340,6 +379,21 @@ theme_constant :: proc(g: ^GUI, w: ^Widget, name: string) -> f32 {
 	return 0
 }
 
+//* Looks up a named constant and says whether the theme holds it. A theme
+//* that sets a constant to zero means zero, not "not set".
+theme_constant_ok :: proc(g: ^GUI, w: ^Widget, name: string) -> (f32, bool) {
+	if g.theme == nil {return 0, false}
+	if w.variation != "" {
+		if v, ok := g.theme.variations[w.variation]; ok {
+			if c, has := v.constants[name]; has {return c, true}
+		}
+	}
+	if entries, ok := theme_entries_for(g, w); ok {
+		if c, has := entries.constants[name]; has {return c, true}
+	}
+	return 0, false
+}
+
 //* Looks up a named icon in the widget's class or type theme entries.
 theme_icon :: proc(g: ^GUI, w: ^Widget, name: string) -> Texture_ID {
 	if g.theme == nil {return INVALID_TEXTURE_ID}
@@ -423,20 +477,28 @@ theme_put_class_entries :: proc(t: ^Theme, name: string, entries: Theme_Type) {
 
 //* Sets the base style for a named widget class.
 Theme_Set_Class :: proc(t: ^Theme, name: string, style: Style) {
+	old := Style{}
+	if entries, found := t.classes[name]; found {old = theme_entry_style(&entries)}
 	entries := theme_class_entries_of(t, name)
 	entries.styleboxes[THEME_NORMAL] = style.box
 	entries.text = style.text
 	entries.transition = style.transition
 	theme_put_class_entries(t, name, entries)
-	theme_changed(t)
+	flags := Dirty_Flags{.Visual}
+	if style_size_of(old) != style_size_of(style) {flags += Dirty_Flags{.Measure}}
+	theme_changed_target(t, Theme_Target{kind = .Class, name = name}, flags)
 }
 
 //* Sets a named stylebox for a widget class.
 theme_set_class_stylebox :: proc(t: ^Theme, name: string, item: string, box: StyleBox) {
 	entries := theme_class_entries_of(t, name)
+	old, has := entries.styleboxes[item]
+	measured := box.content_margin != (has ? old.content_margin : [4]f32{})
 	entries.styleboxes[item] = box
 	theme_put_class_entries(t, name, entries)
-	theme_changed(t)
+	flags := Dirty_Flags{.Visual}
+	if measured {flags += Dirty_Flags{.Measure}}
+	theme_changed_target(t, Theme_Target{kind = .Class, name = name}, flags)
 }
 
 //* Sets a named colour for a widget class.
@@ -444,7 +506,7 @@ Theme_Set_Class_Color :: proc(t: ^Theme, name: string, item: string, colour: Col
 	entries := theme_class_entries_of(t, name)
 	entries.colors[item] = colour
 	theme_put_class_entries(t, name, entries)
-	theme_changed(t)
+	theme_changed_target(t, Theme_Target{kind = .Class, name = name}, Dirty_Flags{.Visual})
 }
 
 //* Sets a named constant for a widget class.
@@ -452,7 +514,11 @@ Theme_Set_Class_Constant :: proc(t: ^Theme, name: string, item: string, value: f
 	entries := theme_class_entries_of(t, name)
 	entries.constants[item] = value
 	theme_put_class_entries(t, name, entries)
-	theme_changed(t)
+	theme_changed_target(
+		t,
+		Theme_Target{kind = .Class, name = name},
+		Dirty_Flags{.Measure, .Visual},
+	)
 }
 
 //* Sets the style override for a widget class state.
@@ -473,25 +539,33 @@ Theme_Set_Class_State :: proc(t: ^Theme, name: string, state: Style_State, style
 	}
 	entries.states = states
 	theme_put_class_entries(t, name, entries)
-	theme_changed(t)
+	theme_changed_target(t, Theme_Target{kind = .Class, name = name}, Dirty_Flags{.Visual})
 }
 
 //* Sets the base style for a widget type.
 Theme_Set_Type :: proc(t: ^Theme, widget_type: Widget_Type, style: Style) {
+	old := Style{}
+	if entries, found := t.types[widget_type]; found {old = theme_entry_style(&entries)}
 	entries := theme_entries_of(t, widget_type)
 	entries.styleboxes[THEME_NORMAL] = style.box
 	entries.text = style.text
 	entries.transition = style.transition
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	flags := Dirty_Flags{.Visual}
+	if style_size_of(old) != style_size_of(style) {flags += Dirty_Flags{.Measure}}
+	theme_changed_target(t, Theme_Target{kind = .Type, widget_type = widget_type}, flags)
 }
 
 //* Sets a named stylebox for a widget type.
 theme_set_stylebox :: proc(t: ^Theme, widget_type: Widget_Type, name: string, box: StyleBox) {
 	entries := theme_entries_of(t, widget_type)
+	old, has := entries.styleboxes[name]
+	measured := box.content_margin != (has ? old.content_margin : [4]f32{})
 	entries.styleboxes[name] = box
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	flags := Dirty_Flags{.Visual}
+	if measured {flags += Dirty_Flags{.Measure}}
+	theme_changed_target(t, Theme_Target{kind = .Type, widget_type = widget_type}, flags)
 }
 
 //* Sets a named colour for a widget type.
@@ -499,7 +573,7 @@ theme_set_color :: proc(t: ^Theme, widget_type: Widget_Type, name: string, colou
 	entries := theme_entries_of(t, widget_type)
 	entries.colors[name] = colour
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	theme_changed_target(t, Theme_Target{kind = .Type, widget_type = widget_type}, Dirty_Flags{.Visual})
 }
 
 //* Sets a named constant for a widget type.
@@ -507,7 +581,11 @@ theme_set_constant :: proc(t: ^Theme, widget_type: Widget_Type, name: string, va
 	entries := theme_entries_of(t, widget_type)
 	entries.constants[name] = value
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	theme_changed_target(
+		t,
+		Theme_Target{kind = .Type, widget_type = widget_type},
+		Dirty_Flags{.Measure, .Visual},
+	)
 }
 
 //* Sets a named font for a widget type.
@@ -515,7 +593,11 @@ theme_set_font :: proc(t: ^Theme, widget_type: Widget_Type, name: string, font: 
 	entries := theme_entries_of(t, widget_type)
 	entries.fonts[name] = font
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	theme_changed_target(
+		t,
+		Theme_Target{kind = .Type, widget_type = widget_type},
+		Dirty_Flags{.Measure, .Visual},
+	)
 }
 
 //* Sets a named font size for a widget type.
@@ -523,7 +605,11 @@ theme_set_font_size :: proc(t: ^Theme, widget_type: Widget_Type, name: string, s
 	entries := theme_entries_of(t, widget_type)
 	entries.font_sizes[name] = size
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	theme_changed_target(
+		t,
+		Theme_Target{kind = .Type, widget_type = widget_type},
+		Dirty_Flags{.Measure, .Visual},
+	)
 }
 
 //* Sets a named icon for a widget type.
@@ -531,7 +617,7 @@ theme_set_icon :: proc(t: ^Theme, widget_type: Widget_Type, name: string, icon: 
 	entries := theme_entries_of(t, widget_type)
 	entries.icons[name] = icon
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	theme_changed_target(t, Theme_Target{kind = .Type, widget_type = widget_type}, Dirty_Flags{.Visual})
 }
 
 //* Retrieves a stylebox by name from a widget type.
@@ -576,17 +662,20 @@ Theme_Set_State :: proc(t: ^Theme, widget_type: Widget_Type, state: Style_State,
 	}
 	entries.states = states
 	theme_put_entries(t, widget_type, entries)
-	theme_changed(t)
+	theme_changed_target(t, Theme_Target{kind = .Type, widget_type = widget_type}, Dirty_Flags{.Visual})
 }
 
 //* Adds a named variation whose style overrides its base widget type.
 Theme_Add_Variation :: proc(t: ^Theme, name: string, widget_type: Widget_Type, style: Style) {
 	v := theme_variation_of(t, name)
+	old := v.style
 	v.of = widget_type
 	s := style
 	apply_style(&v.style, &s)
 	t.variations[name] = v
-	theme_changed(t)
+	flags := Dirty_Flags{.Visual}
+	if style_size_of(old) != style_size_of(v.style) {flags += Dirty_Flags{.Measure}}
+	theme_changed_target(t, Theme_Target{kind = .Variation, name = name}, flags)
 }
 
 //* Sets the state style override for a named variation.
@@ -612,7 +701,7 @@ Theme_Set_Variation_State :: proc(
 		return
 	}
 	t.variations[name] = v
-	theme_changed(t)
+	theme_changed_target(t, Theme_Target{kind = .Variation, name = name}, Dirty_Flags{.Visual})
 }
 
 //* Sets a named colour on a variation.
@@ -628,7 +717,7 @@ theme_set_variation_color :: proc(
 	if v.colors == nil {v.colors = make(map[string]Colour)}
 	v.colors[item] = colour
 	t.variations[name] = v
-	theme_changed(t)
+	theme_changed_target(t, Theme_Target{kind = .Variation, name = name}, Dirty_Flags{.Visual})
 }
 
 //* Sets a named constant on a variation.
@@ -644,7 +733,11 @@ theme_set_variation_constant :: proc(
 	if v.constants == nil {v.constants = make(map[string]f32)}
 	v.constants[item] = value
 	t.variations[name] = v
-	theme_changed(t)
+	theme_changed_target(
+		t,
+		Theme_Target{kind = .Variation, name = name},
+		Dirty_Flags{.Measure, .Visual},
+	)
 }
 
 //* Returns a variation by name, initializing its maps when absent.
@@ -673,14 +766,84 @@ Theme_Set_Size :: proc(t: ^Theme, size: f32) {
 	theme_changed(t)
 }
 
-//* Advances the theme epoch and invalidates styles, layout, and drawing.
+//* Advances the theme epoch and invalidates every themed widget.
 theme_changed :: proc(t: ^Theme) {
+	theme_changed_global(t)
+}
+
+
+theme_changed_global :: proc(t: ^Theme) {
 	if t == nil {return}
 	g := t.owner
 	if g == nil {return}
 	g.style_epoch += 1
 	style_cache_drop(g)
 	invalidate_theme(g)
+}
+
+Theme_Target_Kind :: enum {
+	All,
+	Type,
+	Class,
+	Variation,
+}
+
+Theme_Target :: struct {
+	kind:        Theme_Target_Kind,
+	widget_type: Widget_Type,
+	name:        string,
+}
+
+theme_target_matches :: proc(g: ^GUI, w: ^Widget, target: Theme_Target) -> bool {
+	if g == nil || w == nil || !w.use_theme {return false}
+	#partial switch target.kind {
+	case .Type:
+		return w.type == target.widget_type
+	case .Class:
+		name := theme_class_name(g, w)
+		return name != "" && name == target.name
+	case .Variation:
+		return target.name != "" && w.variation == target.name
+	case .All:
+		return true
+	}
+	return false
+}
+
+theme_class_name :: proc(g: ^GUI, w: ^Widget) -> string {
+	if c, ok := class_get(g, w.class); ok {
+		if c.name != "" {return c.name}
+		return c.kind.theme_name
+	}
+	return ""
+}
+
+theme_entry_style :: proc(entries: ^Theme_Type) -> Style {
+	s := Style{text = entries.text, transition = entries.transition}
+	if box, has := entries.styleboxes[THEME_NORMAL]; has {s.box = box}
+	return s
+}
+
+theme_changed_target :: proc(t: ^Theme, target: Theme_Target, flags: Dirty_Flags) {
+	if t == nil {return}
+
+	g := t.owner
+	if g == nil {return}
+	if target.kind == .All {
+		theme_changed_global(t)
+		return
+	}
+	all := flags + Dirty_Flags{.Theme}
+	//* The change is global even when it matches no widget of this tree,
+	//* so the frame cannot be reduced to a later visual change.
+	draw_invalidate(g)
+	for w in g.widgets {
+		if w == nil || !w.use_theme {continue}
+		if !theme_target_matches(g, w, target) {continue}
+		w.style_cache.valid = false
+		w.style_cache.transition.initialized = false
+		invalidate_widget(g, w, all)
+	}
 }
 
 //* Transfers theme ownership to the GUI, freeing the previously assigned theme.
@@ -713,7 +876,6 @@ GUI_Set_Default_Style :: proc(g: ^GUI, style: Style) {
 //* Extracts the style fields that can affect widget measurement.
 style_size_of :: proc(s: Style) -> Style {
 	return Style {
-		set = s.set - bit_set[Style_Field]{.Transition},
 		box = StyleBox{content_margin = s.box.content_margin},
 		text = text_style_size_of(s.text),
 	}
@@ -747,4 +909,171 @@ theme_destroy :: proc(t: ^Theme) {
 	}
 	delete(t.variations)
 	free(cast(rawptr)t)
+}
+
+
+//* == Style transitions ==
+style_colour_lerp :: proc(a, b: Colour, t: f32) -> Colour {
+	return Colour {
+		r = a.r + (b.r - a.r) * t,
+		g = a.g + (b.g - a.g) * t,
+		b = a.b + (b.b - a.b) * t,
+		a = a.a + (b.a - a.a) * t,
+	}
+}
+
+style_side_lerp :: proc(a, b: [4]f32, t: f32) -> [4]f32 {
+	out: [4]f32
+	for i in 0 ..< 4 {
+		out[i] = a[i] + (b[i] - a[i]) * t
+	}
+	return out
+}
+
+style_corner_colour_lerp :: proc(a, b: [4]Colour, t: f32) -> [4]Colour {
+	out: [4]Colour
+	for i in 0 ..< 4 {
+		out[i] = style_colour_lerp(a[i], b[i], t)
+	}
+	return out
+}
+
+style_vec2_lerp :: proc(a, b: Vec2, t: f32) -> Vec2 {
+	return Vec2 {
+		x = a.x + (b.x - a.x) * t,
+		y = a.y + (b.y - a.y) * t,
+	}
+}
+
+style_text_lerp :: proc(a, b: Text_Style, t: f32) -> Text_Style {
+	out := b
+	out.size = a.size + (b.size - a.size) * t
+	out.spacing = a.spacing + (b.spacing - a.spacing) * t
+	out.colour = style_colour_lerp(a.colour, b.colour, t)
+	out.hover_colour = style_colour_lerp(a.hover_colour, b.hover_colour, t)
+	out.pressed_colour = style_colour_lerp(a.pressed_colour, b.pressed_colour, t)
+	out.disabled_colour = style_colour_lerp(a.disabled_colour, b.disabled_colour, t)
+	out.focus_colour = style_colour_lerp(a.focus_colour, b.focus_colour, t)
+	out.outline_colour = style_colour_lerp(a.outline_colour, b.outline_colour, t)
+	out.outline_size = a.outline_size + (b.outline_size - a.outline_size) * t
+	out.shadow_colour = style_colour_lerp(a.shadow_colour, b.shadow_colour, t)
+	out.shadow_offset = style_vec2_lerp(a.shadow_offset, b.shadow_offset, t)
+	return out
+}
+
+style_transition_blend :: proc(a, b: Style, t: f32) -> Style {
+	out := b
+	out.box.bg_color = style_colour_lerp(a.box.bg_color, b.box.bg_color, t)
+	out.box.border_width = style_side_lerp(a.box.border_width, b.box.border_width, t)
+	out.box.border_color = style_corner_colour_lerp(a.box.border_color, b.box.border_color, t)
+	out.box.corner_radius = style_side_lerp(a.box.corner_radius, b.box.corner_radius, t)
+	out.box.content_margin = style_side_lerp(a.box.content_margin, b.box.content_margin, t)
+	out.box.expand_margin = style_side_lerp(a.box.expand_margin, b.box.expand_margin, t)
+	out.box.shadow_color = style_colour_lerp(a.box.shadow_color, b.box.shadow_color, t)
+	out.box.shadow_size = a.box.shadow_size + (b.box.shadow_size - a.box.shadow_size) * t
+	out.box.shadow_offset = style_vec2_lerp(a.box.shadow_offset, b.box.shadow_offset, t)
+	out.box.shadow_spread = a.box.shadow_spread + (b.box.shadow_spread - a.box.shadow_spread) * t
+	out.box.shadow_inset = t >= 0.5 ? b.box.shadow_inset : a.box.shadow_inset
+	out.box.backdrop_blur = a.box.backdrop_blur + (b.box.backdrop_blur - a.box.backdrop_blur) * t
+	out.box.optics.refraction = a.box.optics.refraction + (b.box.optics.refraction - a.box.optics.refraction) * t
+	out.box.optics.dispersion = a.box.optics.dispersion + (b.box.optics.dispersion - a.box.optics.dispersion) * t
+	out.box.optics.fresnel = a.box.optics.fresnel + (b.box.optics.fresnel - a.box.optics.fresnel) * t
+	out.box.optics.saturation = a.box.optics.saturation + (b.box.optics.saturation - a.box.optics.saturation) * t
+	out.text = style_text_lerp(a.text, b.text, t)
+	return out
+}
+
+style_transition_current :: proc(t: ^Style_Transition_State) -> Style {
+	if !t.active || t.duration <= 0 {
+		return t.target
+	}
+	progress := clamp(t.elapsed / t.duration, 0, 1)
+	return style_transition_blend(t.from, t.target, easing_apply(t.easing, progress))
+}
+
+style_transition_sync :: proc(
+	t: ^Style_Transition_State,
+	target: Style,
+	state: Style_State,
+	epoch: int,
+) {
+	duration := target.transition.duration
+	easing := target.transition.easing
+
+	if !t.initialized || t.epoch != epoch {
+		t.from = target
+		t.target = target
+		t.state = state
+		t.elapsed = 0
+		t.duration = duration
+		t.easing = easing
+		t.active = false
+		t.initialized = true
+		t.epoch = epoch
+		return
+	}
+
+	if t.state != state {
+		current := style_transition_current(t)
+		t.from = current
+		t.target = target
+		t.state = state
+		t.elapsed = 0
+		t.duration = duration
+		t.easing = easing
+		t.active = duration > 0 && current != target
+		return
+	}
+
+	if t.target != target {
+		current := style_transition_current(t)
+		if duration > 0 && current != target {
+			t.from = current
+			t.elapsed = 0
+			t.duration = duration
+			t.easing = easing
+			t.active = true
+		} else {
+			t.from = target
+			t.duration = duration
+			t.easing = easing
+			t.active = false
+		}
+		t.target = target
+		return
+	}
+
+	t.duration = duration
+	t.easing = easing
+	if !t.active {
+		t.from = target
+	}
+}
+
+style_transition_tick :: proc(g: ^GUI, w: ^Widget, dt: f32) {
+	if g == nil || w == nil {return}
+	t := &w.style_cache.transition
+	if !t.active {return}
+	if dt <= 0 {return}
+	t.elapsed += dt
+	if t.elapsed >= t.duration {
+		t.elapsed = t.duration
+		t.active = false
+	}
+	invalidate(g, w.id, Dirty_Flags{.Visual})
+}
+
+Style_Transitions_Update :: proc(g: ^GUI, dt: f32) {
+	if g == nil {return}
+	for w in g.widgets {
+		if w == nil {continue}
+		style_transition_tick(g, w, dt)
+	}
+}
+
+Widget_Style_Transition_Active :: proc(g: ^GUI, id: Widget_ID) -> bool {
+	if g == nil {return false}
+	w := Widget_Get(g, id)
+	if w == nil {return false}
+	return w.style_cache.transition.active
 }

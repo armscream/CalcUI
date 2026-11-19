@@ -7,9 +7,8 @@ import GUI "../GUI"
 import "core:testing"
 
 scroll_wheel_test_make :: proc(t: ^testing.T) -> (g: ^GUI.GUI, container: GUI.Widget_ID) {
-	g = test_gui(t)
+	g = test_gui_with_font(t)
 	g.backend = mock_backend
-	GUI.Font_Load(g, "assets/fonts/Roboto-Regular.ttf", 16)
 
 	container = GUI.Make_Scroll_Container(g, g.root, GUI.Scroll_Container_Opts{
 		Base_Opts = GUI.Base_Opts{
@@ -55,6 +54,7 @@ scroll_wheel_tree_test_make :: proc(t: ^testing.T) -> (g: ^GUI.GUI, container, t
 @(test)
 test_the_wheel_over_a_tree_with_rows_that_do_not_fit_scrolls_the_tree :: proc(t: ^testing.T) {
 	g, container, tree := scroll_wheel_tree_test_make(t)
+	defer test_gui_destroy(g)
 
 	for i in 0 ..< 5 {
 		GUI.tree_add_item(g, tree, "One", -1)
@@ -64,12 +64,12 @@ test_the_wheel_over_a_tree_with_rows_that_do_not_fit_scrolls_the_tree :: proc(t:
 
 	testing.expect_value(t, GUI.tree_data(g, tree).scroll > 0, true)
 	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 0.0)
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_wheel_over_a_tree_whose_rows_fit_scrolls_the_container_around_it :: proc(t: ^testing.T) {
 	g, container, tree := scroll_wheel_tree_test_make(t)
+	defer test_gui_destroy(g)
 
 	GUI.tree_add_item(g, tree, "One", -1)
 	GUI.tree_add_item(g, tree, "Two", -1)
@@ -77,8 +77,7 @@ test_the_wheel_over_a_tree_whose_rows_fit_scrolls_the_container_around_it :: pro
 	scroll_wheel_test_scroll(g)
 
 	testing.expect_value(t, GUI.tree_data(g, tree).scroll, 0.0)
-	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 60.0)
-	test_gui_destroy(g)
+	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, GUI.SCROLL_WHEEL_STEP)
 }
 
 //* == Text box ==
@@ -86,6 +85,7 @@ test_the_wheel_over_a_tree_whose_rows_fit_scrolls_the_container_around_it :: pro
 @(test)
 test_the_wheel_over_a_text_box_scrolls_the_text_box_and_not_the_container :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	box := GUI.Make_Text_Box(g, container, GUI.Text_Box_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 		text = "one two three four five six seven eight nine ten eleven twelve",
@@ -96,12 +96,12 @@ test_the_wheel_over_a_text_box_scrolls_the_text_box_and_not_the_container :: pro
 
 	testing.expect_value(t, GUI.text_box_data(g, box).scroll_y > 0, true)
 	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 0.0)
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_wheel_over_a_text_box_whose_text_fits_scrolls_the_container_around_it :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	box := GUI.Make_Text_Box(g, container, GUI.Text_Box_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 		text = "One",
@@ -111,8 +111,7 @@ test_the_wheel_over_a_text_box_whose_text_fits_scrolls_the_container_around_it :
 	scroll_wheel_test_scroll(g)
 
 	testing.expect_value(t, GUI.text_box_data(g, box).scroll_y, 0.0)
-	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 60.0)
-	test_gui_destroy(g)
+	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, GUI.SCROLL_WHEEL_STEP)
 }
 
 //* == Rich text editor ==
@@ -120,6 +119,7 @@ test_the_wheel_over_a_text_box_whose_text_fits_scrolls_the_container_around_it :
 @(test)
 test_the_wheel_over_a_rich_text_editor_scrolls_the_editor_and_not_the_container :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	editor := GUI.Make_Rich_Text_Editor(g, container, GUI.Rich_Text_Editor_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 		text = "One\nTwo\nThree\nFour\nFive",
@@ -129,12 +129,12 @@ test_the_wheel_over_a_rich_text_editor_scrolls_the_editor_and_not_the_container 
 
 	testing.expect_value(t, GUI.rich_text_editor_state(g, editor).scroll.y > 0, true)
 	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 0.0)
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_wheel_over_a_rich_text_editor_whose_text_fits_scrolls_the_container_around_it :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	editor := GUI.Make_Rich_Text_Editor(g, container, GUI.Rich_Text_Editor_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 		text = "One",
@@ -143,8 +143,7 @@ test_the_wheel_over_a_rich_text_editor_whose_text_fits_scrolls_the_container_aro
 	scroll_wheel_test_scroll(g)
 
 	testing.expect_value(t, GUI.rich_text_editor_state(g, editor).scroll.y, 0.0)
-	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 60.0)
-	test_gui_destroy(g)
+	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, GUI.SCROLL_WHEEL_STEP)
 }
 
 //* == Chat input ==
@@ -152,6 +151,7 @@ test_the_wheel_over_a_rich_text_editor_whose_text_fits_scrolls_the_container_aro
 @(test)
 test_the_wheel_over_a_chat_input_scrolls_the_talk_and_not_the_container :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	chat := GUI.Make_Chat_Input(g, container, GUI.Chat_Input_Opts{
 		Base_Opts = scroll_wheel_test_child_base(120),
 	})
@@ -163,12 +163,12 @@ test_the_wheel_over_a_chat_input_scrolls_the_talk_and_not_the_container :: proc(
 
 	testing.expect_value(t, GUI.chat_input_data(g, chat).scroll > 0, true)
 	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 0.0)
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_wheel_over_a_chat_input_whose_lines_fit_scrolls_the_container_around_it :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	chat := GUI.Make_Chat_Input(g, container, GUI.Chat_Input_Opts{
 		Base_Opts = scroll_wheel_test_child_base(120),
 	})
@@ -177,8 +177,7 @@ test_the_wheel_over_a_chat_input_whose_lines_fit_scrolls_the_container_around_it
 	scroll_wheel_test_scroll(g)
 
 	testing.expect_value(t, GUI.chat_input_data(g, chat).scroll, 0.0)
-	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 60.0)
-	test_gui_destroy(g)
+	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, GUI.SCROLL_WHEEL_STEP)
 }
 
 //* == Data table ==
@@ -186,6 +185,7 @@ test_the_wheel_over_a_chat_input_whose_lines_fit_scrolls_the_container_around_it
 @(test)
 test_the_wheel_over_a_data_table_scrolls_the_table_and_not_the_container :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	table := GUI.Make_Data_Table(g, container, GUI.Data_Table_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 	})
@@ -198,12 +198,12 @@ test_the_wheel_over_a_data_table_scrolls_the_table_and_not_the_container :: proc
 
 	testing.expect_value(t, GUI.data_table_scroll(g, table) > 0, true)
 	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 0.0)
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_wheel_over_a_data_table_whose_rows_fit_scrolls_the_container_around_it :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	table := GUI.Make_Data_Table(g, container, GUI.Data_Table_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 	})
@@ -213,8 +213,7 @@ test_the_wheel_over_a_data_table_whose_rows_fit_scrolls_the_container_around_it 
 	scroll_wheel_test_scroll(g)
 
 	testing.expect_value(t, GUI.data_table_scroll(g, table), 0)
-	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 60.0)
-	test_gui_destroy(g)
+	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, GUI.SCROLL_WHEEL_STEP)
 }
 
 //* == Virtual list ==
@@ -222,6 +221,7 @@ test_the_wheel_over_a_data_table_whose_rows_fit_scrolls_the_container_around_it 
 @(test)
 test_the_wheel_over_a_virtual_list_scrolls_the_list_and_not_the_container :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 
 	texts := GUI.List_Texts{}
 	defer delete(texts.items)
@@ -245,12 +245,12 @@ test_the_wheel_over_a_virtual_list_scrolls_the_list_and_not_the_container :: pro
 
 	testing.expect_value(t, GUI.virtual_list_data(g, list).list.scroll > 0, true)
 	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 0.0)
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_wheel_over_a_virtual_list_whose_rows_fit_scrolls_the_container_around_it :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 
 	texts := GUI.List_Texts{}
 	defer delete(texts.items)
@@ -266,8 +266,7 @@ test_the_wheel_over_a_virtual_list_whose_rows_fit_scrolls_the_container_around_i
 	scroll_wheel_test_scroll(g)
 
 	testing.expect_value(t, GUI.virtual_list_data(g, list).list.scroll, 0.0)
-	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 60.0)
-	test_gui_destroy(g)
+	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, GUI.SCROLL_WHEEL_STEP)
 }
 
 //* == File viewer ==
@@ -275,6 +274,7 @@ test_the_wheel_over_a_virtual_list_whose_rows_fit_scrolls_the_container_around_i
 @(test)
 test_the_wheel_over_a_file_viewer_scrolls_the_list_and_not_the_container :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	viewer := GUI.Make_File_Viewer(g, container, GUI.File_Viewer_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 	})
@@ -286,12 +286,12 @@ test_the_wheel_over_a_file_viewer_scrolls_the_list_and_not_the_container :: proc
 
 	testing.expect_value(t, GUI.file_viewer_data(g, viewer).state.scroll > 0, true)
 	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 0.0)
-	test_gui_destroy(g)
 }
 
 @(test)
 test_the_wheel_over_a_file_viewer_whose_files_fit_scrolls_the_container_around_it :: proc(t: ^testing.T) {
 	g, container := scroll_wheel_test_make(t)
+	defer test_gui_destroy(g)
 	viewer := GUI.Make_File_Viewer(g, container, GUI.File_Viewer_Opts{
 		Base_Opts = scroll_wheel_test_child_base(70),
 	})
@@ -301,6 +301,5 @@ test_the_wheel_over_a_file_viewer_whose_files_fit_scrolls_the_container_around_i
 	scroll_wheel_test_scroll(g)
 
 	testing.expect_value(t, GUI.file_viewer_data(g, viewer).state.scroll, 0.0)
-	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, 60.0)
-	test_gui_destroy(g)
+	testing.expect_value(t, GUI.Scroll_Container_Get_Offset(g, container).y, GUI.SCROLL_WHEEL_STEP)
 }

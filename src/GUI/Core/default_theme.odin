@@ -14,26 +14,10 @@ package Core
 //* A widget takes the theme when it is made with `use_theme = true`, or
 //* when `Default_Theme_Use` is called after the tree is built.
 
-//* The theme of the toolkit, in the dark.
-Default_Theme_Dark :: proc() -> ^Theme {
-	return default_theme_dark()
-}
-
-//* The theme of the toolkit, in the light.
-Default_Theme_Light :: proc() -> ^Theme {
-	return default_theme_light()
-}
-
-//* Puts the default theme on the GUI. The widgets that are already in the
-//* tree take the theme, and so do the ones that come later.
-Default_Theme_Use :: proc(g: ^GUI, dark: bool) {
-	default_theme_use(g, dark)
-}
-
-//* The colours of the default theme: the dark ones or the light ones.
-Default_Theme_Palette :: proc(dark: bool) -> Theme_Palette {
-	return default_theme_palette(dark)
-}
+Default_Theme_Dark :: default_theme_dark
+Default_Theme_Light :: default_theme_light
+Default_Theme_Use :: default_theme_use
+Default_Theme_Palette :: default_theme_palette
 
 //* The colours of a theme. A program that wants a colour that goes with
 //* the theme asks for the palette.

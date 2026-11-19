@@ -28,11 +28,20 @@ if errorlevel 1 (
 )
 
 echo.
-echo == Checking src\NodeGraph
-odin check src\NodeGraph -no-entry-point
+echo == Checking src\GUI\NodeGraph
+odin check src\GUI\NodeGraph -no-entry-point
 if errorlevel 1 (
-    echo src\NodeGraph did not check.
-    set FAILED=src\NodeGraph
+    echo src\GUI\NodeGraph did not check.
+    set FAILED=src\GUI\NodeGraph
+    goto fail
+)
+
+echo.
+echo == Testing src\GUI\NodeGraph
+odin test src\GUI\NodeGraph -define:ODIN_TEST_THREADS=1
+if errorlevel 1 (
+    echo The tests of src\GUI\NodeGraph did not pass.
+    set FAILED=the tests of src\GUI\NodeGraph
     goto fail
 )
 
@@ -99,6 +108,15 @@ odin check src\Window -no-entry-point
 if errorlevel 1 (
     echo src\Window did not check.
     set FAILED=src\Window
+    goto fail
+)
+
+echo.
+echo == Checking src\GUI\Accessibility
+odin check src\GUI\Accessibility -no-entry-point
+if errorlevel 1 (
+    echo src\GUI\Accessibility did not check.
+    set FAILED=src\GUI\Accessibility
     goto fail
 )
 
@@ -184,8 +202,8 @@ if errorlevel 1 (
 
 popd
 echo.
-echo Passed: src\NodeGraph, src\GUI, src\Tests, the blueprint tests,
-echo the examples, src\Window, src\Backend and the three pictures.
+echo Passed: src\GUI\NodeGraph, src\GUI, src\Tests, the blueprint tests,
+echo the examples, src\Window, src\GUI\Accessibility, src\Backend and the three pictures.
 endlocal
 exit /b 0
 

@@ -20,6 +20,7 @@ AUDIO_PLAYER_BUTTON :: Core.AUDIO_PLAYER_BUTTON
 AUDIO_PLAYER_ROW :: Core.AUDIO_PLAYER_ROW
 Accept_Dialog_Opts :: Core.Accept_Dialog_Opts
 Access_Bridge :: Core.Access_Bridge
+Access_Children :: Core.Access_Children
 Access_Collect :: Core.Access_Collect
 Access_Collect_Float :: Core.Access_Collect_Float
 Access_Info :: Core.Access_Info
@@ -32,6 +33,7 @@ Access_Role_Name :: Core.Access_Role_Name
 Access_State :: Core.Access_State
 Access_State_Name :: Core.Access_State_Name
 Access_States :: Core.Access_States
+Access_Sync :: Core.Access_Sync
 Access_Value :: Core.Access_Value
 Access_Value_Text :: Core.Access_Value_Text
 Accordion_Data :: Core.Accordion_Data
@@ -447,6 +449,7 @@ MAX_FONT_STACK :: Core.MAX_FONT_STACK
 MAX_FREE_PIECES :: Core.MAX_FREE_PIECES
 MAX_TABS :: Core.MAX_TABS
 MEASURE_CACHE_LIMIT :: Core.MEASURE_CACHE_LIMIT
+measure_cache_destroy :: Core.measure_cache_destroy
 MENU_BUTTON_Z_INDEX :: Widgets.MENU_BUTTON_Z_INDEX
 MIN_ODIN_VERSION :: Core.MIN_ODIN_VERSION
 Make_Accept_Dialog :: Widgets.Make_Accept_Dialog
@@ -731,8 +734,10 @@ Slider_Opts :: Core.Slider_Opts
 slider_factor :: Core.slider_factor
 slider_knob :: Core.slider_knob
 slider_track :: Core.slider_track
+slider_set_value :: Core.slider_set_value
 Spin_Box_Data :: Core.Spin_Box_Data
 Spin_Box_Opts :: Core.Spin_Box_Opts
+spin_box_set_value :: Widgets.spin_box_set_value
 Split_Data :: Core.Split_Data
 Split_Direction :: Core.Split_Direction
 Split_Opts :: Core.Split_Opts
@@ -842,6 +847,8 @@ Toast_Opts :: Core.Toast_Opts
 Toast_Show :: Widgets.Toast_Show
 Toggle_Switch_Data :: Core.Toggle_Switch_Data
 Toggle_Switch_Opts :: Core.Toggle_Switch_Opts
+toggle_switch_is_on :: Widgets.toggle_switch_is_on
+toggle_switch_set :: Widgets.toggle_switch_set
 Tooltip_Data :: Core.Tooltip_Data
 Tooltip_Enabled :: Widgets.Tooltip_Enabled
 Tooltip_Hide :: Widgets.Tooltip_Hide
@@ -886,6 +893,7 @@ Widget :: Core.Widget
 Widget_Access_Info :: Core.Widget_Access_Info
 Widget_Alive :: Core.Widget_Alive
 Widget_Attach :: Core.Widget_Attach
+Widget_Activate :: Core.Widget_Activate
 Widget_Background :: Core.Widget_Background
 Widget_Capture_Pointer :: Core.Widget_Capture_Pointer
 Widget_Child_Count :: Core.Widget_Child_Count
@@ -1243,6 +1251,10 @@ Frame :: proc(g: ^GUI) {
 	Core.atlas_flush(g.atlas, g.backend, g.atlas_texture)
 	Core.atlas_next_frame(g.atlas)
 	Core.report_atlas_failures(g)
+	//* The changes of the meaning of the widgets are told to the
+	//* platform at the end of the frame, so a program that changes many
+	//* widgets in one pass does not pay for a call per change.
+	Core.Access_Sync(g)
 }
 
 Init_GUI :: proc(width, height: i32, backend: Backend) -> ^GUI {

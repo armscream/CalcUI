@@ -32,7 +32,7 @@ Tooltip_Show :: proc(g: ^GUI, id: Widget_ID, target: Widget_ID, text: string) {
 		d.target = target
 		d.text = text
 		d.visible = true
-		d.timer = TOOLTIP_SHOW_DELAY
+		d.show_at = g.time
 	}
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
@@ -43,7 +43,7 @@ Tooltip_Hide :: proc(g: ^GUI, id: Widget_ID) {
 	#partial switch &d in w.data {
 	case Tooltip_Data:
 		d.visible = false
-		d.timer = 0
+		d.show_at = g.time
 	}
 	invalidate(g, id, Dirty_Flags{.Visual})
 }
@@ -108,47 +108,81 @@ update_tooltip :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, dt: f32) {
 	#partial switch &d in w.data {
 	case Tooltip_Data:
 		if id == g.tooltip_id && !g.tooltip_enabled {
-			d.timer = 0
+			d.show_at = g.time
 			d.visible = false
 			return
 		}
 		target := Widget_Get(g, d.target)
-		over := target != nil && rect_contains(target.rect, g.pointer.x, g.pointer.y)
+		if target != nil && (!(.Visible in target.state) || target.tooltip_text == "") {
+			d.target = INVALID_WIDGET_ID
+			d.text = ""
+			d.show_at = g.time
+			d.visible = false
+			target = nil
+		}
+		over := false
+		if target != nil {
+			local := window_local_pos(g, target.id, g.global_pointer)
+			over = rect_contains(target.rect, local.x, local.y)
+		}
 		if !over {
-			hot := tooltip_of(g, g.pointer)
+			hot := tooltip_of(g, g.global_pointer)
 			if hot == INVALID_WIDGET_ID {
-				d.timer = 0
+				if d.target != INVALID_WIDGET_ID || d.visible {
+					invalidate(g, id, Dirty_Flags{.Visual})
+				}
+				d.target = INVALID_WIDGET_ID
+				d.text = ""
+				d.show_at = g.time
 				d.visible = false
 				return
 			}
 			found := Widget_Get(g, hot)
 			if found == nil {return}
-			if found.id != d.target {
+			if found.id != d.target || d.text != found.tooltip_text {
 				d.target = hot
 				d.text = found.tooltip_text
-				d.timer = 0
+				d.show_at = g.time + TOOLTIP_SHOW_DELAY
 				d.visible = false
+				invalidate(g, id, Dirty_Flags{.Visual})
 			}
 			target = found
-			over = rect_contains(target.rect, g.pointer.x, g.pointer.y)
+			local := window_local_pos(g, target.id, g.global_pointer)
+			over = rect_contains(target.rect, local.x, local.y)
 		}
-		if over {
-			d.timer += dt
-			if d.timer >= TOOLTIP_SHOW_DELAY {d.visible = true}
+		if over && d.text != "" {
+			if !d.visible {
+				if d.show_at <= 0 {
+					d.show_at = g.time + TOOLTIP_SHOW_DELAY
+				}
+				if g.time >= d.show_at {
+					d.visible = true
+					invalidate(g, id, Dirty_Flags{.Visual})
+				} else {
+					wake_at(g, d.show_at)
+				}
+			}
 			return
 		}
-		d.timer = 0
+		if d.visible || d.target != INVALID_WIDGET_ID {
+			invalidate(g, id, Dirty_Flags{.Visual})
+		}
+		d.show_at = g.time
 		d.visible = false
+		d.target = INVALID_WIDGET_ID
+		d.text = ""
 	}
-	invalidate(g, id, Dirty_Flags{.Visual})
 }
 
 draw_tooltip :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 	style := resolved_style(g, w)
 	#partial switch d in w.data {
 	case Tooltip_Data:
-		if !d.visible {return}
-		size := text_measure(g, style.text, d.text, 0)
+		if !d.visible || d.text == "" {return}
+		text_style := style.text
+		if text_style.wrap == .Off {text_style.wrap = .Word}
+		max_width := max(min(f32(360), g.viewport.w - 32), 80)
+		size := text_measure(g, text_style, d.text, max_width)
 		pad := style.box.content_margin
 		box := Rect {
 			x = g.pointer.x + 12,
@@ -165,7 +199,7 @@ draw_tooltip :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 		}
 		if box.y < 0 {box.y = 0}
 		frame := tooltip_box(g, style)
-		draw_stylebox_at(g, &frame, box)
+		draw_stylebox_box(g, box, &frame)
 		ink := resolved_text_colour(g, id, w)
 		label := Rect {
 			x = box.x + pad[0],
@@ -173,7 +207,7 @@ draw_tooltip :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 			w = box.w - pad[0] - pad[2],
 			h = box.h - pad[1] - pad[3],
 		}
-		draw_text(g, style.text, d.text, label, ink)
+		draw_text(g, text_style, d.text, label, ink)
 	}
 }
 
@@ -189,44 +223,3 @@ tooltip_box :: proc(g: ^GUI, style: ^Style) -> StyleBox {
 	}
 }
 
-draw_stylebox_at :: proc(g: ^GUI, box: ^StyleBox, rect: Rect) {
-	draw_rect(g, rect, box.bg_color, stylebox_radius(box))
-	widths := box.border_width
-	colours := box.border_color
-	if widths[0] > 0 && colours[0].a > 0 {
-		draw_quad(
-			g.target,
-			Rect{x = rect.x, y = rect.y, w = widths[0], h = rect.h},
-			g.atlas.white_uv,
-			colours[0],
-			g.atlas_texture,
-		)
-	}
-	if widths[1] > 0 && colours[1].a > 0 {
-		draw_quad(
-			g.target,
-			Rect{x = rect.x, y = rect.y, w = rect.w, h = widths[1]},
-			g.atlas.white_uv,
-			colours[1],
-			g.atlas_texture,
-		)
-	}
-	if widths[2] > 0 && colours[2].a > 0 {
-		draw_quad(
-			g.target,
-			Rect{x = rect.x + rect.w - widths[2], y = rect.y, w = widths[2], h = rect.h},
-			g.atlas.white_uv,
-			colours[2],
-			g.atlas_texture,
-		)
-	}
-	if widths[3] > 0 && colours[3].a > 0 {
-		draw_quad(
-			g.target,
-			Rect{x = rect.x, y = rect.y + rect.h - widths[3], w = rect.w, h = widths[3]},
-			g.atlas.white_uv,
-			colours[3],
-			g.atlas_texture,
-		)
-	}
-}

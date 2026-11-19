@@ -32,8 +32,12 @@ echo "== Checking src/GUI"
 odin check src/GUI -no-entry-point
 
 echo
-echo "== Checking src/NodeGraph"
-odin check src/NodeGraph -no-entry-point
+echo "== Checking src/GUI/NodeGraph"
+odin check src/GUI/NodeGraph -no-entry-point
+
+echo
+echo "== Testing src/GUI/NodeGraph"
+odin test src/GUI/NodeGraph -define:ODIN_TEST_THREADS=1
 
 echo
 echo "== Checking src/Tests"
@@ -47,8 +51,8 @@ CALCUI_BENCH_BUILD=minimal \
 odin test src/Tests -define:ODIN_TEST_THREADS=1
 
 echo
-echo "== Testing src/Window"
-odin test src/Window -define:ODIN_TEST_THREADS=1
+echo "== Testing src/GUI/Accessibility"
+odin test src/GUI/Accessibility -define:ODIN_TEST_THREADS=1
 
 echo
 echo "== Testing examples/09_node_graph/blueprint"
@@ -74,8 +78,12 @@ for EXAMPLE in examples/*/; do
 done
 
 echo
-echo "== Checking src/Window"
-odin check src/Window -no-entry-point
+echo "== Checking src/Platform"
+odin check src/Platform -no-entry-point
+
+echo
+echo "== Checking src/GUI/Accessibility"
+odin check src/GUI/Accessibility -no-entry-point
 
 echo
 echo "== Checking src/Backend"
@@ -112,5 +120,5 @@ odin run tools/shot_sdf -- verify
 odin run tools/shot_sdf -- parity
 
 echo
-echo "Passed: src/NodeGraph, src/GUI, src/Tests, src/Window, the blueprint tests,"
-echo "the examples, src/Backend and the three pictures."
+echo "Passed: src/GUI/NodeGraph and its tests, src/GUI, src/Tests, src/GUI/Accessibility, the blueprint tests,"
+echo "the examples, src/Platform, src/Backend and the three pictures."

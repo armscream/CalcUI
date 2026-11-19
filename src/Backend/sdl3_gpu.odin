@@ -875,3 +875,23 @@ load_shader :: proc(
 		},
 	)
 }
+
+//* The GUI backend that draws through SDL's GPU API.
+gpu_backend :: proc(ctx: rawptr) -> GUI.Backend {
+	return GUI.Backend {
+		ctx                    = ctx,
+		create                 = gpu_create,
+		destroy                = gpu_destroy,
+		resize                 = gpu_resize,
+		upload_texture         = gpu_upload_texture,
+		upload_texture_regions = gpu_upload_texture_regions,
+		destroy_texture        = gpu_destroy_texture,
+		submit                 = gpu_submit,
+		submit_target          = gpu_submit_target,
+		release_target         = gpu_release_target,
+		invalidate             = gpu_invalidate,
+		open_url               = open_url,
+		supports_shapes        = true,
+		supports_backdrop_blur = true,
+	}
+}

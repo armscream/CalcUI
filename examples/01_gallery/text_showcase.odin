@@ -49,11 +49,8 @@ Demo_Text_Row :: proc(
 }
 
 //* Builds the text showcase and returns its panel, which has no
-//* parent.
 Init_Demo_Text :: proc(g: ^GUI.GUI, body: GUI.Font_Family_ID) -> GUI.Widget_ID {
-	//* The offsets put the panel in the top left corner of the space
-	//* the caller gives it, and the minimum size gives it the width.
-	panel := GUI.New_Widget(g, .Panel, GUI.INVALID_WIDGET_ID, GUI.Widget_Opts{
+	panel := GUI.New_Widget(g, .PanelContainer, GUI.INVALID_WIDGET_ID, GUI.Widget_Opts{
 		name = "text_showcase",
 		preset = .Top_Left,
 		offsets = GUI.Offset{16, 64, 16, 300},
@@ -63,6 +60,7 @@ box = GUI.StyleBox{
 				bg_color = GUI.RGBA(0.10, 0.11, 0.14, 1),
 				border_color = {GUI.RGBA(0.20, 0.22, 0.27, 1), GUI.RGBA(0.20, 0.22, 0.27, 1), GUI.RGBA(0.20, 0.22, 0.27, 1), GUI.RGBA(0.20, 0.22, 0.27, 1)},
 				border_width = {1, 1, 1, 1},
+				content_margin = {12, 2, 12, 2},
 			},
 			text = GUI.Make_Text_Style(GUI.RGBA(0.86, 0.89, 0.95, 1), 0, body),
 		},
@@ -483,7 +481,7 @@ box = GUI.StyleBox{
 		min_size = GUI.Vec2{70, 22},
 		fixed = true,
 		use_theme = true,
-		variation = "danger",
+		variation = "danger_button",
 	})
 	GUI.New_Widget(g, .TextBox, widgets, GUI.Widget_Opts{
 		name = "field",
