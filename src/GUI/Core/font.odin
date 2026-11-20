@@ -400,7 +400,7 @@ font_glyph_place :: proc(
 	pg: runa.Paragraph_Glyph,
 	pen_x: f32,
 	baseline_y: f32,
-) -> (rect: Rect, uv: [4]f32, is_color: bool, ok: bool) {
+) -> (rect: Rect, uv: [4]f32, texture: Texture_ID, is_color: bool, ok: bool) {
 	x := glyph_snap(pen_x + pg.x_offset)
 	slot, slot_ok := font_slot(g, f, pg.font, pg.glyph_id, x.quarter)
 	if !slot_ok { return }
@@ -417,6 +417,7 @@ font_glyph_place :: proc(
 		h = f32(slot.px_size[1]) / f.scale,
 	}
 	uv = slot.uv
+	texture = atlas_texture_for(slot.region)
 	is_color = slot.is_color
 	ok = true
 	return
@@ -446,10 +447,10 @@ Font_Draw :: proc(g: ^GUI, id: Font_ID, text: string, rect: Rect, colour: Colour
 		baseline := y * f.scale + line.baseline
 		pen := x * f.scale
 		for pg in line.glyphs {
-			quad, uv, is_color, ok := font_glyph_place(g, f, pg, pen, baseline)
+			quad, uv, texture, is_color, ok := font_glyph_place(g, f, pg, pen, baseline)
 			if ok {
 				ink := is_color ? Colour{1, 1, 1, colour.a} : colour
-				draw_quad(g.target, quad, uv, ink, g.atlas_texture)
+				draw_quad(g.target, quad, uv, ink, texture)
 			}
 			pen += pg.x_advance
 		}
@@ -544,5 +545,5 @@ Font_Warmup :: proc(g: ^GUI, id: Font_ID) {
 			pen += pg.x_advance
 		}
 	}
-	atlas_flush(g.atlas, g.backend, g.atlas_texture)
+	atlas_flush(g.atlas, g.backend)
 }

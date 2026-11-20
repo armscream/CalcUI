@@ -552,14 +552,14 @@ glyph_quads :: proc(
 			if gi > 0 && extra != 0 && line_has_space(line, gi - 1) {
 				pen += extra * f.scale
 			}
-			quad, uv, is_color, ok := font_glyph_place(g, f, pg, pen, baseline)
+			quad, uv, tex, is_color, ok := font_glyph_place(g, f, pg, pen, baseline)
 			if ok {
 				append(
 					&quads,
 					Glyph_Quad {
 						rect = quad,
 						uv = uv,
-						tex = g.atlas_texture,
+						tex = tex,
 						is_color = is_color,
 					},
 				)

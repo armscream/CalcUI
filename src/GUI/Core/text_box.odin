@@ -90,7 +90,7 @@ Text_Box_Data :: struct {
 	scroll_chars: int,
 	//* How far the text is scrolled down, in logical units.
 	scroll_y:    f32,
-	geometry:    Text_Box_Geometry,
+	geometry:    ^Text_Box_Geometry,
 }
 
 //* The number of characters a box of one line shows when the program
@@ -437,7 +437,13 @@ text_box_geometry :: proc(
 	if f == nil {return nil}
 	multiline := text_box_is_multiline(d)
 	key_width := multiline ? width : 0
-	geom := &d.geometry
+	geom := d.geometry
+	if geom == nil {
+		created := new(Text_Box_Geometry)
+		if created == nil { return nil }
+		d.geometry = created
+		geom = created
+	}
 	if geom.frame == g.frame_count &&
 	   geom.text == raw_data(d.text) &&
 	   geom.text_len == len(d.text) &&

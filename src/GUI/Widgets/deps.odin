@@ -534,6 +534,7 @@ Widget_Detach :: Core.Widget_Detach
 Widget_Disconnect :: Core.Widget_Disconnect
 Widget_Free :: Core.Widget_Free
 Widget_Get :: Core.Widget_Get
+Widget_Signals :: Core.Widget_Signals
 Widget_Has_Focus :: Core.Widget_Has_Focus
 Widget_ID :: Core.Widget_ID
 Widget_Index_Of :: Core.Widget_Index_Of
@@ -646,6 +647,8 @@ atlas_region_uv_inside :: Core.atlas_region_uv_inside
 atlas_region_uv_inside_f :: Core.atlas_region_uv_inside_f
 atlas_region_valid :: Core.atlas_region_valid
 atlas_release :: Core.atlas_release
+atlas_texture_for :: Core.atlas_texture_for
+atlas_texture_of_page :: Core.atlas_texture_of_page
 atlas_take_block :: Core.atlas_take_block
 atlas_touch :: Core.atlas_touch
 atlas_write :: Core.atlas_write
@@ -1062,7 +1065,7 @@ signal_text_changed :: Core.signal_text_changed
 signal_toggled :: Core.signal_toggled
 signal_value_changed :: Core.signal_value_changed
 size_flags_of :: Core.size_flags_of
-size_of :: Core.size_of
+widget_size_of :: Core.widget_size_of
 slider_move_to :: Core.slider_move_to
 slider_set_value :: Core.slider_set_value
 slider_factor :: Core.slider_factor

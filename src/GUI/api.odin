@@ -108,6 +108,7 @@ Audio_Binding :: Core.Audio_Binding
 Audio_Player_Data :: Core.Audio_Player_Data
 Audio_Player_Opts :: Core.Audio_Player_Opts
 Audio_State :: Core.Audio_State
+Atlas_Options :: Core.Atlas_Options
 BORDER_CORNER_SEGMENTS :: Core.BORDER_CORNER_SEGMENTS
 Backend :: Core.Backend
 Backend_Choice :: Core.Backend_Choice
@@ -376,16 +377,22 @@ GUI_Atlas_White_UV :: Core.GUI_Atlas_White_UV
 GUI_Invalidate_All :: Core.GUI_Invalidate_All
 GUI_Invalidate_Theme :: Core.GUI_Invalidate_Theme
 GUI_Is_Dirty :: Core.GUI_Is_Dirty
+GUI_Memory_Stats :: Core.GUI_Memory_Stats
+GUI_Trim_Memory :: Core.GUI_Trim_Memory
 GUI_Needs_Frame :: Core.GUI_Needs_Frame
+GUI_Options :: Core.GUI_Options
 GUI_Next_Frame_Delay_MS :: Core.GUI_Next_Frame_Delay_MS
 GUI_Request_Frame :: Core.GUI_Request_Frame
 GUI_Set_Access_Bridge :: Core.GUI_Set_Access_Bridge
 GUI_Set_Default_Style :: Core.GUI_Set_Default_Style
 GUI_Set_Scale :: Core.GUI_Set_Scale
+GUI_Set_Shape_Cache_Capacity :: Core.GUI_Set_Shape_Cache_Capacity
+GUI_Set_Text_Cache_Options :: Core.GUI_Set_Text_Cache_Options
 GUI_Tick :: Core.GUI_Tick
 GUI_Set_Theme :: Core.GUI_Set_Theme
 Glyph_Entry :: Core.Glyph_Entry
 Glyph_Key :: Core.Glyph_Key
+GPU_Memory_Stats :: Core.GPU_Memory_Stats
 Glyph_Quad :: Core.Glyph_Quad
 Glyph_Snap :: Core.Glyph_Snap
 Gizmo_Data :: Core.Gizmo_Data
@@ -518,6 +525,7 @@ Make_Virtual_List :: Widgets.Make_Virtual_List
 Margin_Data :: Core.Margin_Data
 Margin_Opts :: Core.Margin_Opts
 Measure_Key :: Core.Measure_Key
+Memory_Stats :: Core.Memory_Stats
 Measure_Text :: Core.Measure_Text
 Menu_Bar_Opts :: Core.Menu_Bar_Opts
 Menu_Button_Data :: Core.Menu_Button_Data
@@ -753,6 +761,7 @@ Text_Box_Flag :: Core.Text_Box_Flag
 Text_Box_Flags :: Core.Text_Box_Flags
 Text_Box_Opts :: Core.Text_Box_Opts
 Text_Box_Window :: Core.Text_Box_Window
+Text_Cache_Options :: Core.Text_Cache_Options
 Text_Click_Action :: Core.Text_Click_Action
 Text_Field :: Core.Text_Field
 Text_Input_Event :: Core.Text_Input_Event
@@ -867,6 +876,7 @@ Widget_Detach :: Core.Widget_Detach
 Widget_Disconnect :: Core.Widget_Disconnect
 Widget_Free :: Core.Widget_Free
 Widget_Get :: Core.Widget_Get
+Widget_Signals :: Core.Widget_Signals
 Widget_Has_Focus :: Core.Widget_Has_Focus
 Widget_ID :: Core.Widget_ID
 Widget_Index_Of :: Core.Widget_Index_Of
@@ -942,12 +952,18 @@ Widget_Subtree_Is_Dirty :: Core.Widget_Subtree_Is_Dirty
 Widget_Text_Colour :: Core.Widget_Text_Colour
 Widget_Type :: Core.Widget_Type
 Widget_User_Data :: Core.Widget_User_Data
+Style_Pool_Destroy :: Core.Style_Pool_Destroy
 atlas_alloc :: Core.atlas_alloc
 atlas_destroy :: Core.atlas_destroy
 atlas_evict :: Core.atlas_evict
+atlas_flush :: Core.atlas_flush
 atlas_free :: Core.atlas_free
 atlas_make :: Core.atlas_make
+atlas_page_count :: Core.atlas_page_count
 atlas_region_uv_inside :: Core.atlas_region_uv_inside
+atlas_texture_for :: Core.atlas_texture_for
+atlas_texture_of_page :: Core.atlas_texture_of_page
+atlas_write :: Core.atlas_write
 atlas_region_valid :: Core.atlas_region_valid
 audio_set_binding :: Core.audio_set_binding
 audio_volume :: Core.audio_volume
@@ -1060,7 +1076,7 @@ Frame :: proc(g: ^GUI) {
 	if Core.draw_needs_rebuild(g) {
 		Core.build_draw_list(g)
 	}
-	Core.atlas_flush(g.atlas, g.backend, g.atlas_texture)
+	Core.atlas_flush(g.atlas, g.backend)
 	Core.atlas_next_frame(g.atlas)
 	Core.report_atlas_failures(g)
 	//* The changes of the meaning of the widgets are told to the
@@ -1073,6 +1089,18 @@ Init_GUI :: proc(width, height: i32, backend: Backend) -> ^GUI {
 	g := Core.Init_GUI(width, height, backend)
 	if g != nil { Widgets.gui_make_tooltip(g) }
 	return g
+}
+
+Init_GUI_With_Options :: proc(opts: GUI_Options) -> ^GUI {
+	g := Core.Init_GUI_With_Options(opts)
+	if g != nil { Widgets.gui_make_tooltip(g) }
+	return g
+}
+
+Init_GUI_With_Options_Checked :: proc(opts: GUI_Options) -> (^GUI, Error) {
+	g, err := Core.Init_GUI_With_Options_Checked(opts)
+	if g != nil { Widgets.gui_make_tooltip(g) }
+	return g, err
 }
 
 Init_GUI_Checked :: proc(width, height: i32, backend: Backend) -> (^GUI, Error) {

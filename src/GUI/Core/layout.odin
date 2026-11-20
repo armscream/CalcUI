@@ -50,7 +50,6 @@
 //* class that lays itself out decides for itself what an absolute child
 //* means.
 package Core
-import virt "core:mem/virtual"
 //* == The flags of the size ==
 
 //* The flags of a widget along one axis. `horizontal` is true when the
@@ -733,7 +732,7 @@ grid_metrics :: proc(
 
 grid_tracks_clone :: proc(g: ^GUI, tracks: []Grid_Track) -> []Grid_Track {
 	if g == nil || len(tracks) == 0 {return nil}
-	result := make([]Grid_Track, len(tracks), virt.arena_allocator(&g.arena))
+	result := make([]Grid_Track, len(tracks))
 	copy(result, tracks)
 	return result
 }
@@ -769,7 +768,8 @@ grid_track_clamp :: proc(size: f32, track: Grid_Track) -> f32 {
 
 grid_sizes :: proc(g: ^GUI, sizes: ^[]f32, count: int) -> []f32 {
 	if count > len(sizes^) {
-		sizes^ = make([]f32, count, virt.arena_allocator(&g.arena))
+		if sizes^ != nil {delete(sizes^)}
+		sizes^ = make([]f32, count)
 	}
 	result := sizes^[:count]
 	for i in 0 ..< count {result[i] = 0}
@@ -779,7 +779,8 @@ grid_sizes :: proc(g: ^GUI, sizes: ^[]f32, count: int) -> []f32 {
 grid_placements_for :: proc(g: ^GUI, d: ^Grid_Data, count: int) -> []Grid_Placement {
 	if d == nil {return nil}
 	if count > len(d.placements) {
-		d.placements = make([]Grid_Placement, count, virt.arena_allocator(&g.arena))
+		if d.placements != nil {delete(d.placements)}
+		d.placements = make([]Grid_Placement, count)
 	}
 	d.placement_count = count
 	return d.placements[:count]
@@ -2415,7 +2416,8 @@ grid_cells :: proc(g: ^GUI, id: Widget_ID, count: int) -> []Rect {
 	d := grid_data(g, id)
 	if d == nil {return nil}
 	if count > len(d.cells) {
-		d.cells = make([]Rect, count, virt.arena_allocator(&g.arena))
+		if d.cells != nil {delete(d.cells)}
+		d.cells = make([]Rect, count)
 	}
 	d.cell_count = count
 	return d.cells[:count]

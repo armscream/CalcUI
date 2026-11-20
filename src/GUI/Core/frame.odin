@@ -83,7 +83,7 @@ animations_need_frame :: proc(g: ^GUI) -> bool {
 style_transitions_need_frame :: proc(g: ^GUI) -> bool {
 	for w in g.widgets {
 		if w == nil {continue}
-		if w.style_cache.transition.active {return true}
+		if w.style_cache.transition != nil && w.style_cache.transition.active {return true}
 	}
 	return false
 }
@@ -92,7 +92,10 @@ style_transitions_need_frame :: proc(g: ^GUI) -> bool {
 atlas_needs_frame :: proc(g: ^GUI) -> bool {
 	if g.atlas == nil {return false}
 	if g.backend.upload_texture == nil {return false}
-	return !g.atlas.uploaded || len(g.atlas.dirty) > 0
+	for &p in g.atlas.pages {
+		if !p.uploaded || len(p.dirty) > 0 {return true}
+	}
+	return false
 }
 
 

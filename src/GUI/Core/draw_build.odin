@@ -1228,7 +1228,9 @@ draw_inspector :: proc(g: ^GUI) {
 //* How much of the atlas is in use, in MiB.
 atlas_bytes :: proc(g: ^GUI) -> int {
 	if g.atlas == nil {return 0}
-	return (g.atlas.width * g.atlas.height * 4) / (1024 * 1024)
+	total := 0
+	for &p in g.atlas.pages { total += p.width * p.height * 4 }
+	return total / (1024 * 1024)
 }
 
 draw_border_box :: proc(g: ^GUI, rect: Rect, colour: Colour) {

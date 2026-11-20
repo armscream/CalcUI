@@ -339,7 +339,8 @@ fire_click :: proc(g: ^GUI, id: Widget_ID) {
 	if w == nil { return }
 	if !(.Enabled in w.state) { return }
 
-	pressed := w.signals.on_pressed
+	pressed: proc(g: ^GUI, id: Widget_ID) = nil
+	if w.signals != nil { pressed = w.signals.on_pressed }
 
 	if kind := widget_kind(g, w); kind.click != nil {
 		kind.click(g, id, w)

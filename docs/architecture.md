@@ -204,7 +204,7 @@ The core builds a backend-independent `Draw_List`. Backends consume its vertices
 
 ### 5.1 Texture Atlas
 
-Each GUI instance owns a shared `UI_Atlas`, normally 2048 × 2048 RGBA (16 MiB).
+Each GUI instance owns a shared `UI_Atlas`, normally made of 1024 x 1024 RGBA pages (4 MiB each). The first page covers a light application; a request that does not fit any page opens another one, so a light window does not pay for a large texture it never fills.
 
 It stores:
 
@@ -212,7 +212,7 @@ It stores:
 - Rasterized glyphs.
 - Images and other atlas-managed textures.
 
-The atlas maintains CPU-side pixels and tracks modified regions. The first flush uploads the complete texture; subsequent flushes upload only changed regions.
+The atlas maintains CPU-side pixels for each page and tracks modified regions. The first flush uploads a complete page; subsequent flushes upload only changed regions. Each page is its own texture (`atlas_texture_of_page`), and a draw command names the texture of the page its region lives on.
 
 Atlas regions use generation-based handles to prevent stale references after reuse.
 

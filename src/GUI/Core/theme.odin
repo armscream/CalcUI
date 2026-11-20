@@ -153,10 +153,47 @@ apply_text_style :: proc(base: ^Text_Style, over: ^Text_Style) {
 }
 
 //* Resolves a widget's style from defaults, class, theme, and local overrides.
+//* == The style pool ==
+//* The resolved styles of the widgets are interned here, so a widget
+//* only keeps the ids of its styles. The chunks give the styles a
+//* stable address while the pool grows.
+
+Style_Pool_Intern :: proc(g: ^GUI, style: Style) -> Style_ID {
+	if g == nil { return INVALID_STYLE_ID }
+	if g.style_pool.ids == nil { g.style_pool.ids = make(map[Style]Style_ID) }
+	if id, ok := g.style_pool.ids[style]; ok { return id }
+
+	index := g.style_pool.count
+	chunk := index / STYLE_POOL_CHUNK
+	if chunk >= len(g.style_pool.chunks) {
+		append(&g.style_pool.chunks, make([]Style, STYLE_POOL_CHUNK))
+	}
+	g.style_pool.chunks[chunk][index % STYLE_POOL_CHUNK] = style
+	g.style_pool.count += 1
+	id := Style_ID(index + 1)
+	g.style_pool.ids[style] = id
+	return id
+}
+
+Style_Pool_Get :: proc(g: ^GUI, id: Style_ID) -> ^Style {
+	if g == nil { return nil }
+	index := int(id) - 1
+	if index < 0 || index >= g.style_pool.count { return &g.style_pool.empty }
+	return &g.style_pool.chunks[index / STYLE_POOL_CHUNK][index % STYLE_POOL_CHUNK]
+}
+
+Style_Pool_Destroy :: proc(g: ^GUI) {
+	if g == nil { return }
+	for chunk in g.style_pool.chunks { delete(chunk) }
+	delete(g.style_pool.chunks)
+	if g.style_pool.ids != nil { delete(g.style_pool.ids) }
+	g.style_pool = {}
+}
+
 resolved_style :: proc(g: ^GUI, w: ^Widget) -> ^Style {
 	if w == nil {return nil}
 	if style_cache_is_good(g, w) {
-		return &w.style_cache.style
+		return Style_Pool_Get(g, w.style_cache.style)
 	}
 	base := g.default_style
 	if c, ok := class_get(g, w.class); ok {
@@ -167,14 +204,13 @@ resolved_style :: proc(g: ^GUI, w: ^Widget) -> ^Style {
 		apply_style(&base, &themed)
 	}
 	apply_style(&base, &w.style)
-	w.style_cache.style = base
+	w.style_cache.style = Style_Pool_Intern(g, base)
 	w.style_cache.style_of_widget = w.style
-	w.style_cache.default_style = g.default_style
 	w.style_cache.use_theme = w.use_theme
 	w.style_cache.variation = w.variation
 	w.style_cache.epoch = g.style_epoch
 	w.style_cache.valid = true
-	return &w.style_cache.style
+	return Style_Pool_Get(g, w.style_cache.style)
 }
 
 //* Checks whether the cached style still matches its inputs and theme epoch.
@@ -184,7 +220,6 @@ style_cache_is_good :: proc(g: ^GUI, w: ^Widget) -> bool {
 	if !c.valid {return false}
 	if c.epoch != g.style_epoch {return false}
 	if c.style_of_widget != w.style {return false}
-	if c.default_style != g.default_style {return false}
 	if c.use_theme != w.use_theme {return false}
 	if c.variation != w.variation {return false}
 	return true
@@ -233,20 +268,20 @@ theme_style :: proc(g: ^GUI, w: ^Widget) -> Style {
 }
 
 //* Resolves a state style, preferring the widget's variation over its class or type.
-theme_state_style :: proc(g: ^GUI, w: ^Widget, state: Style_State) -> (^Style, bool) {
+theme_state_style :: proc(g: ^GUI, w: ^Widget, state: Style_State, out: ^Style) -> (^Style, bool) {
 	if g.theme == nil || !w.use_theme {return nil, false}
 	if w.variation != "" {
 		if v, found := g.theme.variations[w.variation]; found {
 			if s, has := state_style_of(&v.states, state); has {
-				w.style_cache.theme_state = s^
-				return &w.style_cache.theme_state, true
+				out^ = s^
+				return out, true
 			}
 		}
 	}
 	if entries, found := theme_entries_for(g, w); found {
 		if s, has := state_style_of(&entries.states, state); has {
-			w.style_cache.theme_state = s^
-			return &w.style_cache.theme_state, true
+			out^ = s^
+			return out, true
 		}
 	}
 	return nil, false
@@ -293,13 +328,24 @@ resolved_state_style :: proc(
 	if base == nil {return nil, {}}
 	target := base^
 	applied: bit_set[Style_Field]
-	if st, ok := theme_state_style(g, w, state); ok {
+	theme_state: Style
+	if st, ok := theme_state_style(g, w, state, &theme_state); ok {
 		applied = apply_style(&target, st)
 	}
 	style_state_fallbacks(g, w, state, &target, applied)
-	style_transition_sync(&w.style_cache.transition, target, state, g.style_epoch)
-	w.style_cache.state = style_transition_current(&w.style_cache.transition)
-	return &w.style_cache.state, applied
+	if t := w.style_cache.transition; t != nil {
+		style_transition_sync(t, target, state, g.style_epoch)
+		t.current = style_transition_current(t)
+		return &t.current, applied
+	} else if target.transition.duration > 0 {
+		t = new(Style_Transition_State)
+		style_transition_sync(t, target, state, g.style_epoch)
+		w.style_cache.transition = t
+		t.current = style_transition_current(t)
+		return &t.current, applied
+	}
+	w.style_cache.state = Style_Pool_Intern(g, target)
+	return Style_Pool_Get(g, w.style_cache.state), applied
 }
 
 style_state_fallbacks :: proc(
@@ -841,7 +887,7 @@ theme_changed_target :: proc(t: ^Theme, target: Theme_Target, flags: Dirty_Flags
 		if w == nil || !w.use_theme {continue}
 		if !theme_target_matches(g, w, target) {continue}
 		w.style_cache.valid = false
-		w.style_cache.transition.initialized = false
+		if t := w.style_cache.transition; t != nil {t.initialized = false}
 		invalidate_widget(g, w, all)
 	}
 }
@@ -1052,8 +1098,8 @@ style_transition_sync :: proc(
 
 style_transition_tick :: proc(g: ^GUI, w: ^Widget, dt: f32) {
 	if g == nil || w == nil {return}
-	t := &w.style_cache.transition
-	if !t.active {return}
+	t := w.style_cache.transition
+	if t == nil || !t.active {return}
 	if dt <= 0 {return}
 	t.elapsed += dt
 	if t.elapsed >= t.duration {
@@ -1075,5 +1121,5 @@ Widget_Style_Transition_Active :: proc(g: ^GUI, id: Widget_ID) -> bool {
 	if g == nil {return false}
 	w := Widget_Get(g, id)
 	if w == nil {return false}
-	return w.style_cache.transition.active
+	return w.style_cache.transition != nil && w.style_cache.transition.active
 }

@@ -280,7 +280,7 @@ nine_patch_draw_part :: proc(g: ^GUI, texture: Texture, source, dest: Rect, tint
 		source.w,
 		source.h,
 	)
-	draw_quad(g.target, dest, uv, tint, g.atlas_texture)
+	draw_quad(g.target, dest, uv, tint, atlas_texture_for(texture.region))
 }
 
 //* Draws a horizontal edge, either stretched over the destination or repeated along it.

@@ -28,8 +28,8 @@ Results depend on the machine, the compiler and the optimization level. The refe
 | `style.panels_400_colour` | style | Style resolution, including backgrounds and text colours, for 400 panels. |
 | `frame.buttons_200` | frame | Full frame update, layout and draw-list generation for 200 buttons. |
 | `frame.buttons_200_idle` | frame | Idle frame processing with no changes. |
-| `lifecycle.gui_100_widgets` | lifecycle | GUI creation, addition of 100 widgets, layout and destruction with a 2048×2048 atlas. |
-| `lifecycle.atlas` | lifecycle | Creation and destruction of a 2048×2048 glyph atlas (16 MB). |
+| `lifecycle.gui_100_widgets` | lifecycle | GUI creation, addition of 100 widgets, layout and destruction with a 1024x1024 atlas. |
+| `lifecycle.atlas` | lifecycle | Creation and destruction of a 1024x1024 glyph atlas (4 MB). |
 | `lifecycle.atlas_64` | lifecycle | Allocation and release of a 64×64 region in a 512×512 atlas. |
 | `widgets.virtual_list_1000` | widgets | Draw-list generation for a 1,000-row virtual list. Only visible rows are requested. |
 | `widgets.virtual_list_10000` | widgets | The same test with 10,000 rows. |
@@ -90,6 +90,22 @@ The virtual list and data table benchmarks run at four row counts, from 1,000 to
 The rounded panel pair checks the CPU fallback: it generates more vertices than the shader path, because each corner becomes geometry. Packing reduces a vertex from 96 logical bytes to 60, or 62.5% of the logical size.
 
 `draw.clip_labels_60` covers the fast path of rounded clipping, where every glyph stays inside the safe interior and the clipper is never entered.
+
+## Memory report
+
+`GUI_Memory_Stats(g)` returns a snapshot of what a GUI holds: the fixed size of `Widget`, `Style`, `Style_Cache` and `Draw_Vertex`, the live and free widget slots, the arena, the UI atlas pages, the text caches, the draw-list capacities, the font atlases and the bytes the backend reports for the scene, the backdrop and the geometry buffers.
+
+The test suite builds a 10,000-widget scene and prints one line:
+
+```text
+memory 10k: widget 1568 B, style 416 B, style cache 472 B, widget bytes 15681568 B, arena 0 B
+```
+
+The widgets now come from the general allocator instead of the GUI arena, so closing a large scene gives their memory back. The sparse accessibility metadata, signals and text-box geometry only cost a pointer until a widget uses them, and resolved styles are interned in a small pool, which is why `Style_Cache` is one source style and two ids. The `src/Tests/memory_test.odin` test fails if `Style_Cache` grows past one style plus its ids or if `Widget` grows past two kilobytes, which are the per-widget invariants the larger scenes rely on.
+
+The atlas is made of 1024x1024 pages by default, so a light application pays 4 MiB for the first page instead of 16 MiB. A region that does not fit opens another page, and each page is its own texture (`atlas_texture_of_page`), so retained draw lists keep their UVs.
+
+`GUI_Trim_Memory(g, aggressive)` gives back the draw-list capacities after a large scene is closed; the aggressive mode also drops the style pool and the measure cache.
 
 ## Reproducing
 

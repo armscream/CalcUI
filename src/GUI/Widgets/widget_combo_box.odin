@@ -15,7 +15,7 @@ Make_Combo_Box :: proc(g: ^GUI, parent: Widget_ID, opts: Combo_Box_Opts) -> Widg
 	pw := Widget_Get(g, popup)
 	if pw != nil {
 		Widget_Set_Z_Index(g, popup, POPUP_Z_INDEX)
-		pw.signals.on_item_selected = combo_box_popup_selected
+		if s := Widget_Signals(g, popup); s != nil { s.on_item_selected = combo_box_popup_selected }
 		#partial switch &pd in pw.data {
 		case Popup_Menu_Data:
 			pd.owner = id

@@ -4,6 +4,15 @@ import "core:mem"
 import runa "../dependencies/Runa"
 import virt "core:mem/virtual"
 
+//* The GPU memory a backend holds, in bytes. A backend that does not
+//* know a number leaves it zero.
+GPU_Memory_Stats :: struct {
+	scene_bytes:    int,
+	backdrop_bytes: int,
+	vertex_bytes:   int,
+	index_bytes:    int,
+}
+
 Backend :: struct {
 	ctx:                    rawptr,
 	create:                 proc(ctx, window: rawptr, w, h: i32) -> bool,
@@ -16,6 +25,7 @@ Backend :: struct {
 	submit_target:          proc(ctx: rawptr, dl: ^Draw_List, window: rawptr),
 	release_target:         proc(ctx: rawptr, window: rawptr),
 	invalidate:             proc(ctx: rawptr),
+	memory_stats:           proc(ctx: rawptr) -> GPU_Memory_Stats,
 	supports_shapes:        bool,
 	supports_backdrop_blur: bool,
 	open_url:               proc(ctx: rawptr, url: string) -> bool,
@@ -353,6 +363,7 @@ Style_Transition :: struct {
 Style_Transition_State :: struct {
 	from:        Style,
 	target:      Style,
+	current:     Style,
 	state:       Style_State,
 	elapsed:     f32,
 	duration:    f32,
@@ -369,13 +380,41 @@ Style :: struct {
 	transition: Style_Transition,
 }
 
+//* What the text caches keep: the shape cap in entries.
+Text_Cache_Options :: struct {
+	shape_capacity: int,
+}
+
+//* Everything an application can ask for when it makes a GUI. A zero
+//* page size takes ATLAS_DEFAULT_SIZE; a zero max_pages is unlimited.
+GUI_Options :: struct {
+	width, height: i32,
+	backend:       Backend,
+	atlas:         Atlas_Options,
+	text:          Text_Cache_Options,
+}
+
+//* A slot in the style pool. Zero is not a style.
+Style_ID :: distinct u32
+INVALID_STYLE_ID :: Style_ID(0)
+
+//* The styles are kept in chunks so a pointer to one stays put while the
+//* pool grows. Most widgets resolve to the same few styles, so the pool
+//* stays small even with many widgets.
+STYLE_POOL_CHUNK :: 256
+
+Style_Pool :: struct {
+	chunks: [dynamic][]Style,
+	ids:    map[Style]Style_ID,
+	count:  int,
+	empty:  Style,
+}
+
 Style_Cache :: struct {
-	style:           Style,
-	state:           Style,
-	theme_state:     Style,
+	style:           Style_ID,
+	state:           Style_ID,
 	style_of_widget: Style,
-	default_style:   Style,
-	transition:      Style_Transition_State,
+	transition:      ^Style_Transition_State,
 	use_theme:       bool,
 	variation:       string,
 	epoch:           int,
@@ -645,8 +684,8 @@ Widget :: struct {
 	pivot_offset:     Vec2,
 
 	layout_direction: Layout_Direction,
-	signals:          Signals,
-	access:           Access_Info,
+	signals:          ^Signals,
+	access:           ^Access_Info,
 
 	access_in_bridge: bool,
 	access_queued:    bool,
@@ -823,10 +862,10 @@ GUI :: struct {
 	default_font:              Font_ID,
 	default_family:            Font_Family_ID,
 	default_font_size:         f32,
+	style_pool:                Style_Pool,
 	shape_cache:               runa.Cache,
 	cache_ready:               bool,
 	glyphs:                    map[Glyph_Key]Glyph_Entry,
-	upload_buf:                []u8,
 	theme:                     ^Theme,
 	commands:                  Commands,
 	kinds:                     [dynamic]Widget_Kind,

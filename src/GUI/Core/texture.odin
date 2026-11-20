@@ -120,7 +120,7 @@ draw_texture :: proc(g: ^GUI, texture: Texture, rect: Rect, colour: Colour) {
 	drawn.x = rect.x + (rect.w - drawn.w) * 0.5
 	drawn.y = rect.y + (rect.h - drawn.h) * 0.5
 
-	draw_quad(g.target, drawn, texture.uv, colour, g.atlas_texture)
+	draw_quad(g.target, drawn, texture.uv, colour, atlas_texture_for(texture.region))
 }
 
 draw_texture_rounded :: proc(
@@ -147,7 +147,7 @@ draw_texture_rounded :: proc(
 	drawn.x = rect.x + (rect.w - drawn.w) * 0.5
 	drawn.y = rect.y + (rect.h - drawn.h) * 0.5
 
-	draw_quad_rounded(g.target, drawn, texture.uv, colour, g.atlas_texture, radii, g.backend.supports_shapes)
+	draw_quad_rounded(g.target, drawn, texture.uv, colour, atlas_texture_for(texture.region), radii, g.backend.supports_shapes)
 }
 
 draw_quad_rounded :: proc(

@@ -93,7 +93,7 @@ manual_size_of :: proc(w: ^Widget, horizontal: bool) -> f32 {
 
 //* The size a panel takes along an axis. A size the user pulled into
 //* place wins over the one the layout gives it.
-size_of :: proc(w: ^Widget, horizontal: bool) -> f32 {
+widget_size_of :: proc(w: ^Widget, horizontal: bool) -> f32 {
 	if keeps_size(w, horizontal) {return manual_size_of(w, horizontal)}
 	return horizontal ? w.rect.w : w.rect.h
 }
@@ -259,9 +259,9 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 		prev := Widget_Get(g, neg_id)
 		change := d_neg
 		if change > 0 {
-			change = min(change, size_of(w, horizontal) - min_size_of(w, horizontal))
+			change = min(change, widget_size_of(w, horizontal) - min_size_of(w, horizontal))
 		} else if prev != nil {
-			change = max(change, min_size_of(prev, horizontal) - size_of(prev, horizontal))
+			change = max(change, min_size_of(prev, horizontal) - widget_size_of(prev, horizontal))
 		}
 
 		if prev == nil {
@@ -271,9 +271,9 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 				resize_widget(g, p.id, 0, change, 0, 0)
 			}
 		} else {
-			keep_size(g, prev, horizontal, size_of(prev, horizontal) + change)
+			keep_size(g, prev, horizontal, widget_size_of(prev, horizontal) + change)
 		}
-		keep_size(g, w, horizontal, size_of(w, horizontal) - change)
+		keep_size(g, w, horizontal, widget_size_of(w, horizontal) - change)
 	}
 
 	if d_pos != 0 {
@@ -281,11 +281,11 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 		change := d_pos
 		if change > 0 {
 			if next != nil {
-				change = min(change, size_of(next, horizontal) - min_size_of(next, horizontal))
+				change = min(change, widget_size_of(next, horizontal) - min_size_of(next, horizontal))
 			}
 		} else {
 			//* The panel narrows: it cannot go below its minimum.
-			change = max(change, min_size_of(w, horizontal) - size_of(w, horizontal))
+			change = max(change, min_size_of(w, horizontal) - widget_size_of(w, horizontal))
 		}
 
 		if next == nil {
@@ -296,9 +296,9 @@ resize_in_container :: proc(g: ^GUI, p: ^Widget, w: ^Widget, horizontal: bool, d
 				resize_widget(g, p.id, 0, 0, 0, change)
 			}
 		} else {
-			keep_size(g, next, horizontal, size_of(next, horizontal) - change)
+			keep_size(g, next, horizontal, widget_size_of(next, horizontal) - change)
 		}
-		keep_size(g, w, horizontal, size_of(w, horizontal) + change)
+		keep_size(g, w, horizontal, widget_size_of(w, horizontal) + change)
 	}
 }
 

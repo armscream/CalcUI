@@ -256,10 +256,20 @@ access_focus_changed :: proc(g: ^GUI, id: Widget_ID) {
 	bridge.focus_changed(bridge.ctx, id)
 }
 
-//* The role a widget has when the program says nothing about it.
+
+widget_access :: proc(g: ^GUI, w: ^Widget) -> ^Access_Info {
+	if w == nil { return nil }
+	if w.access == nil {
+		if g == nil { return nil }
+		w.access = new(Access_Info)
+		if w.access == nil { return nil }
+	}
+	return w.access
+}
+
 access_role_of :: proc(g: ^GUI, w: ^Widget) -> Access_Role {
 	if w == nil { return .None }
-	if w.access.role_set { return w.access.role }
+	if w.access != nil && w.access.role_set { return w.access.role }
 	if w.class != INVALID_WIDGET_CLASS_ID {
 		if c, ok := class_get(g, w.class); ok && c.access_role != .None {
 			return c.access_role
@@ -437,7 +447,8 @@ bool_text :: proc(on: bool) -> string {
 Widget_Access_Info :: proc(g: ^GUI, id: Widget_ID) -> Access_Info {
 	w := Widget_Get(g, id)
 	if w == nil { return {} }
-	info := w.access
+	info: Access_Info
+	if w.access != nil { info = w.access^ }
 	if !info.role_set { info.role = access_role_of(g, w) }
 	if !info.name_set { info.name = access_default_name(w) }
 	if !info.value_set { info.value = access_default_value(w) }
@@ -459,15 +470,17 @@ Widget_Set_Access_Role :: proc(g: ^GUI, id: Widget_ID, role: Access_Role) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
 	if role == .None {
-		if !w.access.role_set { return }
+		if w.access == nil || !w.access.role_set { return }
 		w.access.role = .None
 		w.access.role_set = false
 		access_changed(g, id)
 		return
 	}
-	if w.access.role_set && w.access.role == role { return }
-	w.access.role = role
-	w.access.role_set = true
+	if w.access != nil && w.access.role_set && w.access.role == role { return }
+	a := widget_access(g, w)
+	if a == nil { return }
+	a.role = role
+	a.role_set = true
 	access_changed(g, id)
 }
 
@@ -476,9 +489,11 @@ Widget_Set_Access_Role :: proc(g: ^GUI, id: Widget_ID, role: Access_Role) {
 Widget_Set_Access_Name :: proc(g: ^GUI, id: Widget_ID, name: string) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
-	if w.access.name_set && w.access.name == name { return }
-	w.access.name = name
-	w.access.name_set = true
+	if w.access != nil && w.access.name_set && w.access.name == name { return }
+	a := widget_access(g, w)
+	if a == nil { return }
+	a.name = name
+	a.name_set = true
 	access_changed(g, id)
 }
 
@@ -486,29 +501,35 @@ Widget_Set_Access_Name :: proc(g: ^GUI, id: Widget_ID, name: string) {
 Widget_Set_Access_Description :: proc(g: ^GUI, id: Widget_ID, description: string) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
-	if w.access.description == description { return }
-	w.access.description = description
+	if w.access != nil && w.access.description == description { return }
+	a := widget_access(g, w)
+	if a == nil { return }
+	a.description = description
 	access_changed(g, id)
 }
 
 Widget_Set_Access_Value :: proc(g: ^GUI, id: Widget_ID, value: Access_Value) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
-	w.access.value = value
-	w.access.value_set = true
+	a := widget_access(g, w)
+	if a == nil { return }
+	a.value = value
+	a.value_set = true
 	access_changed(g, id)
 }
 
 Widget_Set_Access_State :: proc(g: ^GUI, id: Widget_ID, state: Access_State, on: bool) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
-	before := w.access.states
+	a := widget_access(g, w)
+	if a == nil { return }
+	before := a.states
 	if on {
-		w.access.states += Access_States{state}
+		a.states += Access_States{state}
 	} else {
-		w.access.states -= Access_States{state}
+		a.states -= Access_States{state}
 	}
-	if before == w.access.states { return }
+	if before == a.states { return }
 	access_changed(g, id)
 }
 
@@ -517,19 +538,23 @@ Widget_Set_Access_State :: proc(g: ^GUI, id: Widget_ID, state: Access_State, on:
 Widget_Set_Access_Relation :: proc(g: ^GUI, id: Widget_ID, kind: Access_Relation, target: Widget_ID) {
 	w := Widget_Get(g, id)
 	if w == nil { return }
-	for i in 0 ..< w.access.relation_count {
-		entry := w.access.relations[i]
-		if entry.kind == kind && entry.target == target { return }
+	if w.access != nil {
+		for i in 0 ..< w.access.relation_count {
+			entry := w.access.relations[i]
+			if entry.kind == kind && entry.target == target { return }
+		}
+		if w.access.relation_count >= ACCESS_RELATIONS_MAX { return }
 	}
-	if w.access.relation_count >= ACCESS_RELATIONS_MAX { return }
-	w.access.relations[w.access.relation_count] = Access_Relation_Entry{kind = kind, target = target}
-	w.access.relation_count += 1
+	a := widget_access(g, w)
+	if a == nil { return }
+	a.relations[a.relation_count] = Access_Relation_Entry{kind = kind, target = target}
+	a.relation_count += 1
 	access_changed(g, id)
 }
 
 Widget_Clear_Access_Relation :: proc(g: ^GUI, id: Widget_ID, kind: Access_Relation, target: Widget_ID) {
 	w := Widget_Get(g, id)
-	if w == nil { return }
+	if w == nil || w.access == nil { return }
 	for i := w.access.relation_count - 1; i >= 0; i -= 1 {
 		entry := w.access.relations[i]
 		if entry.kind != kind || entry.target != target { continue }

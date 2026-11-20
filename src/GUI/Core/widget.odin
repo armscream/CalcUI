@@ -2,7 +2,6 @@
 package Core
 import "core:log"
 import "core:strings"
-import virt "core:mem/virtual"
 
 //* The widget with a handle, or nil if the handle names nothing.
 Widget_Get :: proc(g: ^GUI, id: Widget_ID) -> ^Widget {
@@ -69,11 +68,10 @@ new_widget :: proc(
 
 	w := g.widgets[slot]
 	if w == nil {
-		created, err := virt.new(&g.arena, Widget)
-		if err != nil {
-			log.panicf("widget allocation failed: %v", err)
+		w = new(Widget)
+		if w == nil {
+			log.panicf("widget allocation failed")
 		}
-		w = created
 		g.widgets[slot] = w
 	}
 
@@ -142,15 +140,19 @@ new_widget :: proc(
 	w.custom_min_size = opts.custom_min_size
 	w.custom_max_size = opts.custom_max_size
 	w.z_index = opts.z_index
-	if opts.access_role != .None {
-		w.access.role = opts.access_role
-		w.access.role_set = true
+	if opts.access_role != .None || opts.access_name != "" || opts.access_description != "" {
+		if a := widget_access(g, w); a != nil {
+			if opts.access_role != .None {
+				a.role = opts.access_role
+				a.role_set = true
+			}
+			if opts.access_name != "" {
+				a.name = opts.access_name
+				a.name_set = true
+			}
+			a.description = opts.access_description
+		}
 	}
-	if opts.access_name != "" {
-		w.access.name = opts.access_name
-		w.access.name_set = true
-	}
-	w.access.description = opts.access_description
 	w.scale = Vec2{1, 1}
 	w.layout_direction = opts.layout_direction
 
@@ -457,6 +459,8 @@ Widget_Free :: proc(g: ^GUI, id: Widget_ID) -> bool {
 		widget_release_data(g, gone_widget)
 		slot := int(gone.index) - 1
 		gone_widget.id = INVALID_WIDGET_ID
+		g.widgets[slot] = nil
+		free(gone_widget)
 		append(&g.free_widgets, u32(slot))
 	}
 	return true
@@ -561,6 +565,10 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 	#partial switch &d in w.data {
 	case Text_Box_Data:
 		delete(d.text)
+		if d.geometry != nil {
+			free(d.geometry)
+			d.geometry = nil
+		}
 	case Popup_Menu_Data:
 		delete(d.items)
 	case Search_Field_Data:
@@ -623,6 +631,13 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 			delete(d.chart.series)
 			delete(d.chart.labels)
 		}
+	case Grid_Data:
+		delete(d.cells)
+		delete(d.column_tracks)
+		delete(d.row_tracks)
+		delete(d.placements)
+		delete(d.column_sizes)
+		delete(d.row_sizes)
 	case Rich_Text_Editor_Data:
 		if d.state != nil {
 			delete(d.state.text)
@@ -630,6 +645,18 @@ widget_release_data :: proc(g: ^GUI, w: ^Widget) {
 		}
 	case Custom_Data:
 		if d.destroy != nil && d.user != nil { d.destroy(d.user) }
+	}
+	if w.style_cache.transition != nil {
+		free(w.style_cache.transition)
+		w.style_cache.transition = nil
+	}
+	if w.signals != nil {
+		free(w.signals)
+		w.signals = nil
+	}
+	if w.access != nil {
+		free(w.access)
+		w.access = nil
 	}
 	w.data = None_Data{}
 }

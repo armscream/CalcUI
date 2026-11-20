@@ -132,6 +132,7 @@ Draw_List :: struct {
 	revision:     u64,
 	dirty_rect:   Rect,
 	partial:      bool,
+	has_glass:    bool,
 }
 
 draw_list_clear :: proc(dl: ^Draw_List, viewport: Rect) {
@@ -151,6 +152,7 @@ draw_list_clear :: proc(dl: ^Draw_List, viewport: Rect) {
 	dl.revision += 1
 	dl.dirty_rect = {}
 	dl.partial = false
+	dl.has_glass = false
 }
 
 rect_scale :: proc(r: Rect, scale: f32) -> Rect {
@@ -173,6 +175,7 @@ draw_list_destroy :: proc(dl: ^Draw_List) {
 	delete(dl.clip_verts_a)
 	delete(dl.clip_verts_b)
 	delete(dl.clip_source)
+	dl^ = {}
 }
 
 draw_push_clip :: proc(dl: ^Draw_List, r: Rect) {
@@ -634,6 +637,7 @@ draw_command :: proc(
 			blur = blur,
 		},
 	)
+	if glass {dl.has_glass = true}
 }
 
 draw_polygon :: proc(dl: ^Draw_List, points: [][2]f32, c: Colour, tex: Texture_ID) {

@@ -24,7 +24,7 @@ Make_Search_Field :: proc(g: ^GUI, parent: Widget_ID, opts: Search_Field_Opts) -
 		max_width   = max_width,
 	}
 	w.focus_mode = .All
-	w.signals.on_submitted = opts.on_submitted
+	if s := Widget_Signals(g, id); s != nil { s.on_submitted = opts.on_submitted }
 	if w.base_min_size.y < SEARCH_FIELD_HEIGHT {w.base_min_size.y = SEARCH_FIELD_HEIGHT}
 	w.min_size.y = w.base_min_size.y
 	if w.custom_max_size.x <= 0 {w.custom_max_size.x = max_width}

@@ -245,7 +245,7 @@ draw_canvas :: proc(g: ^GUI, id: Widget_ID, w: ^Widget, content: Rect) {
 				},
 				item.texture.uv,
 				ink,
-				g.atlas_texture,
+				atlas_texture_for(item.texture.region),
 			)
 		}
 	}
